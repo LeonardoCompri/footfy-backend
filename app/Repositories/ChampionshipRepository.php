@@ -12,23 +12,23 @@ class ChampionshipRepository
         return Championship::all();
     }
 
-    public function store(array $data)
+    public function store(array $data): Championship
     {
         return Championship::create($data);
     }
 
-    public function show(string $id)
+    public function show(string $id): ?Championship
     {
-        //
+        return Championship::find($id);
     }
 
-    public function update(array $data, string $id)
+    public function update(Championship $championship): bool
     {
-        //
+        return $championship->save();
     }
 
-    public function destroy(string $id)
+    public function destroy(Championship $championship): ?bool
     {
-        //
+        return $championship->delete();
     }
 }

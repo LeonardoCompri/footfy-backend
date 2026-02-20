@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ChampionshipStoreRequest;
+use App\Http\Requests\ChampionshipUpdateRequest;
 use App\Services\ChampionshipService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class ChampionshipController extends Controller
 {
@@ -13,31 +15,74 @@ class ChampionshipController extends Controller
 
     public function index(): JsonResponse
     {
-        $response = $this->service->index();
+        try {
+            $response = $this->service->index();
 
-        return response()->json($response);
+            return response()->json($response);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
     }
 
-    public function store(ChampionshipStoreRequest $request)
+    public function store(ChampionshipStoreRequest $request): JsonResponse
     {
-        $data = $request->validated();
-        $response = $this->service->store($data);
+        try {
+            $data = $request->validated();
+            $response = $this->service->store($data);
 
-        return response()->json($response, 201);
+            return response()->json($response, 201);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
     }
 
-    public function show(string $id)
+    public function show(string $id): JsonResponse
     {
-        //
+        try {
+            $response = $this->service->show($id);
+
+            return response()->json($response);
+        } catch (ValidationException $ex) {
+            return response()->json(["message" => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
     }
 
-    public function update(Request $request, string $id)
+    public function update(ChampionshipUpdateRequest $request, string $id): JsonResponse
     {
-        //
+        try {
+            $data = $request->validated();
+            $response = $this->service->update($data, $id);
+
+            return response()->json($response);
+        } catch (ValidationException $ex) {
+            return response()->json(["message" => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
     }
 
-    public function destroy(string $id)
+    public function destroy(string $id): JsonResponse
     {
-        //
+        try {
+            $this->service->destroy($id);
+
+            return response()->json([], 204);
+        } catch (ValidationException $ex) {
+            return response()->json(["message" => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
     }
 }
