@@ -12,7 +12,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/', [ChampionshipController::class, 'index'])->name('index');
         Route::get('/{id}', [ChampionshipController::class, 'show'])->name('show');
         Route::post('/', [ChampionshipController::class, 'store'])->name('store');
-        Route::patch('/{id}', [ChampionshipController::class, 'update'])->name('update');
+        Route::put('/{id}', [ChampionshipController::class, 'update'])->name('update');
         Route::delete('/{id}', [ChampionshipController::class, 'destroy'])->name('destroy');
     });
 });
