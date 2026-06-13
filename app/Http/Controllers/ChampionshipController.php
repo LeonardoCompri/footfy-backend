@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ChampionshipStoreRequest;
 use App\Http\Requests\ChampionshipUpdateRequest;
+use App\Http\Resources\ChampionshipResource;
 use App\Services\ChampionshipService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
@@ -18,7 +19,7 @@ class ChampionshipController extends Controller
         try {
             $response = $this->service->index();
 
-            return response()->json($response);
+            return response()->json(['data' => ChampionshipResource::collection($response)]);
         } catch (Throwable $th) {
             return response()->json([
                 "message" => "Houve um erro no servidor, tente novamente!"
@@ -32,7 +33,7 @@ class ChampionshipController extends Controller
             $data = $request->validated();
             $response = $this->service->store($data);
 
-            return response()->json($response, 201);
+            return response()->json(['data' => new ChampionshipResource($response)], 201);
         } catch (Throwable $th) {
             return response()->json([
                 "message" => "Houve um erro no servidor, tente novamente!"
@@ -45,7 +46,7 @@ class ChampionshipController extends Controller
         try {
             $response = $this->service->show($id);
 
-            return response()->json($response);
+            return response()->json(['data' => new ChampionshipResource($response)]);
         } catch (ValidationException $ex) {
             return response()->json(["message" => $ex->getMessage()], 422);
         } catch (Throwable $th) {
@@ -61,7 +62,7 @@ class ChampionshipController extends Controller
             $data = $request->validated();
             $response = $this->service->update($data, $id);
 
-            return response()->json($response);
+            return response()->json(['data' => new ChampionshipResource($response)]);
         } catch (ValidationException $ex) {
             return response()->json(["message" => $ex->getMessage()], 422);
         } catch (Throwable $th) {
