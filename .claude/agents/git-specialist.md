@@ -83,6 +83,14 @@ Refs: FOOT-XXXX
 
 - Use `gh pr create --title "..." --body "$(cat <<'EOF' ... EOF)" --base staging` e depois `--base main`.
 
+### Labels
+
+- Todo PR recebe uma label indicando o ambiente de destino:
+  - PR com `--base staging` → label `staging`.
+  - PR com `--base main` → label `production`.
+- Se `gh pr create --label <nome>` falhar (erro de GraphQL/Projects Classic em versões antigas do gh), aplique via API REST:
+  `gh api repos/{owner}/{repo}/issues/{numero_do_pr}/labels -f "labels[]=<staging|production>"`.
+
 ## Regras de segurança
 
 - NUNCA faça `push --force`, `reset --hard` ou rebase em branches compartilhadas sem autorização explícita do usuário.
