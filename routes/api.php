@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChampionshipController;
 use App\Http\Controllers\PlayerController;
+use App\Http\Controllers\StadiumController;
 use App\Http\Controllers\TeamController;
 
 Route::post('/login', [AuthController::class, 'login'])->name('auth.login');
@@ -32,5 +33,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/', [PlayerController::class, 'store'])->name('store');
         Route::put('/{id}', [PlayerController::class, 'update'])->name('update');
         Route::delete('/{id}', [PlayerController::class, 'destroy'])->name('destroy');
+    });
+
+    Route::prefix('/stadiums')->name('stadiums.')->group(function () {
+        Route::get('/', [StadiumController::class, 'index'])->name('index');
+        Route::get('/{id}', [StadiumController::class, 'show'])->name('show');
+        Route::post('/', [StadiumController::class, 'store'])->name('store');
+        Route::put('/{id}', [StadiumController::class, 'update'])->name('update');
+        Route::delete('/{id}', [StadiumController::class, 'destroy'])->name('destroy');
     });
 });
