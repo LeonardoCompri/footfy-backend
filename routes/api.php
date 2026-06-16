@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChampionshipController;
 use App\Http\Controllers\CoachController;
+use App\Http\Controllers\GameController;
 use App\Http\Controllers\PlayerController;
 use App\Http\Controllers\StadiumController;
 use App\Http\Controllers\TeamController;
@@ -50,5 +51,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/', [CoachController::class, 'store'])->name('store');
         Route::put('/{id}', [CoachController::class, 'update'])->name('update');
         Route::delete('/{id}', [CoachController::class, 'destroy'])->name('destroy');
+    });
+
+    Route::prefix('/games')->name('games.')->group(function () {
+        Route::get('/', [GameController::class, 'index'])->name('index');
+        Route::get('/{id}', [GameController::class, 'show'])->name('show');
+        Route::post('/', [GameController::class, 'store'])->name('store');
+        Route::put('/{id}', [GameController::class, 'update'])->name('update');
+        Route::delete('/{id}', [GameController::class, 'destroy'])->name('destroy');
     });
 });
