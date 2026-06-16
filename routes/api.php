@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChampionshipController;
+use App\Http\Controllers\CoachController;
 use App\Http\Controllers\PlayerController;
 use App\Http\Controllers\StadiumController;
 use App\Http\Controllers\TeamController;
@@ -41,5 +42,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/', [StadiumController::class, 'store'])->name('store');
         Route::put('/{id}', [StadiumController::class, 'update'])->name('update');
         Route::delete('/{id}', [StadiumController::class, 'destroy'])->name('destroy');
+    });
+
+    Route::prefix('/coaches')->name('coaches.')->group(function () {
+        Route::get('/', [CoachController::class, 'index'])->name('index');
+        Route::get('/{id}', [CoachController::class, 'show'])->name('show');
+        Route::post('/', [CoachController::class, 'store'])->name('store');
+        Route::put('/{id}', [CoachController::class, 'update'])->name('update');
+        Route::delete('/{id}', [CoachController::class, 'destroy'])->name('destroy');
     });
 });
