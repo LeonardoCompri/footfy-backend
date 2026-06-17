@@ -6,19 +6,38 @@ use App\Models\Stadium;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class StadiumControllerTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        Role::create(['name' => 'master']);
+        Role::create(['name' => 'admin']);
+    }
+
     private function authenticate(): User
     {
         $user = User::factory()->create();
+        $user->assignRole('master');
         Sanctum::actingAs($user);
-
         return $user;
     }
+
+    private function authenticateAsAdmin(): User
+    {
+        $user = User::factory()->create();
+        $user->assignRole('admin');
+        Sanctum::actingAs($user);
+        return $user;
+    }
+
+    // ── Auth ──────────────────────────────────────────────────────────────────
 
     public function test_guest_cannot_list_stadiums(): void
     {
@@ -26,6 +45,8 @@ class StadiumControllerTest extends TestCase
 
         $response->assertStatus(401);
     }
+
+    // ── Acesso livre (qualquer usuário autenticado) ───────────────────────────
 
     public function test_index_returns_all_stadiums(): void
     {
@@ -37,19 +58,27 @@ class StadiumControllerTest extends TestCase
         $response->assertOk()->assertJsonCount(2, 'data');
     }
 
+    public function test_admin_also_sees_all_stadiums(): void
+    {
+        $this->authenticateAsAdmin();
+        Stadium::factory()->count(3)->create();
+
+        $response = $this->getJson('/api/stadiums');
+
+        $response->assertOk()->assertJsonCount(3, 'data');
+    }
+
     public function test_store_creates_stadium(): void
     {
         $this->authenticate();
 
         $response = $this->postJson('/api/stadiums', [
-            'name' => 'Arena Y',
-            'city' => 'Rio de Janeiro',
+            'name'     => 'Arena Y',
+            'city'     => 'Rio de Janeiro',
             'capacity' => 60000,
         ]);
 
-        $response->assertCreated()
-            ->assertJsonPath('data.name', 'Arena Y');
-
+        $response->assertCreated()->assertJsonPath('data.name', 'Arena Y');
         $this->assertDatabaseHas('stadiums', ['name' => 'Arena Y']);
     }
 
@@ -67,8 +96,8 @@ class StadiumControllerTest extends TestCase
         $this->authenticate();
 
         $response = $this->postJson('/api/stadiums', [
-            'name' => 'Arena Z',
-            'city' => 'SP',
+            'name'     => 'Arena Z',
+            'city'     => 'SP',
             'capacity' => -10,
         ]);
 
@@ -91,8 +120,7 @@ class StadiumControllerTest extends TestCase
 
         $response = $this->getJson('/api/stadiums/999');
 
-        $response->assertStatus(422)
-            ->assertJson(['message' => 'Estádio não encontrado!']);
+        $response->assertStatus(422)->assertJson(['message' => 'Estádio não encontrado!']);
     }
 
     public function test_update_modifies_stadium(): void
@@ -106,7 +134,9 @@ class StadiumControllerTest extends TestCase
         $this->assertDatabaseHas('stadiums', ['id' => $stadium->id, 'capacity' => 2000]);
     }
 
-    public function test_destroy_deletes_stadium(): void
+    // ── Delete restrito a master ───────────────────────────────────────────────
+
+    public function test_master_can_delete_stadium(): void
     {
         $this->authenticate();
         $stadium = Stadium::factory()->create();
@@ -115,5 +145,15 @@ class StadiumControllerTest extends TestCase
 
         $response->assertStatus(204);
         $this->assertDatabaseMissing('stadiums', ['id' => $stadium->id]);
+    }
+
+    public function test_admin_cannot_delete_stadium(): void
+    {
+        $this->authenticateAsAdmin();
+        $stadium = Stadium::factory()->create();
+
+        $response = $this->deleteJson("/api/stadiums/{$stadium->id}");
+
+        $response->assertForbidden();
     }
 }
