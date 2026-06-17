@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Team;
 use App\Repositories\TeamRepository;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class TeamService
@@ -13,7 +14,11 @@ class TeamService
 
     public function index(): Collection
     {
-        return $this->repository->index();
+        $user = Auth::user();
+        if ($user->isMaster()) {
+            return $this->repository->index(null);
+        }
+        return $this->repository->index($user->championshipIds());
     }
 
     public function store(array $data): Team

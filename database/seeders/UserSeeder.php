@@ -2,28 +2,32 @@
 
 namespace Database\Seeders;
 
-use App\Models\Team;
 use App\Models\User;
-use Hash;
 use Illuminate\Database\Seeder;
+use Hash;
 
 class UserSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
-        $user = User::create([
-            'name' => 'Leonardo Compri',
-            'email' => 'leonardocompri46@gmail.com',
-            'document' => '45047364895',
-            'email_verified_at' => now(),
-            'password' => Hash::make('123456'),
-            'created_at' => now(),
-            'updated_at' => now()
+        $master = User::create([
+            'name'               => 'Leonardo Compri',
+            'email'              => 'leonardocompri46@gmail.com',
+            'document'           => '45047364895',
+            'email_verified_at'  => now(),
+            'password'           => Hash::make('123456'),
         ]);
 
-        $user->assignRole('master');
+        $master->assignRole('master');
+
+        $admin = User::create([
+            'name'               => 'Admin Campeonato',
+            'email'              => 'admin@footfy.com',
+            'document'           => '12345678901',
+            'email_verified_at'  => now(),
+            'password'           => Hash::make('123456'),
+        ]);
+
+        $admin->assignRole('admin');
     }
 }

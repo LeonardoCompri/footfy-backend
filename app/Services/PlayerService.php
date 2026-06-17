@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Models\Player;
+use App\Models\Team;
 use App\Repositories\PlayerRepository;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class PlayerService
@@ -13,7 +15,15 @@ class PlayerService
 
     public function index(): Collection
     {
-        return $this->repository->index();
+        $user = Auth::user();
+        if ($user->isMaster()) {
+            return $this->repository->index(null);
+        }
+        $championshipIds = $user->championshipIds();
+        $teamIds = Team::whereHas('championships', fn ($q) => $q->whereIn('championships.id', $championshipIds))
+            ->pluck('id')
+            ->toArray();
+        return $this->repository->index($teamIds);
     }
 
     public function store(array $data): Player
