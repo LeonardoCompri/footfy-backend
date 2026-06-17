@@ -7,9 +7,13 @@ use Illuminate\Database\Eloquent\Collection;
 
 class ChampionshipRepository
 {
-    public function index(): Collection
+    public function index(?array $ids = null): Collection
     {
-        return Championship::all();
+        $query = Championship::query();
+        if ($ids !== null) {
+            $query->whereIn('id', $ids);
+        }
+        return $query->get();
     }
 
     public function store(array $data): Championship

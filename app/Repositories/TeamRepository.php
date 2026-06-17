@@ -7,9 +7,13 @@ use Illuminate\Database\Eloquent\Collection;
 
 class TeamRepository
 {
-    public function index(): Collection
+    public function index(?array $championshipIds = null): Collection
     {
-        return Team::all();
+        $query = Team::query();
+        if ($championshipIds !== null) {
+            $query->whereHas('championships', fn ($q) => $q->whereIn('championships.id', $championshipIds));
+        }
+        return $query->get();
     }
 
     public function store(array $data): Team

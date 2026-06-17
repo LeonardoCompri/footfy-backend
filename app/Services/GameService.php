@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Game;
 use App\Repositories\GameRepository;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class GameService
@@ -13,7 +14,11 @@ class GameService
 
     public function index(): Collection
     {
-        return $this->repository->index();
+        $user = Auth::user();
+        if ($user->isMaster()) {
+            return $this->repository->index(null);
+        }
+        return $this->repository->index($user->championshipIds());
     }
 
     public function store(array $data): Game
