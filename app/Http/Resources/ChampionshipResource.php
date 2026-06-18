@@ -17,6 +17,8 @@ class ChampionshipResource extends JsonResource
             'organizer' => $this->organizer,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            'teams' => TeamResource::collection($this->whenLoaded('teams')),
+            'games' => GameResource::collection($this->whenLoaded('games')),
         ];
     }
 }

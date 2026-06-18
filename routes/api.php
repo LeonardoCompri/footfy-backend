@@ -12,6 +12,13 @@ use App\Http\Controllers\UserController;
 
 Route::post('/login', [AuthController::class, 'login'])->name('auth.login');
 
+Route::prefix('/public')->name('public.')->group(function () {
+    Route::get('/championships', [ChampionshipController::class, 'publicIndex'])->name('championships.index');
+    Route::get('/championships/{id}', [ChampionshipController::class, 'publicShow'])->name('championships.show');
+    Route::get('/teams/{id}', [TeamController::class, 'publicShow'])->name('teams.show');
+    Route::get('/players/{id}', [PlayerController::class, 'publicShow'])->name('players.show');
+});
+
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('auth.logout');
 

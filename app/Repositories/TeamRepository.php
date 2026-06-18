@@ -21,9 +21,9 @@ class TeamRepository
         return Team::create($data);
     }
 
-    public function show(string $id): ?Team
+    public function show(string $id, array $with = []): ?Team
     {
-        return Team::find($id);
+        return Team::with($with)->find($id);
     }
 
     public function update(Team $team): bool

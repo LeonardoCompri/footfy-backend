@@ -21,6 +21,11 @@ class ChampionshipService
         return $this->repository->index($user->championshipIds());
     }
 
+    public function publicIndex(): Collection
+    {
+        return $this->repository->index(null);
+    }
+
     public function store(array $data): Championship
     {
         return $this->repository->store($data);
@@ -29,6 +34,17 @@ class ChampionshipService
     public function show(string $id): Championship
     {
         $championship = $this->repository->show($id);
+
+        if (!$championship) {
+            throw ValidationException::withMessages(["message" => "Campeonato não encontrado!"]);
+        }
+
+        return $championship;
+    }
+
+    public function publicShow(string $id): Championship
+    {
+        $championship = $this->repository->show($id, ['teams', 'games']);
 
         if (!$championship) {
             throw ValidationException::withMessages(["message" => "Campeonato não encontrado!"]);
