@@ -4,6 +4,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChampionshipController;
 use App\Http\Controllers\CoachController;
 use App\Http\Controllers\GameController;
+use App\Http\Controllers\GoalController;
 use App\Http\Controllers\PlayerController;
 use App\Http\Controllers\StadiumController;
 use App\Http\Controllers\TeamController;
@@ -70,5 +71,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/', [GameController::class, 'store'])->name('store');
         Route::put('/{id}', [GameController::class, 'update'])->name('update')->middleware('access:game');
         Route::delete('/{id}', [GameController::class, 'destroy'])->name('destroy')->middleware('access:game');
+    });
+
+    Route::prefix('/goals')->name('goals.')->group(function () {
+        Route::get('/', [GoalController::class, 'index'])->name('index');
+        Route::get('/{id}', [GoalController::class, 'show'])->name('show')->middleware('access:goal');
+        Route::post('/', [GoalController::class, 'store'])->name('store');
+        Route::put('/{id}', [GoalController::class, 'update'])->name('update')->middleware('access:goal');
+        Route::delete('/{id}', [GoalController::class, 'destroy'])->name('destroy')->middleware('access:goal');
     });
 });
