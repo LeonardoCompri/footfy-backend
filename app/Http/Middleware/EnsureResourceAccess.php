@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\Coach;
 use App\Models\Game;
+use App\Models\Goal;
 use App\Models\Player;
 use App\Models\Team;
 use Closure;
@@ -36,6 +37,9 @@ class EnsureResourceAccess
                 ->exists(),
             'game'         => Game::whereKey($id)
                 ->whereIn('championship_id', $championshipIds)
+                ->exists(),
+            'goal'         => Goal::whereKey($id)
+                ->whereHas('game', fn ($q) => $q->whereIn('championship_id', $championshipIds))
                 ->exists(),
             default        => false,
         };
