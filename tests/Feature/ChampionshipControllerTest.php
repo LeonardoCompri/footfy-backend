@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Championship;
+use App\Models\Game;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -224,5 +225,35 @@ class ChampionshipControllerTest extends TestCase
         $response = $this->getJson('/api/tournaments');
 
         $response->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    // ── Rotas públicas ────────────────────────────────────────────────────────
+
+    public function test_guest_can_list_championships_via_public_route(): void
+    {
+        Championship::factory()->count(2)->create();
+
+        $response = $this->getJson('/api/public/championships');
+
+        $response->assertOk()->assertJsonCount(2, 'data');
+    }
+
+    public function test_guest_can_show_championship_via_public_route_with_games(): void
+    {
+        $championship = Championship::factory()->create();
+        $game = Game::factory()->create(['championship_id' => $championship->id]);
+
+        $response = $this->getJson("/api/public/championships/{$championship->id}");
+
+        $response->assertOk()
+            ->assertJsonPath('data.id', $championship->id)
+            ->assertJsonPath('data.games.0.id', $game->id);
+    }
+
+    public function test_guest_show_via_public_route_returns_error_when_not_found(): void
+    {
+        $response = $this->getJson('/api/public/championships/999');
+
+        $response->assertStatus(422)->assertJson(['message' => 'Campeonato não encontrado!']);
     }
 }

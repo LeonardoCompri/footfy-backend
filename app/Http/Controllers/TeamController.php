@@ -27,6 +27,21 @@ class TeamController extends Controller
         }
     }
 
+    public function publicShow(string $id): JsonResponse
+    {
+        try {
+            $response = $this->service->publicShow($id);
+
+            return response()->json(['data' => new TeamResource($response)]);
+        } catch (ValidationException $ex) {
+            return response()->json(["message" => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
+    }
+
     public function store(TeamStoreRequest $request): JsonResponse
     {
         try {

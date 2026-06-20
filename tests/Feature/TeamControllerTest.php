@@ -211,4 +211,25 @@ class TeamControllerTest extends TestCase
 
         $this->assertDatabaseHas('players', ['id' => $player->id, 'team_id' => null]);
     }
+
+    // ── Rotas públicas ────────────────────────────────────────────────────────
+
+    public function test_guest_can_show_team_via_public_route_with_players(): void
+    {
+        $team = Team::factory()->create();
+        $player = \App\Models\Player::factory()->create(['team_id' => $team->id]);
+
+        $response = $this->getJson("/api/public/teams/{$team->id}");
+
+        $response->assertOk()
+            ->assertJsonPath('data.id', $team->id)
+            ->assertJsonPath('data.players.0.id', $player->id);
+    }
+
+    public function test_guest_show_via_public_route_returns_error_when_not_found(): void
+    {
+        $response = $this->getJson('/api/public/teams/999');
+
+        $response->assertStatus(422)->assertJson(['message' => 'Time não encontrado!']);
+    }
 }

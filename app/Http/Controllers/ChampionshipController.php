@@ -27,6 +27,34 @@ class ChampionshipController extends Controller
         }
     }
 
+    public function publicIndex(): JsonResponse
+    {
+        try {
+            $response = $this->service->publicIndex();
+
+            return response()->json(['data' => ChampionshipResource::collection($response)]);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
+    }
+
+    public function publicShow(string $id): JsonResponse
+    {
+        try {
+            $response = $this->service->publicShow($id);
+
+            return response()->json(['data' => new ChampionshipResource($response)]);
+        } catch (ValidationException $ex) {
+            return response()->json(["message" => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
+    }
+
     public function store(ChampionshipStoreRequest $request): JsonResponse
     {
         try {
