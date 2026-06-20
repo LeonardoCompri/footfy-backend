@@ -23,8 +23,8 @@ class Player extends Model
         return $this->belongsTo(Team::class);
     }
 
-    public function goals()
+    public function events()
     {
-        return $this->hasMany(Goal::class);
+        return $this->hasMany(GameEvent::class);
     }
 }

@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\Championship;
 use App\Models\Game;
+use App\Models\League;
 use App\Models\Stadium;
 use App\Models\Team;
 use App\Models\User;
@@ -29,31 +29,33 @@ class GameControllerTest extends TestCase
         $user = User::factory()->create();
         $user->assignRole('master');
         Sanctum::actingAs($user);
+
         return $user;
     }
 
-    private function authenticateAsAdmin(array $championshipIds = []): User
+    private function authenticateAsAdmin(array $leagueIds = []): User
     {
         $user = User::factory()->create();
         $user->assignRole('admin');
-        if (!empty($championshipIds)) {
-            $user->championships()->sync($championshipIds);
+        if (! empty($leagueIds)) {
+            $user->leagues()->sync($leagueIds);
         }
         Sanctum::actingAs($user);
+
         return $user;
     }
 
     private function gamePayload(array $overrides = []): array
     {
-        $championship = Championship::factory()->create();
-        $home         = Team::factory()->create();
-        $away         = Team::factory()->create();
+        $league = League::factory()->create();
+        $home = Team::factory()->create();
+        $away = Team::factory()->create();
 
         return array_merge([
-            'championship_id' => $championship->id,
-            'home_team_id'    => $home->id,
-            'away_team_id'    => $away->id,
-            'status'          => 'scheduled',
+            'league_id' => $league->id,
+            'home_team_id' => $home->id,
+            'away_team_id' => $away->id,
+            'status' => 'scheduled',
         ], $overrides);
     }
 
@@ -86,14 +88,14 @@ class GameControllerTest extends TestCase
         $response = $this->postJson('/api/games', $payload);
 
         $response->assertCreated()
-            ->assertJsonPath('data.championship_id', $payload['championship_id'])
+            ->assertJsonPath('data.league_id', $payload['league_id'])
             ->assertJsonPath('data.home_team_id', $payload['home_team_id'])
             ->assertJsonPath('data.status', 'scheduled');
 
         $this->assertDatabaseHas('games', [
-            'championship_id' => $payload['championship_id'],
-            'home_team_id'    => $payload['home_team_id'],
-            'away_team_id'    => $payload['away_team_id'],
+            'league_id' => $payload['league_id'],
+            'home_team_id' => $payload['home_team_id'],
+            'away_team_id' => $payload['away_team_id'],
         ]);
     }
 
@@ -113,7 +115,7 @@ class GameControllerTest extends TestCase
         $game = Game::factory()->create(['status' => 'scheduled']);
 
         $response = $this->putJson("/api/games/{$game->id}", [
-            'status'     => 'finished',
+            'status' => 'finished',
             'home_score' => 2,
             'away_score' => 1,
         ]);
@@ -150,14 +152,14 @@ class GameControllerTest extends TestCase
     public function test_store_fails_when_home_and_away_team_are_the_same(): void
     {
         $this->authenticate();
-        $championship = Championship::factory()->create();
-        $team         = Team::factory()->create();
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
 
         $response = $this->postJson('/api/games', [
-            'championship_id' => $championship->id,
-            'home_team_id'    => $team->id,
-            'away_team_id'    => $team->id,
-            'status'          => 'scheduled',
+            'league_id' => $league->id,
+            'home_team_id' => $team->id,
+            'away_team_id' => $team->id,
+            'status' => 'scheduled',
         ]);
 
         $response->assertStatus(422);
@@ -173,17 +175,17 @@ class GameControllerTest extends TestCase
         $response->assertStatus(422);
     }
 
-    public function test_store_fails_when_championship_does_not_exist(): void
+    public function test_store_fails_when_league_does_not_exist(): void
     {
         $this->authenticate();
         $home = Team::factory()->create();
         $away = Team::factory()->create();
 
         $response = $this->postJson('/api/games', [
-            'championship_id' => 999,
-            'home_team_id'    => $home->id,
-            'away_team_id'    => $away->id,
-            'status'          => 'scheduled',
+            'league_id' => 999,
+            'home_team_id' => $home->id,
+            'away_team_id' => $away->id,
+            'status' => 'scheduled',
         ]);
 
         $response->assertStatus(422);
@@ -192,12 +194,48 @@ class GameControllerTest extends TestCase
     public function test_store_accepts_optional_stadium(): void
     {
         $this->authenticate();
+        $league = League::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $payload = $this->gamePayload(['league_id' => $league->id, 'stadium_id' => $stadium->id]);
+
+        $response = $this->postJson('/api/games', $payload);
+
+        $response->assertCreated()->assertJsonPath('data.stadium_id', $stadium->id);
+    }
+
+    public function test_store_fails_when_stadium_belongs_to_a_different_league(): void
+    {
+        $this->authenticate();
         $stadium = Stadium::factory()->create();
         $payload = $this->gamePayload(['stadium_id' => $stadium->id]);
 
         $response = $this->postJson('/api/games', $payload);
 
-        $response->assertCreated()->assertJsonPath('data.stadium_id', $stadium->id);
+        $response->assertStatus(422);
+    }
+
+    public function test_update_fails_when_stadium_belongs_to_a_different_league(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $game = Game::factory()->create(['league_id' => $league->id]);
+        $stadiumFromOtherLeague = Stadium::factory()->create();
+
+        $response = $this->putJson("/api/games/{$game->id}", ['stadium_id' => $stadiumFromOtherLeague->id]);
+
+        $response->assertStatus(422);
+    }
+
+    public function test_update_accepts_stadium_from_the_same_league(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $game = Game::factory()->create(['league_id' => $league->id]);
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+
+        $response = $this->putJson("/api/games/{$game->id}", ['stadium_id' => $stadium->id]);
+
+        $response->assertOk()->assertJsonPath('data.stadium_id', $stadium->id);
     }
 
     public function test_show_returns_error_when_not_found(): void
@@ -209,19 +247,19 @@ class GameControllerTest extends TestCase
         $response->assertStatus(422)->assertJson(['message' => 'Partida não encontrada!']);
     }
 
-    // ── Admin: escopo por campeonato ──────────────────────────────────────────
+    // ── Admin: escopo por liga ───────────────────────────────────────────────
 
-    public function test_admin_index_only_sees_games_in_assigned_championships(): void
+    public function test_admin_index_only_sees_games_in_assigned_leagues(): void
     {
-        $assignedChampionship   = Championship::factory()->create();
-        $unassignedChampionship = Championship::factory()->create();
-        $home                   = Team::factory()->create();
-        $away                   = Team::factory()->create();
+        $assignedLeague = League::factory()->create();
+        $unassignedLeague = League::factory()->create();
+        $home = Team::factory()->create();
+        $away = Team::factory()->create();
 
-        $gameInScope  = Game::factory()->create(['championship_id' => $assignedChampionship->id, 'home_team_id' => $home->id, 'away_team_id' => $away->id]);
-        $gameOutScope = Game::factory()->create(['championship_id' => $unassignedChampionship->id, 'home_team_id' => $home->id, 'away_team_id' => $away->id]);
+        $gameInScope = Game::factory()->create(['league_id' => $assignedLeague->id, 'home_team_id' => $home->id, 'away_team_id' => $away->id]);
+        $gameOutScope = Game::factory()->create(['league_id' => $unassignedLeague->id, 'home_team_id' => $home->id, 'away_team_id' => $away->id]);
 
-        $this->authenticateAsAdmin([$assignedChampionship->id]);
+        $this->authenticateAsAdmin([$assignedLeague->id]);
 
         $response = $this->getJson('/api/games');
 
@@ -230,7 +268,7 @@ class GameControllerTest extends TestCase
             ->assertJsonPath('data.0.id', $gameInScope->id);
     }
 
-    public function test_admin_with_no_championships_sees_empty_game_list(): void
+    public function test_admin_with_no_leagues_sees_empty_game_list(): void
     {
         Game::factory()->count(2)->create();
         $this->authenticateAsAdmin();
@@ -240,14 +278,14 @@ class GameControllerTest extends TestCase
         $response->assertOk()->assertJsonCount(0, 'data');
     }
 
-    public function test_admin_can_show_game_in_assigned_championship(): void
+    public function test_admin_can_show_game_in_assigned_league(): void
     {
-        $championship = Championship::factory()->create();
-        $home         = Team::factory()->create();
-        $away         = Team::factory()->create();
-        $game         = Game::factory()->create(['championship_id' => $championship->id, 'home_team_id' => $home->id, 'away_team_id' => $away->id]);
+        $league = League::factory()->create();
+        $home = Team::factory()->create();
+        $away = Team::factory()->create();
+        $game = Game::factory()->create(['league_id' => $league->id, 'home_team_id' => $home->id, 'away_team_id' => $away->id]);
 
-        $this->authenticateAsAdmin([$championship->id]);
+        $this->authenticateAsAdmin([$league->id]);
 
         $response = $this->getJson("/api/games/{$game->id}");
 
@@ -276,13 +314,13 @@ class GameControllerTest extends TestCase
 
     // ── Integridade referencial ───────────────────────────────────────────────
 
-    public function test_destroying_championship_cascades_to_game(): void
+    public function test_destroying_league_cascades_to_game(): void
     {
         $this->authenticate();
-        $championship = Championship::factory()->create();
-        $game         = Game::factory()->create(['championship_id' => $championship->id]);
+        $league = League::factory()->create();
+        $game = Game::factory()->create(['league_id' => $league->id]);
 
-        $this->deleteJson("/api/tournaments/{$championship->id}")->assertStatus(204);
+        $this->deleteJson("/api/tournaments/{$league->id}")->assertStatus(204);
 
         $this->assertDatabaseMissing('games', ['id' => $game->id]);
     }
@@ -291,7 +329,7 @@ class GameControllerTest extends TestCase
     {
         $this->authenticate();
         $stadium = Stadium::factory()->create();
-        $game    = Game::factory()->create(['stadium_id' => $stadium->id]);
+        $game = Game::factory()->create(['stadium_id' => $stadium->id]);
 
         $this->deleteJson("/api/stadiums/{$stadium->id}")->assertStatus(204);
 
