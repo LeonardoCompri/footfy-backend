@@ -263,4 +263,22 @@ class PlayerControllerTest extends TestCase
 
         $this->assertDatabaseHas('players', ['id' => $player->id, 'team_id' => null]);
     }
+
+    // ── Rotas públicas ────────────────────────────────────────────────────────
+
+    public function test_guest_can_show_player_via_public_route(): void
+    {
+        $player = Player::factory()->create();
+
+        $response = $this->getJson("/api/public/players/{$player->id}");
+
+        $response->assertOk()->assertJsonPath('data.id', $player->id);
+    }
+
+    public function test_guest_show_via_public_route_returns_error_when_not_found(): void
+    {
+        $response = $this->getJson('/api/public/players/999');
+
+        $response->assertStatus(422)->assertJson(['message' => 'Jogador não encontrado!']);
+    }
 }

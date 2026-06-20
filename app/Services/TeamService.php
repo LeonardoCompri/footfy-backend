@@ -37,6 +37,18 @@ class TeamService
         return $team;
     }
 
+    // Busca time por id já com os jogadores carregados, para consumo público (guest).
+    public function publicShow(string $id): Team
+    {
+        $team = $this->repository->show($id, ['players']);
+
+        if (!$team) {
+            throw ValidationException::withMessages(["message" => "Time não encontrado!"]);
+        }
+
+        return $team;
+    }
+
     public function update(array $data, string $id): Team
     {
         $team = $this->show($id);

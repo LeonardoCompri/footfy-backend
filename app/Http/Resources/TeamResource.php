@@ -16,6 +16,7 @@ class TeamResource extends JsonResource
             'logo' => $this->logo,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            'players' => PlayerResource::collection($this->whenLoaded('players')),
         ];
     }
 }

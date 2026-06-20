@@ -21,9 +21,9 @@ class ChampionshipRepository
         return Championship::create($data);
     }
 
-    public function show(string $id): ?Championship
+    public function show(string $id, array $with = []): ?Championship
     {
-        return Championship::find($id);
+        return Championship::with($with)->find($id);
     }
 
     public function update(Championship $championship): bool

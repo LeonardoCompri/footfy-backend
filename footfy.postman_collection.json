@@ -1,0 +1,755 @@
+{
+	"info": {
+		"name": "Footfy API",
+		"description": "Coleção com todas as rotas da API do projeto footfy (routes/api.php). Defina a variável de coleção `token` automaticamente fazendo login pela requisição Auth > Login.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_postman_id": "footfy-api-collection"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{ "key": "token", "value": "{{token}}", "type": "string" }
+		]
+	},
+	"variable": [
+		{ "key": "base_url", "value": "http://localhost/api", "type": "string" },
+		{ "key": "token", "value": "", "type": "string" },
+		{ "key": "user_id", "value": "1", "type": "string" },
+		{ "key": "championship_id", "value": "1", "type": "string" },
+		{ "key": "team_id", "value": "1", "type": "string" },
+		{ "key": "player_id", "value": "1", "type": "string" },
+		{ "key": "stadium_id", "value": "1", "type": "string" },
+		{ "key": "coach_id", "value": "1", "type": "string" },
+		{ "key": "game_id", "value": "1", "type": "string" },
+		{ "key": "goal_id", "value": "1", "type": "string" }
+	],
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    if (json.token) {",
+									"        pm.collectionVariables.set('token', json.token);",
+									"    }",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"document\": \"000.000.000-00\",\n    \"password\": \"password\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{base_url}}/login",
+							"host": ["{{base_url}}"],
+							"path": ["login"]
+						}
+					}
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/logout",
+							"host": ["{{base_url}}"],
+							"path": ["logout"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Public",
+			"item": [
+				{
+					"name": "Listar Campeonatos",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/public/championships",
+							"host": ["{{base_url}}"],
+							"path": ["public", "championships"]
+						}
+					}
+				},
+				{
+					"name": "Detalhar Campeonato (com jogos)",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/public/championships/{{championship_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["public", "championships", "{{championship_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Detalhar Time (com jogadores)",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/public/teams/{{team_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["public", "teams", "{{team_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Detalhar Jogador",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/public/players/{{player_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["public", "players", "{{player_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "Listar Usuários",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/users", "host": ["{{base_url}}"], "path": ["users"] }
+					}
+				},
+				{
+					"name": "Criar Usuário",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Usuário Teste\",\n    \"email\": \"usuario@teste.com\",\n    \"document\": \"00000000000\",\n    \"password\": \"password\",\n    \"role\": \"admin\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{base_url}}/users", "host": ["{{base_url}}"], "path": ["users"] }
+					}
+				},
+				{
+					"name": "Detalhar Usuário",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "{{user_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Atualizar Usuário",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Usuário Atualizado\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "{{user_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Remover Usuário",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "{{user_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Vincular Campeonatos ao Usuário",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"championship_ids\": [{{championship_id}}]\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}/championships",
+							"host": ["{{base_url}}"],
+							"path": ["users", "{{user_id}}", "championships"]
+						}
+					}
+				},
+				{
+					"name": "Remover Campeonato do Usuário",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/users/{{user_id}}/championships/{{championship_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["users", "{{user_id}}", "championships", "{{championship_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Championships",
+			"item": [
+				{
+					"name": "Listar Campeonatos",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/tournaments", "host": ["{{base_url}}"], "path": ["tournaments"] }
+					}
+				},
+				{
+					"name": "Criar Campeonato",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Campeonato Teste\",\n    \"start_date\": \"2026-01-01\",\n    \"end_date\": \"2026-06-01\",\n    \"organizer\": \"Federação Teste\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{base_url}}/tournaments", "host": ["{{base_url}}"], "path": ["tournaments"] }
+					}
+				},
+				{
+					"name": "Detalhar Campeonato",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/tournaments/{{championship_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["tournaments", "{{championship_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Atualizar Campeonato",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Campeonato Atualizado\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{base_url}}/tournaments/{{championship_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["tournaments", "{{championship_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Remover Campeonato",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/tournaments/{{championship_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["tournaments", "{{championship_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Teams",
+			"item": [
+				{
+					"name": "Listar Times",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/teams", "host": ["{{base_url}}"], "path": ["teams"] }
+					}
+				},
+				{
+					"name": "Criar Time",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Time Teste\",\n    \"nickname\": \"TT\",\n    \"logo\": \"https://exemplo.com/logo.png\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{base_url}}/teams", "host": ["{{base_url}}"], "path": ["teams"] }
+					}
+				},
+				{
+					"name": "Detalhar Time",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/teams/{{team_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["teams", "{{team_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Atualizar Time",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Time Atualizado\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{base_url}}/teams/{{team_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["teams", "{{team_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Remover Time",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/teams/{{team_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["teams", "{{team_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Players",
+			"item": [
+				{
+					"name": "Listar Jogadores",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/players", "host": ["{{base_url}}"], "path": ["players"] }
+					}
+				},
+				{
+					"name": "Criar Jogador",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"team_id\": {{team_id}},\n    \"name\": \"Jogador Teste\",\n    \"position\": \"Atacante\",\n    \"number\": 9,\n    \"birth_date\": \"2000-01-01\",\n    \"document\": \"11111111111\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{base_url}}/players", "host": ["{{base_url}}"], "path": ["players"] }
+					}
+				},
+				{
+					"name": "Detalhar Jogador",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/players/{{player_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["players", "{{player_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Atualizar Jogador",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Jogador Atualizado\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{base_url}}/players/{{player_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["players", "{{player_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Remover Jogador",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/players/{{player_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["players", "{{player_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Stadiums",
+			"item": [
+				{
+					"name": "Listar Estádios",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/stadiums", "host": ["{{base_url}}"], "path": ["stadiums"] }
+					}
+				},
+				{
+					"name": "Criar Estádio",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Estádio Teste\",\n    \"city\": \"São Paulo\",\n    \"capacity\": 50000\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{base_url}}/stadiums", "host": ["{{base_url}}"], "path": ["stadiums"] }
+					}
+				},
+				{
+					"name": "Detalhar Estádio",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/stadiums/{{stadium_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["stadiums", "{{stadium_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Atualizar Estádio",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Estádio Atualizado\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{base_url}}/stadiums/{{stadium_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["stadiums", "{{stadium_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Remover Estádio",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/stadiums/{{stadium_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["stadiums", "{{stadium_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Coaches",
+			"item": [
+				{
+					"name": "Listar Treinadores",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/coaches", "host": ["{{base_url}}"], "path": ["coaches"] }
+					}
+				},
+				{
+					"name": "Criar Treinador",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"team_id\": {{team_id}},\n    \"name\": \"Treinador Teste\",\n    \"birth_date\": \"1980-01-01\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{base_url}}/coaches", "host": ["{{base_url}}"], "path": ["coaches"] }
+					}
+				},
+				{
+					"name": "Detalhar Treinador",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/coaches/{{coach_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["coaches", "{{coach_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Atualizar Treinador",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Treinador Atualizado\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{base_url}}/coaches/{{coach_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["coaches", "{{coach_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Remover Treinador",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/coaches/{{coach_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["coaches", "{{coach_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Games",
+			"item": [
+				{
+					"name": "Listar Jogos",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/games", "host": ["{{base_url}}"], "path": ["games"] }
+					}
+				},
+				{
+					"name": "Criar Jogo",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"championship_id\": {{championship_id}},\n    \"home_team_id\": {{team_id}},\n    \"away_team_id\": {{team_id}},\n    \"stadium_id\": {{stadium_id}},\n    \"match_date\": \"2026-03-01 16:00:00\",\n    \"home_score\": null,\n    \"away_score\": null,\n    \"round\": 1,\n    \"status\": \"scheduled\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{base_url}}/games", "host": ["{{base_url}}"], "path": ["games"] }
+					}
+				},
+				{
+					"name": "Detalhar Jogo",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/games/{{game_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["games", "{{game_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Atualizar Jogo",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"finished\",\n    \"home_score\": 2,\n    \"away_score\": 1\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{base_url}}/games/{{game_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["games", "{{game_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Remover Jogo",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/games/{{game_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["games", "{{game_id}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Goals",
+			"item": [
+				{
+					"name": "Listar Gols",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": { "raw": "{{base_url}}/goals", "host": ["{{base_url}}"], "path": ["goals"] }
+					}
+				},
+				{
+					"name": "Criar Gol",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"game_id\": {{game_id}},\n    \"player_id\": {{player_id}},\n    \"team_id\": {{team_id}},\n    \"minute\": 23\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{base_url}}/goals", "host": ["{{base_url}}"], "path": ["goals"] }
+					}
+				},
+				{
+					"name": "Detalhar Gol",
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/goals/{{goal_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["goals", "{{goal_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Atualizar Gol",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"minute\": 45\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{base_url}}/goals/{{goal_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["goals", "{{goal_id}}"]
+						}
+					}
+				},
+				{
+					"name": "Remover Gol",
+					"request": {
+						"method": "DELETE",
+						"header": [{ "key": "Accept", "value": "application/json" }],
+						"url": {
+							"raw": "{{base_url}}/goals/{{goal_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["goals", "{{goal_id}}"]
+						}
+					}
+				}
+			]
+		}
+	]
+}
