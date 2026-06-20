@@ -47,7 +47,7 @@ class LeagueControllerTest extends TestCase
 
     public function test_guest_cannot_list_leagues(): void
     {
-        $response = $this->getJson('/api/tournaments');
+        $response = $this->getJson('/api/leagues');
 
         $response->assertStatus(401);
     }
@@ -59,7 +59,7 @@ class LeagueControllerTest extends TestCase
         $this->authenticate();
         League::factory()->count(2)->create();
 
-        $response = $this->getJson('/api/tournaments');
+        $response = $this->getJson('/api/leagues');
 
         $response->assertOk()->assertJsonCount(2, 'data');
     }
@@ -68,7 +68,7 @@ class LeagueControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/tournaments', [
+        $response = $this->postJson('/api/leagues', [
             'name' => 'Campeonato Teste',
             'start_date' => '2026-01-01',
             'end_date' => '2026-06-01',
@@ -84,7 +84,7 @@ class LeagueControllerTest extends TestCase
         $this->authenticate();
         $league = League::factory()->create();
 
-        $response = $this->getJson("/api/tournaments/{$league->id}");
+        $response = $this->getJson("/api/leagues/{$league->id}");
 
         $response->assertOk()->assertJsonPath('data.id', $league->id);
     }
@@ -94,7 +94,7 @@ class LeagueControllerTest extends TestCase
         $this->authenticate();
         $league = League::factory()->create(['organizer' => 'Antigo']);
 
-        $response = $this->putJson("/api/tournaments/{$league->id}", ['organizer' => 'Novo']);
+        $response = $this->putJson("/api/leagues/{$league->id}", ['organizer' => 'Novo']);
 
         $response->assertOk()->assertJsonPath('data.organizer', 'Novo');
         $this->assertDatabaseHas('leagues', ['id' => $league->id, 'organizer' => 'Novo']);
@@ -105,7 +105,7 @@ class LeagueControllerTest extends TestCase
         $this->authenticate();
         $league = League::factory()->create();
 
-        $response = $this->deleteJson("/api/tournaments/{$league->id}");
+        $response = $this->deleteJson("/api/leagues/{$league->id}");
 
         $response->assertStatus(204);
         $this->assertDatabaseMissing('leagues', ['id' => $league->id]);
@@ -115,7 +115,7 @@ class LeagueControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->getJson('/api/tournaments/999');
+        $response = $this->getJson('/api/leagues/999');
 
         $response->assertStatus(422)->assertJson(['message' => 'Liga não encontrada!']);
     }
@@ -126,7 +126,7 @@ class LeagueControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/tournaments', []);
+        $response = $this->postJson('/api/leagues', []);
 
         $response->assertStatus(422);
     }
@@ -135,7 +135,7 @@ class LeagueControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/tournaments', [
+        $response = $this->postJson('/api/leagues', [
             'name' => 'Campeonato Teste',
             'start_date' => '2026-06-01',
             'end_date' => '2026-01-01',
@@ -153,7 +153,7 @@ class LeagueControllerTest extends TestCase
 
         $this->authenticateAsAdmin([$assigned->id]);
 
-        $response = $this->getJson('/api/tournaments');
+        $response = $this->getJson('/api/leagues');
 
         $response->assertOk()
             ->assertJsonCount(1, 'data')
@@ -165,7 +165,7 @@ class LeagueControllerTest extends TestCase
         $league = League::factory()->create();
         $this->authenticateAsAdmin([$league->id]);
 
-        $response = $this->getJson("/api/tournaments/{$league->id}");
+        $response = $this->getJson("/api/leagues/{$league->id}");
 
         $response->assertOk()->assertJsonPath('data.id', $league->id);
     }
@@ -175,7 +175,7 @@ class LeagueControllerTest extends TestCase
         $league = League::factory()->create();
         $this->authenticateAsAdmin(); // sem ligas associadas
 
-        $response = $this->getJson("/api/tournaments/{$league->id}");
+        $response = $this->getJson("/api/leagues/{$league->id}");
 
         $response->assertForbidden()->assertJsonPath('message', 'Você não tem acesso a este recurso.');
     }
@@ -184,7 +184,7 @@ class LeagueControllerTest extends TestCase
     {
         $this->authenticateAsAdmin();
 
-        $response = $this->postJson('/api/tournaments', ['name' => 'Novo']);
+        $response = $this->postJson('/api/leagues', ['name' => 'Novo']);
 
         $response->assertForbidden();
     }
@@ -194,7 +194,7 @@ class LeagueControllerTest extends TestCase
         $league = League::factory()->create(['organizer' => 'Antigo']);
         $this->authenticateAsAdmin([$league->id]);
 
-        $response = $this->putJson("/api/tournaments/{$league->id}", ['organizer' => 'Novo']);
+        $response = $this->putJson("/api/leagues/{$league->id}", ['organizer' => 'Novo']);
 
         $response->assertOk()->assertJsonPath('data.organizer', 'Novo');
     }
@@ -204,7 +204,7 @@ class LeagueControllerTest extends TestCase
         $league = League::factory()->create();
         $this->authenticateAsAdmin();
 
-        $response = $this->putJson("/api/tournaments/{$league->id}", ['organizer' => 'X']);
+        $response = $this->putJson("/api/leagues/{$league->id}", ['organizer' => 'X']);
 
         $response->assertForbidden()->assertJsonPath('message', 'Você não tem acesso a este recurso.');
     }
@@ -214,7 +214,7 @@ class LeagueControllerTest extends TestCase
         $league = League::factory()->create();
         $this->authenticateAsAdmin([$league->id]);
 
-        $response = $this->deleteJson("/api/tournaments/{$league->id}");
+        $response = $this->deleteJson("/api/leagues/{$league->id}");
 
         $response->assertForbidden();
     }
@@ -224,7 +224,7 @@ class LeagueControllerTest extends TestCase
         League::factory()->count(3)->create();
         $this->authenticateAsAdmin();
 
-        $response = $this->getJson('/api/tournaments');
+        $response = $this->getJson('/api/leagues');
 
         $response->assertOk()->assertJsonCount(0, 'data');
     }
