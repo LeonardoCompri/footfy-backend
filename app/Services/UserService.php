@@ -20,6 +20,7 @@ class UserService
     {
         $role = $data['role'];
         unset($data['role']);
+
         return $this->repository->store($data, $role);
     }
 
@@ -27,7 +28,7 @@ class UserService
     {
         $user = $this->repository->show($id);
 
-        if (!$user) {
+        if (! $user) {
             throw ValidationException::withMessages(['message' => 'Usuário não encontrado!']);
         }
 
@@ -37,24 +38,28 @@ class UserService
     public function update(array $data, string $id): User
     {
         $user = $this->show($id);
+
         return $this->repository->update($user, $data);
     }
 
     public function destroy(string $id): ?bool
     {
         $user = $this->show($id);
+
         return $this->repository->destroy($user);
     }
 
-    public function syncChampionships(string $id, array $championshipIds): User
+    public function syncLeagues(string $id, array $leagueIds): User
     {
         $user = $this->show($id);
-        return $this->repository->syncChampionships($user, $championshipIds);
+
+        return $this->repository->syncLeagues($user, $leagueIds);
     }
 
-    public function removeChampionship(string $id, string $championshipId): User
+    public function removeLeague(string $id, string $leagueId): User
     {
         $user = $this->show($id);
-        return $this->repository->removeChampionship($user, $championshipId);
+
+        return $this->repository->removeLeague($user, $leagueId);
     }
 }

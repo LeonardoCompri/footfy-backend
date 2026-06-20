@@ -12,9 +12,6 @@ class ChampionshipResource extends JsonResource
         return [
             'id' => $this->id,
             'name' => $this->name,
-            'start_date' => $this->start_date,
-            'end_date' => $this->end_date,
-            'organizer' => $this->organizer,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
             'teams' => TeamResource::collection($this->whenLoaded('teams')),

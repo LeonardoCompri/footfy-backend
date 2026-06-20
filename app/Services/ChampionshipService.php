@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Championship;
 use App\Repositories\ChampionshipRepository;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class ChampionshipService
@@ -14,11 +13,7 @@ class ChampionshipService
 
     public function index(): Collection
     {
-        $user = Auth::user();
-        if ($user->isMaster()) {
-            return $this->repository->index(null);
-        }
-        return $this->repository->index($user->championshipIds());
+        return $this->repository->index();
     }
 
     public function publicIndex(): Collection
@@ -35,8 +30,8 @@ class ChampionshipService
     {
         $championship = $this->repository->show($id);
 
-        if (!$championship) {
-            throw ValidationException::withMessages(["message" => "Campeonato não encontrado!"]);
+        if (! $championship) {
+            throw ValidationException::withMessages(['message' => 'Campeonato não encontrado!']);
         }
 
         return $championship;

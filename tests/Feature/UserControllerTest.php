@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Championship;
+use App\Models\League;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -28,6 +28,7 @@ class UserControllerTest extends TestCase
         $user = User::factory()->create();
         $user->assignRole('master');
         Sanctum::actingAs($user);
+
         return $user;
     }
 
@@ -36,17 +37,18 @@ class UserControllerTest extends TestCase
         $user = User::factory()->create();
         $user->assignRole('admin');
         Sanctum::actingAs($user);
+
         return $user;
     }
 
     private function validUserPayload(array $overrides = []): array
     {
         return array_merge([
-            'name'     => 'Novo Usuário',
-            'email'    => 'novo@footfy.com',
+            'name' => 'Novo Usuário',
+            'email' => 'novo@footfy.com',
             'document' => '98765432100',
             'password' => '123456',
-            'role'     => 'admin',
+            'role' => 'admin',
         ], $overrides);
     }
 
@@ -224,72 +226,72 @@ class UserControllerTest extends TestCase
         $response->assertStatus(422)->assertJson(['message' => 'Usuário não encontrado!']);
     }
 
-    // ── Associação de campeonatos ─────────────────────────────────────────────
+    // ── Associação de ligas ────────────────────────────────────────────────────
 
-    public function test_master_can_sync_championships_to_admin(): void
+    public function test_master_can_sync_leagues_to_admin(): void
     {
         $this->authenticate();
-        $admin          = User::factory()->create();
+        $admin = User::factory()->create();
         $admin->assignRole('admin');
-        $championship1  = Championship::factory()->create();
-        $championship2  = Championship::factory()->create();
+        $league1 = League::factory()->create();
+        $league2 = League::factory()->create();
 
-        $response = $this->postJson("/api/users/{$admin->id}/championships", [
-            'championship_ids' => [$championship1->id, $championship2->id],
+        $response = $this->postJson("/api/users/{$admin->id}/leagues", [
+            'league_ids' => [$league1->id, $league2->id],
         ]);
 
         $response->assertOk();
-        $this->assertDatabaseHas('user_championships', ['user_id' => $admin->id, 'championship_id' => $championship1->id]);
-        $this->assertDatabaseHas('user_championships', ['user_id' => $admin->id, 'championship_id' => $championship2->id]);
+        $this->assertDatabaseHas('user_leagues', ['user_id' => $admin->id, 'league_id' => $league1->id]);
+        $this->assertDatabaseHas('user_leagues', ['user_id' => $admin->id, 'league_id' => $league2->id]);
     }
 
-    public function test_master_can_remove_championship_from_admin(): void
+    public function test_master_can_remove_league_from_admin(): void
     {
         $this->authenticate();
-        $admin        = User::factory()->create();
+        $admin = User::factory()->create();
         $admin->assignRole('admin');
-        $championship = Championship::factory()->create();
-        $admin->championships()->attach($championship->id);
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
 
-        $response = $this->deleteJson("/api/users/{$admin->id}/championships/{$championship->id}");
+        $response = $this->deleteJson("/api/users/{$admin->id}/leagues/{$league->id}");
 
         $response->assertOk();
-        $this->assertDatabaseMissing('user_championships', [
-            'user_id'           => $admin->id,
-            'championship_id'   => $championship->id,
+        $this->assertDatabaseMissing('user_leagues', [
+            'user_id' => $admin->id,
+            'league_id' => $league->id,
         ]);
     }
 
-    public function test_sync_championships_fails_with_invalid_championship_id(): void
+    public function test_sync_leagues_fails_with_invalid_league_id(): void
     {
         $this->authenticate();
         $admin = User::factory()->create();
 
-        $response = $this->postJson("/api/users/{$admin->id}/championships", [
-            'championship_ids' => [9999],
+        $response = $this->postJson("/api/users/{$admin->id}/leagues", [
+            'league_ids' => [9999],
         ]);
 
-        $response->assertStatus(422)->assertJsonValidationErrors('championship_ids.0');
+        $response->assertStatus(422)->assertJsonValidationErrors('league_ids.0');
     }
 
-    public function test_sync_championships_fails_without_championship_ids(): void
+    public function test_sync_leagues_fails_without_league_ids(): void
     {
         $this->authenticate();
         $admin = User::factory()->create();
 
-        $response = $this->postJson("/api/users/{$admin->id}/championships", []);
+        $response = $this->postJson("/api/users/{$admin->id}/leagues", []);
 
-        $response->assertStatus(422)->assertJsonValidationErrors('championship_ids');
+        $response->assertStatus(422)->assertJsonValidationErrors('league_ids');
     }
 
-    public function test_admin_cannot_sync_championships(): void
+    public function test_admin_cannot_sync_leagues(): void
     {
         $this->authenticateAsAdmin();
-        $target       = User::factory()->create();
-        $championship = Championship::factory()->create();
+        $target = User::factory()->create();
+        $league = League::factory()->create();
 
-        $response = $this->postJson("/api/users/{$target->id}/championships", [
-            'championship_ids' => [$championship->id],
+        $response = $this->postJson("/api/users/{$target->id}/leagues", [
+            'league_ids' => [$league->id],
         ]);
 
         $response->assertForbidden();

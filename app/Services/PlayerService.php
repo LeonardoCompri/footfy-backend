@@ -19,10 +19,11 @@ class PlayerService
         if ($user->isMaster()) {
             return $this->repository->index(null);
         }
-        $championshipIds = $user->championshipIds();
-        $teamIds = Team::whereHas('championships', fn ($q) => $q->whereIn('championships.id', $championshipIds))
+        $leagueIds = $user->leagueIds();
+        $teamIds = Team::whereHas('leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
             ->pluck('id')
             ->toArray();
+
         return $this->repository->index($teamIds);
     }
 
@@ -35,8 +36,8 @@ class PlayerService
     {
         $player = $this->repository->show($id);
 
-        if (!$player) {
-            throw ValidationException::withMessages(["message" => "Jogador não encontrado!"]);
+        if (! $player) {
+            throw ValidationException::withMessages(['message' => 'Jogador não encontrado!']);
         }
 
         return $player;

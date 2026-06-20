@@ -2,7 +2,7 @@
 
 namespace Database\Seeders;
 
-use App\Models\Championship;
+use App\Models\League;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -18,13 +18,14 @@ class DatabaseSeeder extends Seeder
             RoleSeeder::class,
             UserSeeder::class,
             ChampionshipSeeder::class,
+            LeagueSeeder::class,
             TeamSeeder::class,
             PlayerSeeder::class,
         ]);
 
-        // Associar o usuário admin aos dois primeiros campeonatos criados
+        // Associar o usuário admin às duas primeiras ligas criadas
         $admin = User::where('email', 'admin@footfy.com')->first();
-        $championships = Championship::take(2)->pluck('id')->toArray();
-        $admin?->championships()->sync($championships);
+        $leagues = League::take(2)->pluck('id')->toArray();
+        $admin?->leagues()->sync($leagues);
     }
 }
