@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\League;
 use App\Models\Stadium;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -26,14 +27,19 @@ class StadiumControllerTest extends TestCase
         $user = User::factory()->create();
         $user->assignRole('master');
         Sanctum::actingAs($user);
+
         return $user;
     }
 
-    private function authenticateAsAdmin(): User
+    private function authenticateAsAdmin(array $leagueIds = []): User
     {
         $user = User::factory()->create();
         $user->assignRole('admin');
+        if (! empty($leagueIds)) {
+            $user->leagues()->sync($leagueIds);
+        }
         Sanctum::actingAs($user);
+
         return $user;
     }
 
@@ -71,15 +77,17 @@ class StadiumControllerTest extends TestCase
     public function test_store_creates_stadium(): void
     {
         $this->authenticate();
+        $league = League::factory()->create();
 
         $response = $this->postJson('/api/stadiums', [
-            'name'     => 'Arena Y',
-            'city'     => 'Rio de Janeiro',
+            'league_id' => $league->id,
+            'name' => 'Arena Y',
+            'city' => 'Rio de Janeiro',
             'capacity' => 60000,
         ]);
 
         $response->assertCreated()->assertJsonPath('data.name', 'Arena Y');
-        $this->assertDatabaseHas('stadiums', ['name' => 'Arena Y']);
+        $this->assertDatabaseHas('stadiums', ['name' => 'Arena Y', 'league_id' => $league->id]);
     }
 
     public function test_store_fails_validation_without_required_fields(): void
@@ -91,27 +99,32 @@ class StadiumControllerTest extends TestCase
         $response->assertStatus(422);
     }
 
-    public function test_store_fails_with_negative_capacity(): void
+    public function test_store_fails_without_league_id(): void
     {
         $this->authenticate();
 
         $response = $this->postJson('/api/stadiums', [
-            'name'     => 'Arena Z',
-            'city'     => 'SP',
-            'capacity' => -10,
+            'name' => 'Arena Sem Liga',
+            'city' => 'SP',
+            'capacity' => 1000,
         ]);
 
         $response->assertStatus(422);
     }
 
-    public function test_show_returns_stadium(): void
+    public function test_store_fails_with_negative_capacity(): void
     {
         $this->authenticate();
-        $stadium = Stadium::factory()->create();
+        $league = League::factory()->create();
 
-        $response = $this->getJson("/api/stadiums/{$stadium->id}");
+        $response = $this->postJson('/api/stadiums', [
+            'league_id' => $league->id,
+            'name' => 'Arena Z',
+            'city' => 'SP',
+            'capacity' => -10,
+        ]);
 
-        $response->assertOk()->assertJsonPath('data.id', $stadium->id);
+        $response->assertStatus(422);
     }
 
     public function test_show_returns_error_when_not_found(): void
@@ -123,7 +136,19 @@ class StadiumControllerTest extends TestCase
         $response->assertStatus(422)->assertJson(['message' => 'Estádio não encontrado!']);
     }
 
-    public function test_update_modifies_stadium(): void
+    // ── Master: acesso irrestrito ───────────────────────────────────────────────
+
+    public function test_master_can_show_any_stadium(): void
+    {
+        $this->authenticate();
+        $stadium = Stadium::factory()->create();
+
+        $response = $this->getJson("/api/stadiums/{$stadium->id}");
+
+        $response->assertOk()->assertJsonPath('data.id', $stadium->id);
+    }
+
+    public function test_master_can_update_any_stadium(): void
     {
         $this->authenticate();
         $stadium = Stadium::factory()->create(['capacity' => 1000]);
@@ -133,8 +158,6 @@ class StadiumControllerTest extends TestCase
         $response->assertOk()->assertJsonPath('data.capacity', 2000);
         $this->assertDatabaseHas('stadiums', ['id' => $stadium->id, 'capacity' => 2000]);
     }
-
-    // ── Delete restrito a master ───────────────────────────────────────────────
 
     public function test_master_can_delete_stadium(): void
     {
@@ -147,10 +170,65 @@ class StadiumControllerTest extends TestCase
         $this->assertDatabaseMissing('stadiums', ['id' => $stadium->id]);
     }
 
-    public function test_admin_cannot_delete_stadium(): void
+    // ── Admin: escopo por liga ───────────────────────────────────────────────
+
+    public function test_admin_with_league_access_can_show_stadium(): void
     {
-        $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $response = $this->getJson("/api/stadiums/{$stadium->id}");
+
+        $response->assertOk()->assertJsonPath('data.id', $stadium->id);
+    }
+
+    public function test_admin_without_league_access_cannot_show_stadium(): void
+    {
         $stadium = Stadium::factory()->create();
+        $this->authenticateAsAdmin();
+
+        $response = $this->getJson("/api/stadiums/{$stadium->id}");
+
+        $response->assertForbidden()->assertJsonPath('message', 'Você não tem acesso a este recurso.');
+    }
+
+    public function test_admin_with_league_access_can_update_stadium(): void
+    {
+        $league = League::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id, 'capacity' => 1000]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $response = $this->putJson("/api/stadiums/{$stadium->id}", ['capacity' => 5000]);
+
+        $response->assertOk()->assertJsonPath('data.capacity', 5000);
+    }
+
+    public function test_admin_without_league_access_cannot_update_stadium(): void
+    {
+        $stadium = Stadium::factory()->create(['capacity' => 1000]);
+        $this->authenticateAsAdmin();
+
+        $response = $this->putJson("/api/stadiums/{$stadium->id}", ['capacity' => 5000]);
+
+        $response->assertForbidden();
+    }
+
+    public function test_admin_cannot_delete_stadium_even_with_league_access(): void
+    {
+        $league = League::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $response = $this->deleteJson("/api/stadiums/{$stadium->id}");
+
+        $response->assertForbidden();
+    }
+
+    public function test_admin_without_league_access_cannot_delete_stadium(): void
+    {
+        $stadium = Stadium::factory()->create();
+        $this->authenticateAsAdmin();
 
         $response = $this->deleteJson("/api/stadiums/{$stadium->id}");
 

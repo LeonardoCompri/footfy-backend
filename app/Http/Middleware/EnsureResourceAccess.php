@@ -2,11 +2,12 @@
 
 namespace App\Http\Middleware;
 
-use App\Models\Coach;
 use App\Models\Game;
-use App\Models\Goal;
+use App\Models\GameEvent;
 use App\Models\Player;
+use App\Models\Stadium;
 use App\Models\Team;
+use App\Models\TechnicalCommitteeMember;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -22,26 +23,29 @@ class EnsureResourceAccess
         }
 
         $id = $request->route('id');
-        $championshipIds = $user->championshipIds();
+        $leagueIds = $user->leagueIds();
 
         $hasAccess = match ($type) {
-            'championship' => in_array((int) $id, $championshipIds),
-            'team'         => Team::whereKey($id)
-                ->whereHas('championships', fn ($q) => $q->whereIn('championships.id', $championshipIds))
+            'league' => in_array((int) $id, $leagueIds),
+            'team' => Team::whereKey($id)
+                ->whereHas('leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
                 ->exists(),
-            'player'       => Player::whereKey($id)
-                ->whereHas('team.championships', fn ($q) => $q->whereIn('championships.id', $championshipIds))
+            'player' => Player::whereKey($id)
+                ->whereHas('team.leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
                 ->exists(),
-            'coach'        => Coach::whereKey($id)
-                ->whereHas('team.championships', fn ($q) => $q->whereIn('championships.id', $championshipIds))
+            'technical_committee_member' => TechnicalCommitteeMember::whereKey($id)
+                ->whereHas('team.leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
                 ->exists(),
-            'game'         => Game::whereKey($id)
-                ->whereIn('championship_id', $championshipIds)
+            'stadium' => Stadium::whereKey($id)
+                ->whereIn('league_id', $leagueIds)
                 ->exists(),
-            'goal'         => Goal::whereKey($id)
-                ->whereHas('game', fn ($q) => $q->whereIn('championship_id', $championshipIds))
+            'game' => Game::whereKey($id)
+                ->whereIn('league_id', $leagueIds)
                 ->exists(),
-            default        => false,
+            'game_event' => GameEvent::whereKey($id)
+                ->whereIn('league_id', $leagueIds)
+                ->exists(),
+            default => false,
         };
 
         if (!$hasAccess) {
