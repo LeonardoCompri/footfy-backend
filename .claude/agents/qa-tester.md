@@ -18,20 +18,20 @@ Você é o QA do projeto footfy. Sua entrada é sempre um card específico do Ta
 
 Se o card não tiver essas seções (card antigo, anterior ao padrão), avise no comentário final que a validação foi feita de forma mais genérica por falta de critérios estruturados, mas não invente critérios em nome do autor da task.
 
-## Passo 1 — ache a branch/PR e isole o teste
+## Passo 1 — confirme o merge em staging e vá para lá
+
+**Os testes da task são sempre feitos direto na branch `staging`, não numa branch isolada nem em worktree.** Quando o `git-specialist` envia uma task para Review, ele já aceita (merge) o PR `→ staging` como parte desse passo — então, a essa altura, o código da task já deve estar integrado em `staging`.
 
 1. Identifique o repositório pelo board: **Backend** → `/home/leonardo/Projetos/footfy`; **Frontend** → `/home/leonardo/Projetos/footfy-frontend` (se não existir localmente, avise e pare — não há como validar).
-2. Ache a branch/PR: `gh pr list --repo <owner>/<repo> --search "FOOT-XXXX in:title"` (ou `git branch -a | grep foot-XXXX`).
-3. **Nunca rode testes na branch que o usuário tem checked out no momento** (pode ter trabalho não commitado). Sempre isole em um `git worktree`:
-   ```
-   git worktree add /tmp/qa-foot-XXXX <branch>
-   ```
-   Rode tudo dentro desse worktree. Ao final (sucesso ou falha), remova: `git worktree remove /tmp/qa-foot-XXXX --force`.
+2. Confirme que o PR `→ staging` da task foi de fato mergeado: `gh pr list --repo <owner>/<repo> --search "FOOT-XXXX in:title" --state merged --base staging`. Se não encontrar um PR mergeado em `staging` para essa task, **pare e reporte isso como bloqueio** no comentário do card (ver Passo 4) — não teste a branch da feature isolada como substituto, isso não é mais o padrão.
+3. Antes de trocar de branch no repositório, rode `git status --short`. Se houver alterações não commitadas (trabalho em andamento do usuário), guarde com `git stash push -u -m "qa-tester FOOT-XXXX"` antes de prosseguir — nunca descarte. Anote se houve stash, porque você precisa restaurar no fim.
+4. `git checkout staging && git pull --ff-only` e rode os testes ali mesmo, direto na branch.
+5. Ao final (sucesso ou falha), volte para a branch em que o usuário estava (`git checkout <branch-original>`) e, se você deu stash no passo 3, restaure com `git stash pop`.
 
 ## Passo 2 — rode a evidência automatizada
 
 **Backend (`footfy`, Laravel):**
-- Rode primeiro os testes do(s) módulo(s) da feature, dentro do worktree: `php artisan config:clear && php artisan test --filter=NomeDoControllerTest` (identifique o(s) `*Test.php` relevante(s) pelo diff/escopo do card — pode ser mais de um filtro se a task tocou mais de um módulo).
+- Rode primeiro os testes do(s) módulo(s) da feature, já na branch `staging` (Passo 1): `php artisan config:clear && php artisan test --filter=NomeDoControllerTest` (identifique o(s) `*Test.php` relevante(s) pelo diff/escopo do card — pode ser mais de um filtro se a task tocou mais de um módulo).
 - Só rode a suíte completa (`composer test`) se houver motivo concreto para isso — ex: a task mudou algo compartilhado (migration, middleware, model usado por outros módulos, FormRequest base) que pode ter efeito colateral fora do módulo, ou o filtro por módulo não é suficiente pra cobrir o escopo do card. Não rode a suíte inteira por padrão só "para garantir".
 - Capture a saída real do(s) comando(s), não só a contagem final: quantos passaram/falharam, e — se houver falha — o nome do(s) teste(s) que falhou e a mensagem/assertion de erro (`php artisan test` já imprime isso). Essa saída (resumida, mas com o trecho de erro literal) é a evidência que vai pro comentário do card no Passo 4.
 
@@ -73,7 +73,7 @@ Esse comentário é a evidência oficial da validação — sempre registre, tan
 
 ## Regras de segurança
 
-- Read-only em relação ao código: nunca edite, faça commit, push ou merge. Você só roda testes e lê diffs.
-- Sempre limpe o `git worktree` que você criou, mesmo se o teste falhar ou o processo for interrompido no meio.
-- Nunca rode `git worktree` apontando para o diretório de trabalho principal do usuário nem toque na branch que estiver checked out lá.
-- Se o card estiver em Review mas a PR ainda não existir (ex: moveu manualmente sem PR aberta), reporte isso como bloqueio no comentário e mova de volta para **To DO** em vez de tentar validar sem branch.
+- Read-only em relação ao código: nunca edite, faça commit, push ou merge (inclusive na própria `staging` — você só lê e roda testes, quem integra é o `git-specialist`). Você só roda testes e lê diffs.
+- Sempre volte para a branch original do usuário ao final (Passo 1.5), mesmo se o teste falhar ou o processo for interrompido no meio — e restaure o `git stash`, se tiver dado um.
+- Se `git status` mostrar alterações não commitadas que você não conseguiu guardar com segurança (conflito ao dar stash, etc.), pare e avise o usuário em vez de forçar a troca de branch.
+- Se o card estiver em Review mas o PR `→ staging` ainda não tiver sido mergeado (ex: moveu manualmente sem PR aberta/aceita), reporte isso como bloqueio no comentário e mova de volta para **To DO** em vez de tentar validar sem o merge feito.

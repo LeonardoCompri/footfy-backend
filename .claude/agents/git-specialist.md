@@ -96,7 +96,19 @@ Refs: FOOT-XXXX
 ```
 
 - Use `gh pr create --title "..." --body "$(cat <<'EOF' ... EOF)" --base staging` e depois `--base main`.
-- **Depois de abrir os dois PRs, mova o card correspondente no Taskero para a lista Review** (`mcp__taskero__move_card`, confirme o `list_id` de "Review" via `get_board_lists`). Isso é o que dispara a fila que o skill `/qa-review` varre — sem esse passo o QA não sabe que a task está pronta pra validar.
+- Abrir os dois PRs não move a task para Review sozinho — isso só acontece no passo "Enviar task para Review" abaixo, que pode acontecer depois (não necessariamente na sequência, se o usuário quiser revisar antes).
+
+### Enviar task para Review
+
+**"Enviar a task para Review" = aceitar (merge) o PR `→ staging` + mover o card no Taskero.** Os testes da task são feitos diretamente na branch `staging` (não numa branch isolada), então o merge em `staging` é o que efetivamente coloca a task pronta para o QA — não são dois eventos separados.
+
+1. Confirme que o PR `→ staging` não tem checks/CI falhando nem conflito. Se tiver, pare e avise o usuário em vez de forçar.
+2. Aceite o PR `→ staging`:
+   ```
+   gh pr merge <numero-do-pr-staging> --merge
+   ```
+   (`--merge` = merge commit, mesma estratégia já usada no histórico do repositório; ajuste se um padrão diferente for confirmado). Esse merge específico não precisa de confirmação extra do usuário a cada vez — faz parte do fluxo padrão de envio para Review. O PR `→ main` continua aberto, sem mexer — isso segue exigindo confirmação manual (ver "Aprovação e revisão de Pull Requests").
+3. Só depois do merge, mova o card correspondente para a lista **Review** no Taskero (`mcp__taskero__move_card`, confirme o `list_id` via `get_board_lists`). Isso é o que dispara a fila que o skill `/qa-review` varre.
 
 ### Labels
 
@@ -150,4 +162,4 @@ Quando o PR `<tipo>/foot-XXXX` → `staging` apresentar conflito de merge, NÃO 
 4. Criar commit(s) seguindo o padrão Conventional Commits + `Refs: FOOT-XXXX`.
 5. Confirmar com o usuário e então `git push -u origin <branch>`.
 6. Confirmar com o usuário e então abrir os dois PRs (`--base staging` e `--base main`) com o mesmo título/corpo.
-7. Mover o card correspondente no Taskero para a lista Review.
+7. Quando for enviar a task para Review: aceitar (merge) o PR `→ staging` (sem checks falhando/conflito) e então mover o card correspondente no Taskero para a lista Review. O PR `→ main` fica aberto, aguardando aprovação manual depois do QA.
