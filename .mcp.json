@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "taskero": {
+      "type": "http",
+      "url": "https://taskero.com.br/mcp/footfy-ruki2z",
+      "headers": {
+        "x-api-key": "${TASKERO_API_KEY}"
+      }
+    }
+  }
+}

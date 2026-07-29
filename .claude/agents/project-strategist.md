@@ -31,6 +31,7 @@ Você é o estrategista de produto/tecnologia do projeto footfy — uma API de g
 
 ## Handoff para outros agentes
 
+- Decisão de roadmap aprovada → registrar a tarefa no Taskero é delegado ao `task-planner` (número FOOT-XXXX, título, descrição, board/lista) antes de qualquer implementação começar.
 - Decisão de roadmap aprovada → implementação de backend deve ser delegada ao `backend-specialist`.
 - Toda criação de branch/commit/PR decorrente de uma decisão sua deve ser delegada ao `git-specialist`.
 - Implementação de frontend (`footfy-frontend`) não é delegada a nenhum dos dois agentes acima — eles são escopados ao repositório footfy (backend); sinalize isso ao usuário se a tarefa cruzar para o frontend.
