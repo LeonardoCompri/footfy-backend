@@ -10,17 +10,17 @@ class UserResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id'              => $this->id,
-            'name'            => $this->name,
-            'email'           => $this->email,
-            'document'        => $this->document,
-            'roles'           => $this->getRoleNames(),
-            'championships'   => $this->whenLoaded('championships', fn () => $this->championships->map(fn ($c) => [
-                'id'   => $c->id,
-                'name' => $c->name,
+            'id' => $this->id,
+            'name' => $this->name,
+            'email' => $this->email,
+            'document' => $this->document,
+            'roles' => $this->getRoleNames(),
+            'leagues' => $this->whenLoaded('leagues', fn () => $this->leagues->map(fn ($l) => [
+                'id' => $l->id,
+                'name' => $l->name,
             ])),
-            'created_at'      => $this->created_at,
-            'updated_at'      => $this->updated_at,
+            'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
         ];
     }
 }

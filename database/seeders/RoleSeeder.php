@@ -2,7 +2,6 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -20,7 +19,7 @@ class RoleSeeder extends Seeder
         $player = Role::create(['name' => 'player']);
 
         $master->givePermissionTo(Permission::all());
-        
+
         $admin->givePermissionTo([
             'tournament:read',
             'tournament:update',
@@ -36,18 +35,18 @@ class RoleSeeder extends Seeder
             'stadium:create',
             'stadium:update',
             'stadium:delete',
-            'coach:read',
-            'coach:create',
-            'coach:update',
-            'coach:delete',
+            'technical_committee_member:read',
+            'technical_committee_member:create',
+            'technical_committee_member:update',
+            'technical_committee_member:delete',
             'game:read',
             'game:create',
             'game:update',
             'game:delete',
-            'goal:read',
-            'goal:create',
-            'goal:update',
-            'goal:delete',
+            'game_event:read',
+            'game_event:create',
+            'game_event:update',
+            'game_event:delete',
         ]);
 
         $coach->givePermissionTo([
@@ -58,12 +57,12 @@ class RoleSeeder extends Seeder
             'stadium:update',
             'player:read',
             'player:create',
-            'player:update'
+            'player:update',
         ]);
 
         $player->givePermissionTo([
             'player:read',
-            'player:update'
+            'player:update',
         ]);
     }
 }

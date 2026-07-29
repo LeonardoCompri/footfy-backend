@@ -5,13 +5,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class Coach extends Model
+class TechnicalCommitteeMember extends Model
 {
     use HasFactory;
 
     protected $fillable = [
         'team_id',
         'name',
+        'role',
         'birth_date',
     ];
 

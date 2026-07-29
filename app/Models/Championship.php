@@ -4,7 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Championship extends Model
 {
@@ -12,23 +12,10 @@ class Championship extends Model
 
     protected $fillable = [
         'name',
-        'start_date',
-        'end_date',
-        'organizer'
     ];
 
-    public function teams(): BelongsToMany
+    public function leagues(): HasMany
     {
-        return $this->belongsToMany(Team::class);
-    }
-
-    public function games()
-    {
-        return $this->hasMany(Game::class);
-    }
-
-    public function users(): BelongsToMany
-    {
-        return $this->belongsToMany(User::class, 'user_championships');
+        return $this->hasMany(League::class);
     }
 }

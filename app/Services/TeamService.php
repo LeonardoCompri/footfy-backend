@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Team;
 use App\Repositories\TeamRepository;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
@@ -18,7 +19,8 @@ class TeamService
         if ($user->isMaster()) {
             return $this->repository->index(null);
         }
-        return $this->repository->index($user->championshipIds());
+
+        return $this->repository->index($user->leagueIds());
     }
 
     public function store(array $data): Team
@@ -30,8 +32,8 @@ class TeamService
     {
         $team = $this->repository->show($id);
 
-        if (!$team) {
-            throw ValidationException::withMessages(["message" => "Time não encontrado!"]);
+        if (! $team) {
+            throw ValidationException::withMessages(['message' => 'Time não encontrado!']);
         }
 
         return $team;
@@ -42,8 +44,8 @@ class TeamService
     {
         $team = $this->repository->show($id, ['players']);
 
-        if (!$team) {
-            throw ValidationException::withMessages(["message" => "Time não encontrado!"]);
+        if (! $team) {
+            throw ValidationException::withMessages(['message' => 'Time não encontrado!']);
         }
 
         return $team;
@@ -63,6 +65,10 @@ class TeamService
     {
         $team = $this->show($id);
 
-        return $this->repository->destroy($team);
+        try {
+            return $this->repository->destroy($team);
+        } catch (QueryException $ex) {
+            throw ValidationException::withMessages(['message' => 'Não é possível remover o time pois existem partidas vinculadas a ele.']);
+        }
     }
 }

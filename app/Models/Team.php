@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Team extends Model
 {
@@ -16,7 +15,7 @@ class Team extends Model
         'nickname',
         'logo',
         'created_at',
-        'updated_at'
+        'updated_at',
     ];
 
     public function players()
@@ -24,14 +23,14 @@ class Team extends Model
         return $this->hasMany(Player::class);
     }
 
-    public function coach()
+    public function technicalCommitteeMembers()
     {
-        return $this->hasOne(Coach::class);
+        return $this->hasMany(TechnicalCommitteeMember::class);
     }
 
-    public function championships(): BelongsToMany
+    public function leagues()
     {
-        return $this->belongsToMany(Championship::class);
+        return $this->belongsToMany(League::class, 'league_team');
     }
 
     public function homeGames()

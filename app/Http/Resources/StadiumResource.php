@@ -11,6 +11,7 @@ class StadiumResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'league_id' => $this->league_id,
             'name' => $this->name,
             'city' => $this->city,
             'capacity' => $this->capacity,

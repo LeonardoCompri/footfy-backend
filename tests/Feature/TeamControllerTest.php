@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Championship;
+use App\Models\League;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -27,17 +27,19 @@ class TeamControllerTest extends TestCase
         $user = User::factory()->create();
         $user->assignRole('master');
         Sanctum::actingAs($user);
+
         return $user;
     }
 
-    private function authenticateAsAdmin(array $championshipIds = []): User
+    private function authenticateAsAdmin(array $leagueIds = []): User
     {
         $user = User::factory()->create();
         $user->assignRole('admin');
-        if (!empty($championshipIds)) {
-            $user->championships()->sync($championshipIds);
+        if (! empty($leagueIds)) {
+            $user->leagues()->sync($leagueIds);
         }
         Sanctum::actingAs($user);
+
         return $user;
     }
 
@@ -67,7 +69,7 @@ class TeamControllerTest extends TestCase
         $this->authenticate();
 
         $response = $this->postJson('/api/teams', [
-            'name'     => 'Sport Club X',
+            'name' => 'Sport Club X',
             'nickname' => 'SCX',
         ]);
 
@@ -127,17 +129,17 @@ class TeamControllerTest extends TestCase
         $response->assertStatus(422);
     }
 
-    // ── Admin: escopo por campeonato ──────────────────────────────────────────
+    // ── Admin: escopo por liga ───────────────────────────────────────────────
 
-    public function test_admin_index_only_sees_teams_in_assigned_championships(): void
+    public function test_admin_index_only_sees_teams_in_assigned_leagues(): void
     {
-        $championship   = Championship::factory()->create();
-        $teamInScope    = Team::factory()->create();
+        $league = League::factory()->create();
+        $teamInScope = Team::factory()->create();
         $teamOutOfScope = Team::factory()->create();
 
-        $championship->teams()->attach($teamInScope->id);
+        $league->teams()->attach($teamInScope->id);
 
-        $this->authenticateAsAdmin([$championship->id]);
+        $this->authenticateAsAdmin([$league->id]);
 
         $response = $this->getJson('/api/teams');
 
@@ -146,7 +148,7 @@ class TeamControllerTest extends TestCase
             ->assertJsonPath('data.0.id', $teamInScope->id);
     }
 
-    public function test_admin_with_no_championships_sees_empty_team_list(): void
+    public function test_admin_with_no_leagues_sees_empty_team_list(): void
     {
         Team::factory()->count(2)->create();
         $this->authenticateAsAdmin();
@@ -156,13 +158,13 @@ class TeamControllerTest extends TestCase
         $response->assertOk()->assertJsonCount(0, 'data');
     }
 
-    public function test_admin_can_show_team_in_assigned_championship(): void
+    public function test_admin_can_show_team_in_assigned_league(): void
     {
-        $championship = Championship::factory()->create();
-        $team         = Team::factory()->create();
-        $championship->teams()->attach($team->id);
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
 
-        $this->authenticateAsAdmin([$championship->id]);
+        $this->authenticateAsAdmin([$league->id]);
 
         $response = $this->getJson("/api/teams/{$team->id}");
 
@@ -204,12 +206,25 @@ class TeamControllerTest extends TestCase
     public function test_destroying_team_nullifies_player_team_id(): void
     {
         $this->authenticate();
-        $team   = Team::factory()->create();
+        $team = Team::factory()->create();
         $player = \App\Models\Player::factory()->create(['team_id' => $team->id]);
 
         $this->deleteJson("/api/teams/{$team->id}")->assertStatus(204);
 
         $this->assertDatabaseHas('players', ['id' => $player->id, 'team_id' => null]);
+    }
+
+    public function test_cannot_destroy_team_with_games(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        \App\Models\Game::factory()->create(['home_team_id' => $team->id]);
+
+        $response = $this->deleteJson("/api/teams/{$team->id}");
+
+        $response->assertStatus(422)
+            ->assertJson(['message' => 'Não é possível remover o time pois existem partidas vinculadas a ele.']);
+        $this->assertDatabaseHas('teams', ['id' => $team->id]);
     }
 
     // ── Rotas públicas ────────────────────────────────────────────────────────

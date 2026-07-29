@@ -12,7 +12,7 @@ use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasFactory, HasApiTokens, Notifiable, HasRoles;
+    use HasApiTokens, HasFactory, HasRoles, Notifiable;
 
     protected $fillable = [
         'name',
@@ -34,9 +34,9 @@ class User extends Authenticatable
         ];
     }
 
-    public function championships(): BelongsToMany
+    public function leagues(): BelongsToMany
     {
-        return $this->belongsToMany(Championship::class, 'user_championships');
+        return $this->belongsToMany(League::class, 'user_leagues');
     }
 
     public function isMaster(): bool
@@ -44,8 +44,8 @@ class User extends Authenticatable
         return $this->hasRole('master');
     }
 
-    public function championshipIds(): array
+    public function leagueIds(): array
     {
-        return $this->championships()->pluck('championships.id')->toArray();
+        return $this->leagues()->pluck('leagues.id')->toArray();
     }
 }
