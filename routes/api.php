@@ -2,19 +2,20 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChampionshipController;
-use App\Http\Controllers\CoachController;
 use App\Http\Controllers\GameController;
-use App\Http\Controllers\GoalController;
+use App\Http\Controllers\GameEventController;
+use App\Http\Controllers\LeagueController;
 use App\Http\Controllers\PlayerController;
 use App\Http\Controllers\StadiumController;
 use App\Http\Controllers\TeamController;
+use App\Http\Controllers\TechnicalCommitteeMemberController;
 use App\Http\Controllers\UserController;
 
 Route::post('/login', [AuthController::class, 'login'])->name('auth.login');
 
 Route::prefix('/public')->name('public.')->group(function () {
-    Route::get('/championships', [ChampionshipController::class, 'publicIndex'])->name('championships.index');
-    Route::get('/championships/{id}', [ChampionshipController::class, 'publicShow'])->name('championships.show');
+    Route::get('/championships', [LeagueController::class, 'publicIndex'])->name('championships.index');
+    Route::get('/championships/{id}', [LeagueController::class, 'publicShow'])->name('championships.show');
     Route::get('/teams/{id}', [TeamController::class, 'publicShow'])->name('teams.show');
     Route::get('/players/{id}', [PlayerController::class, 'publicShow'])->name('players.show');
 });
@@ -28,15 +29,23 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/{id}', [UserController::class, 'show'])->name('show');
         Route::put('/{id}', [UserController::class, 'update'])->name('update');
         Route::delete('/{id}', [UserController::class, 'destroy'])->name('destroy');
-        Route::post('/{id}/championships', [UserController::class, 'syncChampionships'])->name('championships.sync');
-        Route::delete('/{id}/championships/{cid}', [UserController::class, 'removeChampionship'])->name('championships.remove');
+        Route::post('/{id}/leagues', [UserController::class, 'syncLeagues'])->name('leagues.sync');
+        Route::delete('/{id}/leagues/{lid}', [UserController::class, 'removeLeague'])->name('leagues.remove');
     });
 
-    Route::prefix('/tournaments')->name('tournaments.')->group(function () {
+    Route::prefix('/leagues')->name('leagues.')->group(function () {
+        Route::get('/', [LeagueController::class, 'index'])->name('index');
+        Route::get('/{id}', [LeagueController::class, 'show'])->name('show')->middleware('access:league');
+        Route::post('/', [LeagueController::class, 'store'])->name('store')->middleware('role:master');
+        Route::put('/{id}', [LeagueController::class, 'update'])->name('update')->middleware('access:league');
+        Route::delete('/{id}', [LeagueController::class, 'destroy'])->name('destroy')->middleware('role:master');
+    });
+
+    Route::prefix('/championships')->name('championships.')->group(function () {
         Route::get('/', [ChampionshipController::class, 'index'])->name('index');
-        Route::get('/{id}', [ChampionshipController::class, 'show'])->name('show')->middleware('access:championship');
+        Route::get('/{id}', [ChampionshipController::class, 'show'])->name('show');
         Route::post('/', [ChampionshipController::class, 'store'])->name('store')->middleware('role:master');
-        Route::put('/{id}', [ChampionshipController::class, 'update'])->name('update')->middleware('access:championship');
+        Route::put('/{id}', [ChampionshipController::class, 'update'])->name('update')->middleware('role:master');
         Route::delete('/{id}', [ChampionshipController::class, 'destroy'])->name('destroy')->middleware('role:master');
     });
 
@@ -58,18 +67,18 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::prefix('/stadiums')->name('stadiums.')->group(function () {
         Route::get('/', [StadiumController::class, 'index'])->name('index');
-        Route::get('/{id}', [StadiumController::class, 'show'])->name('show');
+        Route::get('/{id}', [StadiumController::class, 'show'])->name('show')->middleware('access:stadium');
         Route::post('/', [StadiumController::class, 'store'])->name('store');
-        Route::put('/{id}', [StadiumController::class, 'update'])->name('update');
-        Route::delete('/{id}', [StadiumController::class, 'destroy'])->name('destroy')->middleware('role:master');
+        Route::put('/{id}', [StadiumController::class, 'update'])->name('update')->middleware('access:stadium');
+        Route::delete('/{id}', [StadiumController::class, 'destroy'])->name('destroy')->middleware(['role:master', 'access:stadium']);
     });
 
-    Route::prefix('/coaches')->name('coaches.')->group(function () {
-        Route::get('/', [CoachController::class, 'index'])->name('index');
-        Route::get('/{id}', [CoachController::class, 'show'])->name('show')->middleware('access:coach');
-        Route::post('/', [CoachController::class, 'store'])->name('store');
-        Route::put('/{id}', [CoachController::class, 'update'])->name('update')->middleware('access:coach');
-        Route::delete('/{id}', [CoachController::class, 'destroy'])->name('destroy')->middleware('access:coach');
+    Route::prefix('/technical-committee-members')->name('technical-committee-members.')->group(function () {
+        Route::get('/', [TechnicalCommitteeMemberController::class, 'index'])->name('index');
+        Route::get('/{id}', [TechnicalCommitteeMemberController::class, 'show'])->name('show')->middleware('access:technical_committee_member');
+        Route::post('/', [TechnicalCommitteeMemberController::class, 'store'])->name('store');
+        Route::put('/{id}', [TechnicalCommitteeMemberController::class, 'update'])->name('update')->middleware('access:technical_committee_member');
+        Route::delete('/{id}', [TechnicalCommitteeMemberController::class, 'destroy'])->name('destroy')->middleware('access:technical_committee_member');
     });
 
     Route::prefix('/games')->name('games.')->group(function () {
@@ -80,11 +89,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/{id}', [GameController::class, 'destroy'])->name('destroy')->middleware('access:game');
     });
 
-    Route::prefix('/goals')->name('goals.')->group(function () {
-        Route::get('/', [GoalController::class, 'index'])->name('index');
-        Route::get('/{id}', [GoalController::class, 'show'])->name('show')->middleware('access:goal');
-        Route::post('/', [GoalController::class, 'store'])->name('store');
-        Route::put('/{id}', [GoalController::class, 'update'])->name('update')->middleware('access:goal');
-        Route::delete('/{id}', [GoalController::class, 'destroy'])->name('destroy')->middleware('access:goal');
+    Route::prefix('/game-events')->name('game-events.')->group(function () {
+        Route::get('/', [GameEventController::class, 'index'])->name('index');
+        Route::get('/{id}', [GameEventController::class, 'show'])->name('show')->middleware('access:game_event');
+        Route::post('/', [GameEventController::class, 'store'])->name('store');
+        Route::put('/{id}', [GameEventController::class, 'update'])->name('update')->middleware('access:game_event');
+        Route::delete('/{id}', [GameEventController::class, 'destroy'])->name('destroy')->middleware('access:game_event');
     });
 });

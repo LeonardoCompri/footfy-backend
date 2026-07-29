@@ -18,7 +18,8 @@ class GameService
         if ($user->isMaster()) {
             return $this->repository->index(null);
         }
-        return $this->repository->index($user->championshipIds());
+
+        return $this->repository->index($user->leagueIds());
     }
 
     public function store(array $data): Game
@@ -30,8 +31,8 @@ class GameService
     {
         $game = $this->repository->show($id);
 
-        if (!$game) {
-            throw ValidationException::withMessages(["message" => "Partida não encontrada!"]);
+        if (! $game) {
+            throw ValidationException::withMessages(['message' => 'Partida não encontrada!']);
         }
 
         return $game;

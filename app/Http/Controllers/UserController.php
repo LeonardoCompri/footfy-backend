@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\UserChampionshipsRequest;
+use App\Http\Requests\UserLeaguesRequest;
 use App\Http\Requests\UserStoreRequest;
 use App\Http\Requests\UserUpdateRequest;
 use App\Http\Resources\UserResource;
@@ -76,11 +76,11 @@ class UserController extends Controller
         }
     }
 
-    public function syncChampionships(UserChampionshipsRequest $request, string $id): JsonResponse
+    public function syncLeagues(UserLeaguesRequest $request, string $id): JsonResponse
     {
         try {
-            $championshipIds = $request->validated()['championship_ids'];
-            $response = $this->service->syncChampionships($id, $championshipIds);
+            $leagueIds = $request->validated()['league_ids'];
+            $response = $this->service->syncLeagues($id, $leagueIds);
 
             return response()->json(['data' => new UserResource($response)]);
         } catch (ValidationException $ex) {
@@ -90,10 +90,10 @@ class UserController extends Controller
         }
     }
 
-    public function removeChampionship(string $id, string $cid): JsonResponse
+    public function removeLeague(string $id, string $lid): JsonResponse
     {
         try {
-            $response = $this->service->removeChampionship($id, $cid);
+            $response = $this->service->removeLeague($id, $lid);
 
             return response()->json(['data' => new UserResource($response)]);
         } catch (ValidationException $ex) {

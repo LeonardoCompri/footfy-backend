@@ -9,19 +9,20 @@ class UserRepository
 {
     public function index(): Collection
     {
-        return User::with('championships')->get();
+        return User::with('leagues')->get();
     }
 
     public function store(array $data, string $role): User
     {
         $user = User::create($data);
         $user->assignRole($role);
-        return $user->load('championships');
+
+        return $user->load('leagues');
     }
 
     public function show(string $id): ?User
     {
-        return User::with('championships')->find($id);
+        return User::with('leagues')->find($id);
     }
 
     public function update(User $user, array $data): User
@@ -32,7 +33,8 @@ class UserRepository
         unset($data['role']);
         $user->fill($data);
         $user->save();
-        return $user->load('championships');
+
+        return $user->load('leagues');
     }
 
     public function destroy(User $user): ?bool
@@ -40,15 +42,17 @@ class UserRepository
         return $user->delete();
     }
 
-    public function syncChampionships(User $user, array $championshipIds): User
+    public function syncLeagues(User $user, array $leagueIds): User
     {
-        $user->championships()->syncWithoutDetaching($championshipIds);
-        return $user->load('championships');
+        $user->leagues()->syncWithoutDetaching($leagueIds);
+
+        return $user->load('leagues');
     }
 
-    public function removeChampionship(User $user, string $championshipId): User
+    public function removeLeague(User $user, string $leagueId): User
     {
-        $user->championships()->detach($championshipId);
-        return $user->load('championships');
+        $user->leagues()->detach($leagueId);
+
+        return $user->load('leagues');
     }
 }

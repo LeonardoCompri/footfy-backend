@@ -10,7 +10,7 @@ class Game extends Model
     use HasFactory;
 
     protected $fillable = [
-        'championship_id',
+        'league_id',
         'home_team_id',
         'away_team_id',
         'stadium_id',
@@ -21,9 +21,9 @@ class Game extends Model
         'status',
     ];
 
-    public function championship()
+    public function league()
     {
-        return $this->belongsTo(Championship::class);
+        return $this->belongsTo(League::class);
     }
 
     public function homeTeam()
@@ -36,8 +36,8 @@ class Game extends Model
         return $this->belongsTo(Team::class, 'away_team_id');
     }
 
-    public function goals()
+    public function events()
     {
-        return $this->hasMany(Goal::class);
+        return $this->hasMany(GameEvent::class);
     }
 }

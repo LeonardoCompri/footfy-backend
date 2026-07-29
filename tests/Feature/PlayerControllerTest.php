@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Championship;
+use App\Models\League;
 use App\Models\Player;
 use App\Models\Team;
 use App\Models\User;
@@ -28,17 +28,19 @@ class PlayerControllerTest extends TestCase
         $user = User::factory()->create();
         $user->assignRole('master');
         Sanctum::actingAs($user);
+
         return $user;
     }
 
-    private function authenticateAsAdmin(array $championshipIds = []): User
+    private function authenticateAsAdmin(array $leagueIds = []): User
     {
         $user = User::factory()->create();
         $user->assignRole('admin');
-        if (!empty($championshipIds)) {
-            $user->championships()->sync($championshipIds);
+        if (! empty($leagueIds)) {
+            $user->leagues()->sync($leagueIds);
         }
         Sanctum::actingAs($user);
+
         return $user;
     }
 
@@ -69,10 +71,10 @@ class PlayerControllerTest extends TestCase
         $team = Team::factory()->create();
 
         $response = $this->postJson('/api/players', [
-            'team_id'  => $team->id,
-            'name'     => 'Jogador Teste',
+            'team_id' => $team->id,
+            'name' => 'Jogador Teste',
             'position' => 'ATA',
-            'number'   => 9,
+            'number' => 9,
             'document' => '12345678901',
         ]);
 
@@ -131,7 +133,7 @@ class PlayerControllerTest extends TestCase
         $this->authenticate();
 
         $response = $this->postJson('/api/players', [
-            'name'    => 'Jogador Teste',
+            'name' => 'Jogador Teste',
             'team_id' => 999,
         ]);
 
@@ -143,7 +145,7 @@ class PlayerControllerTest extends TestCase
         $this->authenticate();
 
         $response = $this->postJson('/api/players', [
-            'name'     => 'Jogador Teste',
+            'name' => 'Jogador Teste',
             'document' => '123',
         ]);
 
@@ -156,7 +158,7 @@ class PlayerControllerTest extends TestCase
         Player::factory()->create(['document' => '11122233344']);
 
         $response = $this->postJson('/api/players', [
-            'name'     => 'Outro Jogador',
+            'name' => 'Outro Jogador',
             'document' => '11122233344',
         ]);
 
@@ -178,27 +180,27 @@ class PlayerControllerTest extends TestCase
         $player = Player::factory()->create(['document' => '55566677788']);
 
         $response = $this->putJson("/api/players/{$player->id}", [
-            'name'     => $player->name,
+            'name' => $player->name,
             'document' => '55566677788',
         ]);
 
         $response->assertOk();
     }
 
-    // ── Admin: escopo por campeonato ──────────────────────────────────────────
+    // ── Admin: escopo por liga ───────────────────────────────────────────────
 
-    public function test_admin_index_only_sees_players_of_teams_in_assigned_championships(): void
+    public function test_admin_index_only_sees_players_of_teams_in_assigned_leagues(): void
     {
-        $championship = Championship::factory()->create();
-        $teamInScope  = Team::factory()->create();
+        $league = League::factory()->create();
+        $teamInScope = Team::factory()->create();
         $teamOutScope = Team::factory()->create();
 
-        $championship->teams()->attach($teamInScope->id);
+        $league->teams()->attach($teamInScope->id);
 
-        $playerInScope  = Player::factory()->create(['team_id' => $teamInScope->id]);
+        $playerInScope = Player::factory()->create(['team_id' => $teamInScope->id]);
         $playerOutScope = Player::factory()->create(['team_id' => $teamOutScope->id]);
 
-        $this->authenticateAsAdmin([$championship->id]);
+        $this->authenticateAsAdmin([$league->id]);
 
         $response = $this->getJson('/api/players');
 
@@ -207,7 +209,7 @@ class PlayerControllerTest extends TestCase
             ->assertJsonPath('data.0.id', $playerInScope->id);
     }
 
-    public function test_admin_with_no_championships_sees_empty_player_list(): void
+    public function test_admin_with_no_leagues_sees_empty_player_list(): void
     {
         Player::factory()->count(2)->create();
         $this->authenticateAsAdmin();
@@ -217,14 +219,14 @@ class PlayerControllerTest extends TestCase
         $response->assertOk()->assertJsonCount(0, 'data');
     }
 
-    public function test_admin_can_show_player_in_assigned_championship(): void
+    public function test_admin_can_show_player_in_assigned_league(): void
     {
-        $championship = Championship::factory()->create();
-        $team         = Team::factory()->create();
-        $championship->teams()->attach($team->id);
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
         $player = Player::factory()->create(['team_id' => $team->id]);
 
-        $this->authenticateAsAdmin([$championship->id]);
+        $this->authenticateAsAdmin([$league->id]);
 
         $response = $this->getJson("/api/players/{$player->id}");
 
@@ -256,7 +258,7 @@ class PlayerControllerTest extends TestCase
     public function test_destroying_team_nullifies_player_team_id(): void
     {
         $this->authenticate();
-        $team   = Team::factory()->create();
+        $team = Team::factory()->create();
         $player = Player::factory()->create(['team_id' => $team->id]);
 
         $this->deleteJson("/api/teams/{$team->id}")->assertStatus(204);
