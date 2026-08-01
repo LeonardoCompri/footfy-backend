@@ -9,13 +9,15 @@ class ChampionshipResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        return [
+        $response =  [
             'id' => $this->id,
-            'name' => $this->name,
-            'created_at' => $this->created_at,
-            'updated_at' => $this->updated_at,
-            'teams' => TeamResource::collection($this->whenLoaded('teams')),
-            'games' => GameResource::collection($this->whenLoaded('games')),
+            'name' => $this->name
         ];
+
+        if ($request->route()->getName() == 'public.championships.show') {
+            $response['leagues'] = LeagueResource::collection($this->whenLoaded('leagues'));
+        }
+
+        return $response;
     }
 }

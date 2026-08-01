@@ -18,7 +18,7 @@ class ChampionshipService
 
     public function publicIndex(): Collection
     {
-        return $this->repository->index(null);
+        return $this->repository->index(null, ['leagues']);
     }
 
     public function store(array $data): Championship
@@ -39,7 +39,7 @@ class ChampionshipService
 
     public function publicShow(string $id): Championship
     {
-        $championship = $this->repository->show($id, ['teams', 'games']);
+        $championship = $this->repository->show($id, ['leagues']);
 
         if (!$championship) {
             throw ValidationException::withMessages(["message" => "Campeonato não encontrado!"]);

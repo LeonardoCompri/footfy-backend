@@ -24,7 +24,7 @@ class LeagueService
 
     public function publicIndex(): Collection
     {
-        return $this->repository->index(null);
+        return $this->repository->index(null, ['championship']);
     }
 
     public function store(array $data): League
@@ -45,7 +45,7 @@ class LeagueService
 
     public function publicShow(string $id): League
     {
-        $league = $this->repository->show($id, ['teams', 'games']);
+        $league = $this->repository->show($id, ['championship', 'teams', 'games', 'stadiums']);
 
         if (! $league) {
             throw ValidationException::withMessages(['message' => 'Liga não encontrada!']);
