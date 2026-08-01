@@ -56,6 +56,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Origin Host
+    |--------------------------------------------------------------------------
+    |
+    | This value is the host permitido para acessar as rotas públicas da
+    | aplicação (ex: /public/*). O PublicRouteMiddleware compara este valor
+    | com o host da requisição recebida e bloqueia quem não corresponder.
+    |
+    */
+
+    'public_origin' => env('PUBLIC_ORIGIN', 'localhost'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

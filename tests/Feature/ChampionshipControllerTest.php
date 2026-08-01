@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Championship;
+use App\Models\League;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -163,5 +164,59 @@ class ChampionshipControllerTest extends TestCase
         $response = $this->deleteJson("/api/championships/{$championship->id}");
 
         $response->assertForbidden();
+    }
+
+    // ── Rotas públicas ────────────────────────────────────────────────────────
+
+    public function test_guest_can_list_championships_via_public_route(): void
+    {
+        Championship::factory()->count(2)->create();
+
+        $response = $this->getJson('/api/public/championships');
+
+        $response->assertOk()->assertJsonCount(2, 'data');
+    }
+
+    public function test_guest_can_show_championship_via_public_route_with_leagues(): void
+    {
+        $championship = Championship::factory()->create();
+        $league = League::factory()->create(['championship_id' => $championship->id]);
+
+        $response = $this->getJson("/api/public/championships/{$championship->id}");
+
+        $response->assertOk()
+            ->assertJsonPath('data.id', $championship->id)
+            ->assertJsonPath('data.leagues.0.id', $league->id);
+    }
+
+    public function test_guest_show_via_public_route_returns_error_when_not_found(): void
+    {
+        $response = $this->getJson('/api/public/championships/999');
+
+        $response->assertStatus(422)->assertJson(['message' => 'Campeonato não encontrado!']);
+    }
+
+    // ── Estrutura de resposta (ChampionshipResource) ────────────────────────────
+
+    public function test_public_index_response_does_not_include_leagues(): void
+    {
+        Championship::factory()->create();
+
+        $response = $this->getJson('/api/public/championships');
+
+        $response->assertOk();
+        $this->assertArrayNotHasKey('leagues', $response->json('data.0'));
+    }
+
+    public function test_regular_show_response_does_not_include_leagues(): void
+    {
+        $this->authenticate();
+        $championship = Championship::factory()->create();
+        League::factory()->create(['championship_id' => $championship->id]);
+
+        $response = $this->getJson("/api/championships/{$championship->id}");
+
+        $response->assertOk();
+        $this->assertArrayNotHasKey('leagues', $response->json('data'));
     }
 }
