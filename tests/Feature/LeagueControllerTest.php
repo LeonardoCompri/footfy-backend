@@ -2,8 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Models\Championship;
 use App\Models\Game;
 use App\Models\League;
+use App\Models\Stadium;
+use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -231,31 +234,45 @@ class LeagueControllerTest extends TestCase
 
     // ── Rotas públicas ────────────────────────────────────────────────────────
 
-    public function test_guest_can_list_leagues_via_public_route(): void
+    public function test_guest_can_show_league_via_public_route_with_related_data(): void
     {
-        League::factory()->count(2)->create();
-
-        $response = $this->getJson('/api/public/championships');
-
-        $response->assertOk()->assertJsonCount(2, 'data');
-    }
-
-    public function test_guest_can_show_league_via_public_route_with_games(): void
-    {
-        $league = League::factory()->create();
+        $championship = Championship::factory()->create();
+        $league = League::factory()->create(['championship_id' => $championship->id]);
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
         $game = Game::factory()->create(['league_id' => $league->id]);
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
 
-        $response = $this->getJson("/api/public/championships/{$league->id}");
+        $response = $this->getJson("/api/public/leagues/{$league->id}");
 
         $response->assertOk()
             ->assertJsonPath('data.id', $league->id)
-            ->assertJsonPath('data.games.0.id', $game->id);
+            ->assertJsonPath('data.championship.id', $championship->id)
+            ->assertJsonPath('data.teams.0.id', $team->id)
+            ->assertJsonPath('data.games.0.id', $game->id)
+            ->assertJsonPath('data.stadiums.0.id', $stadium->id);
     }
 
     public function test_guest_show_via_public_route_returns_error_when_not_found(): void
     {
-        $response = $this->getJson('/api/public/championships/999');
+        $response = $this->getJson('/api/public/leagues/999');
 
         $response->assertStatus(422)->assertJson(['message' => 'Liga não encontrada!']);
+    }
+
+    // ── Estrutura de resposta (LeagueResource) ──────────────────────────────────
+
+    public function test_league_show_response_does_not_expose_internal_fields(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+
+        $response = $this->getJson("/api/leagues/{$league->id}");
+
+        $response->assertOk();
+        $data = $response->json('data');
+        $this->assertArrayNotHasKey('championship_id', $data);
+        $this->assertArrayNotHasKey('created_at', $data);
+        $this->assertArrayNotHasKey('updated_at', $data);
     }
 }
