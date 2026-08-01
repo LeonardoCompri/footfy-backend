@@ -16,11 +16,10 @@ class LeagueResource extends JsonResource
             'end_date' => $this->end_date,
             'organizer' => $this->organizer,
             'season' => $this->season,
-            'championship_id' => $this->championship_id,
-            'created_at' => $this->created_at,
-            'updated_at' => $this->updated_at,
+            'championship' => new ChampionshipResource($this->whenLoaded('championship')),
             'teams' => TeamResource::collection($this->whenLoaded('teams')),
             'games' => GameResource::collection($this->whenLoaded('games')),
+            'stadiums' => StadiumResource::collection($this->whenLoaded('stadiums')),
         ];
     }
 }

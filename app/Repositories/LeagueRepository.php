@@ -7,9 +7,9 @@ use Illuminate\Database\Eloquent\Collection;
 
 class LeagueRepository
 {
-    public function index(?array $ids = null): Collection
+    public function index(?array $ids = null, array $with = []): Collection
     {
-        $query = League::query();
+        $query = League::query()->with($with);
         if ($ids !== null) {
             $query->whereIn('id', $ids);
         }
