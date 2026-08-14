@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Storage;
 
 class ChampionshipResource extends JsonResource
 {
@@ -11,7 +12,8 @@ class ChampionshipResource extends JsonResource
     {
         $response =  [
             'id' => $this->id,
-            'name' => $this->name
+            'name' => $this->name,
+            'image' => $this->image ? Storage::disk('public')->url($this->image) : null,
         ];
 
         if ($request->route()->getName() == 'public.championships.show') {
