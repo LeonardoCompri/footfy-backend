@@ -6,6 +6,8 @@ use App\Models\Championship;
 use App\Models\League;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -122,6 +124,68 @@ class ChampionshipControllerTest extends TestCase
 
         $response->assertStatus(204);
         $this->assertDatabaseMissing('championships', ['id' => $championship->id]);
+    }
+
+    // ── Upload de imagem ─────────────────────────────────────────────────────
+
+    public function test_master_can_create_championship_with_image(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+
+        $response = $this->postJson('/api/championships', [
+            'name' => 'Campeonato Brasileiro',
+            'image' => UploadedFile::fake()->image('logo.jpg'),
+        ]);
+
+        $response->assertCreated();
+        $championship = Championship::first();
+        $this->assertNotNull($championship->image);
+        Storage::disk('public')->assertExists($championship->image);
+        $response->assertJsonPath('data.image', Storage::disk('public')->url($championship->image));
+    }
+
+    public function test_master_can_update_championship_replacing_image(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $oldPath = UploadedFile::fake()->image('old.jpg')->store('championships', 'public');
+        $championship = Championship::factory()->create(['image' => $oldPath]);
+
+        $response = $this->putJson("/api/championships/{$championship->id}", [
+            'image' => UploadedFile::fake()->image('new.jpg'),
+        ]);
+
+        $response->assertOk();
+        $championship->refresh();
+        $this->assertNotEquals($oldPath, $championship->image);
+        Storage::disk('public')->assertMissing($oldPath);
+        Storage::disk('public')->assertExists($championship->image);
+    }
+
+    public function test_create_championship_without_image_keeps_it_null(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/championships', ['name' => 'Campeonato Brasileiro']);
+
+        $response->assertCreated()->assertJsonPath('data.image', null);
+        $this->assertDatabaseHas('championships', ['name' => 'Campeonato Brasileiro', 'image' => null]);
+    }
+
+    public function test_update_championship_without_image_keeps_existing_image(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $path = UploadedFile::fake()->image('logo.jpg')->store('championships', 'public');
+        $championship = Championship::factory()->create(['image' => $path]);
+
+        $response = $this->putJson("/api/championships/{$championship->id}", ['name' => 'Novo Nome']);
+
+        $response->assertOk();
+        $championship->refresh();
+        $this->assertEquals($path, $championship->image);
+        Storage::disk('public')->assertExists($path);
     }
 
     // ── Validações ────────────────────────────────────────────────────────────

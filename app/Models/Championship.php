@@ -12,6 +12,7 @@ class Championship extends Model
 
     protected $fillable = [
         'name',
+        'image',
     ];
 
     public function leagues(): HasMany

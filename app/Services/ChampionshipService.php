@@ -4,11 +4,14 @@ namespace App\Services;
 
 use App\Models\Championship;
 use App\Repositories\ChampionshipRepository;
+use App\Services\Concerns\HandlesImageUpload;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\ValidationException;
 
 class ChampionshipService
 {
+    use HandlesImageUpload;
+
     public function __construct(private readonly ChampionshipRepository $repository) {}
 
     public function index(): Collection
@@ -23,6 +26,10 @@ class ChampionshipService
 
     public function store(array $data): Championship
     {
+        if (isset($data['image'])) {
+            $data['image'] = $this->storeImage($data['image'], 'championships');
+        }
+
         return $this->repository->store($data);
     }
 
@@ -51,6 +58,12 @@ class ChampionshipService
     public function update(array $data, string $id): Championship
     {
         $championship = $this->show($id);
+
+        if (isset($data['image'])) {
+            $this->deleteImage($championship->image);
+            $data['image'] = $this->storeImage($data['image'], 'championships');
+        }
+
         $championship->fill($data);
 
         $this->repository->update($championship);
