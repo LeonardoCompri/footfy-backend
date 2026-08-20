@@ -158,6 +158,54 @@ class TeamControllerTest extends TestCase
         $response->assertOk()->assertJsonCount(0, 'data');
     }
 
+    // ── Filtro por league_id ─────────────────────────────────────────────────
+
+    public function test_master_can_filter_index_by_league_id(): void
+    {
+        $this->authenticate();
+        $leagueA = League::factory()->create();
+        $leagueB = League::factory()->create();
+        $teamA = Team::factory()->create();
+        $teamB = Team::factory()->create();
+        $leagueA->teams()->attach($teamA->id);
+        $leagueB->teams()->attach($teamB->id);
+
+        $response = $this->getJson("/api/teams?league_id={$leagueA->id}");
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $teamA->id);
+    }
+
+    public function test_admin_can_filter_index_by_assigned_league_id(): void
+    {
+        $leagueA = League::factory()->create();
+        $leagueB = League::factory()->create();
+        $teamA = Team::factory()->create();
+        $teamB = Team::factory()->create();
+        $leagueA->teams()->attach($teamA->id);
+        $leagueB->teams()->attach($teamB->id);
+
+        $this->authenticateAsAdmin([$leagueA->id, $leagueB->id]);
+
+        $response = $this->getJson("/api/teams?league_id={$leagueA->id}");
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $teamA->id);
+    }
+
+    public function test_admin_cannot_filter_index_by_unassigned_league_id(): void
+    {
+        $assignedLeague = League::factory()->create();
+        $otherLeague = League::factory()->create();
+        $this->authenticateAsAdmin([$assignedLeague->id]);
+
+        $response = $this->getJson("/api/teams?league_id={$otherLeague->id}");
+
+        $response->assertStatus(422)->assertJson(['message' => 'Você não tem acesso a essa liga.']);
+    }
+
     public function test_admin_can_show_team_in_assigned_league(): void
     {
         $league = League::factory()->create();

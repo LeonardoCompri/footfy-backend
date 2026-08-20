@@ -278,6 +278,94 @@ class GameControllerTest extends TestCase
         $response->assertOk()->assertJsonCount(0, 'data');
     }
 
+    // ── Filtro por league_id ─────────────────────────────────────────────────
+
+    public function test_master_can_filter_index_by_league_id(): void
+    {
+        $this->authenticate();
+        $leagueA = League::factory()->create();
+        $leagueB = League::factory()->create();
+        $gameA = Game::factory()->create(['league_id' => $leagueA->id]);
+        Game::factory()->create(['league_id' => $leagueB->id]);
+
+        $response = $this->getJson("/api/games?league_id={$leagueA->id}");
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $gameA->id);
+    }
+
+    public function test_admin_can_filter_index_by_assigned_league_id(): void
+    {
+        $leagueA = League::factory()->create();
+        $leagueB = League::factory()->create();
+        $gameA = Game::factory()->create(['league_id' => $leagueA->id]);
+        Game::factory()->create(['league_id' => $leagueB->id]);
+
+        $this->authenticateAsAdmin([$leagueA->id, $leagueB->id]);
+
+        $response = $this->getJson("/api/games?league_id={$leagueA->id}");
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $gameA->id);
+    }
+
+    public function test_admin_cannot_filter_index_by_unassigned_league_id(): void
+    {
+        $assignedLeague = League::factory()->create();
+        $otherLeague = League::factory()->create();
+        $this->authenticateAsAdmin([$assignedLeague->id]);
+
+        $response = $this->getJson("/api/games?league_id={$otherLeague->id}");
+
+        $response->assertStatus(422)->assertJson(['message' => 'Você não tem acesso a essa liga.']);
+    }
+
+    // ── GameResource: relações aninhadas ─────────────────────────────────────
+
+    public function test_show_returns_nested_home_team_away_team_stadium_and_events(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $home = Team::factory()->create();
+        $away = Team::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $game = Game::factory()->create([
+            'league_id' => $league->id,
+            'home_team_id' => $home->id,
+            'away_team_id' => $away->id,
+            'stadium_id' => $stadium->id,
+        ]);
+        $player = \App\Models\Player::factory()->create(['team_id' => $home->id]);
+        \App\Models\GameEvent::factory()->create([
+            'game_id' => $game->id,
+            'league_id' => $league->id,
+            'team_id' => $home->id,
+            'player_id' => $player->id,
+        ]);
+
+        $response = $this->getJson("/api/games/{$game->id}");
+
+        $response->assertOk()
+            ->assertJsonPath('data.home_team_id', $home->id)
+            ->assertJsonPath('data.homeTeam.id', $home->id)
+            ->assertJsonPath('data.awayTeam.id', $away->id)
+            ->assertJsonPath('data.stadium.id', $stadium->id)
+            ->assertJsonCount(1, 'data.events');
+    }
+
+    public function test_index_does_not_include_nested_relations_by_default(): void
+    {
+        $this->authenticate();
+        Game::factory()->create();
+
+        $response = $this->getJson('/api/games');
+
+        $response->assertOk();
+        $this->assertArrayNotHasKey('homeTeam', $response->json('data.0'));
+    }
+
     public function test_admin_can_show_game_in_assigned_league(): void
     {
         $league = League::factory()->create();
