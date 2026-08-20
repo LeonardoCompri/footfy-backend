@@ -52,7 +52,7 @@ class StadiumControllerTest extends TestCase
         $response->assertStatus(401);
     }
 
-    // ── Acesso livre (qualquer usuário autenticado) ───────────────────────────
+    // ── Master: acesso irrestrito ao index ────────────────────────────────────
 
     public function test_index_returns_all_stadiums(): void
     {
@@ -62,16 +62,6 @@ class StadiumControllerTest extends TestCase
         $response = $this->getJson('/api/stadiums');
 
         $response->assertOk()->assertJsonCount(2, 'data');
-    }
-
-    public function test_admin_also_sees_all_stadiums(): void
-    {
-        $this->authenticateAsAdmin();
-        Stadium::factory()->count(3)->create();
-
-        $response = $this->getJson('/api/stadiums');
-
-        $response->assertOk()->assertJsonCount(3, 'data');
     }
 
     public function test_store_creates_stadium(): void
@@ -86,7 +76,9 @@ class StadiumControllerTest extends TestCase
             'capacity' => 60000,
         ]);
 
-        $response->assertCreated()->assertJsonPath('data.name', 'Arena Y');
+        $response->assertCreated()
+            ->assertJsonPath('data.name', 'Arena Y')
+            ->assertJsonPath('data.league_id', $league->id);
         $this->assertDatabaseHas('stadiums', ['name' => 'Arena Y', 'league_id' => $league->id]);
     }
 
@@ -171,6 +163,32 @@ class StadiumControllerTest extends TestCase
     }
 
     // ── Admin: escopo por liga ───────────────────────────────────────────────
+
+    public function test_admin_index_only_sees_stadiums_in_assigned_leagues(): void
+    {
+        $leagueA = League::factory()->create();
+        $leagueB = League::factory()->create();
+        $stadiumInScope = Stadium::factory()->create(['league_id' => $leagueA->id]);
+        Stadium::factory()->create(['league_id' => $leagueB->id]);
+
+        $this->authenticateAsAdmin([$leagueA->id]);
+
+        $response = $this->getJson('/api/stadiums');
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $stadiumInScope->id);
+    }
+
+    public function test_admin_with_no_leagues_sees_empty_stadium_list(): void
+    {
+        Stadium::factory()->count(2)->create();
+        $this->authenticateAsAdmin();
+
+        $response = $this->getJson('/api/stadiums');
+
+        $response->assertOk()->assertJsonCount(0, 'data');
+    }
 
     public function test_admin_with_league_access_can_show_stadium(): void
     {

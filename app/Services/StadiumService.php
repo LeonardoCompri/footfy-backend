@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Stadium;
 use App\Repositories\StadiumRepository;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class StadiumService
@@ -13,7 +14,12 @@ class StadiumService
 
     public function index(): Collection
     {
-        return $this->repository->index();
+        $user = Auth::user();
+        if ($user->isMaster()) {
+            return $this->repository->index(null);
+        }
+
+        return $this->repository->index($user->leagueIds());
     }
 
     public function store(array $data): Stadium
