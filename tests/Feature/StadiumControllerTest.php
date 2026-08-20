@@ -190,6 +190,50 @@ class StadiumControllerTest extends TestCase
         $response->assertOk()->assertJsonCount(0, 'data');
     }
 
+    // ── Filtro por league_id ─────────────────────────────────────────────────
+
+    public function test_master_can_filter_index_by_league_id(): void
+    {
+        $this->authenticate();
+        $leagueA = League::factory()->create();
+        $leagueB = League::factory()->create();
+        $stadiumA = Stadium::factory()->create(['league_id' => $leagueA->id]);
+        Stadium::factory()->create(['league_id' => $leagueB->id]);
+
+        $response = $this->getJson("/api/stadiums?league_id={$leagueA->id}");
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $stadiumA->id);
+    }
+
+    public function test_admin_can_filter_index_by_assigned_league_id(): void
+    {
+        $leagueA = League::factory()->create();
+        $leagueB = League::factory()->create();
+        $stadiumA = Stadium::factory()->create(['league_id' => $leagueA->id]);
+        Stadium::factory()->create(['league_id' => $leagueB->id]);
+
+        $this->authenticateAsAdmin([$leagueA->id, $leagueB->id]);
+
+        $response = $this->getJson("/api/stadiums?league_id={$leagueA->id}");
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $stadiumA->id);
+    }
+
+    public function test_admin_cannot_filter_index_by_unassigned_league_id(): void
+    {
+        $assignedLeague = League::factory()->create();
+        $otherLeague = League::factory()->create();
+        $this->authenticateAsAdmin([$assignedLeague->id]);
+
+        $response = $this->getJson("/api/stadiums?league_id={$otherLeague->id}");
+
+        $response->assertStatus(422)->assertJson(['message' => 'Você não tem acesso a essa liga.']);
+    }
+
     public function test_admin_with_league_access_can_show_stadium(): void
     {
         $league = League::factory()->create();
