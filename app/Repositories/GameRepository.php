@@ -22,9 +22,9 @@ class GameRepository
         return Game::create($data);
     }
 
-    public function show(string $id): ?Game
+    public function show(string $id, array $with = []): ?Game
     {
-        return Game::find($id);
+        return Game::with($with)->find($id);
     }
 
     public function update(Game $game): bool

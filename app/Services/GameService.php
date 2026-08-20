@@ -12,14 +12,27 @@ class GameService
 {
     public function __construct(private readonly GameRepository $repository) {}
 
-    public function index(): Collection
+    // Lista partidas do usuário, opcionalmente restrita a uma única liga (leagueId),
+    // sempre validando que essa liga está entre as que o usuário tem acesso.
+    public function index(?string $leagueId = null): Collection
     {
         $user = Auth::user();
+
         if ($user->isMaster()) {
-            return $this->repository->index(null);
+            return $this->repository->index($leagueId ? [$leagueId] : null);
         }
 
-        return $this->repository->index($user->leagueIds());
+        $leagueIds = $user->leagueIds();
+
+        if ($leagueId !== null) {
+            if (! in_array((int) $leagueId, $leagueIds)) {
+                throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa liga.']);
+            }
+
+            $leagueIds = [$leagueId];
+        }
+
+        return $this->repository->index($leagueIds);
     }
 
     public function store(array $data): Game
@@ -27,9 +40,11 @@ class GameService
         return $this->repository->store($data);
     }
 
+    // Carrega a partida já com homeTeam/awayTeam/stadium/events, para evitar
+    // N+1 no GameResource ao exibir o detalhe de uma partida.
     public function show(string $id): Game
     {
-        $game = $this->repository->show($id);
+        $game = $this->repository->show($id, ['homeTeam', 'awayTeam', 'stadium', 'events']);
 
         if (! $game) {
             throw ValidationException::withMessages(['message' => 'Partida não encontrada!']);

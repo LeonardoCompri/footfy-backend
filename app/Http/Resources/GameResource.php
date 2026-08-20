@@ -22,6 +22,10 @@ class GameResource extends JsonResource
             'status' => $this->status,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            'homeTeam' => new TeamResource($this->whenLoaded('homeTeam')),
+            'awayTeam' => new TeamResource($this->whenLoaded('awayTeam')),
+            'stadium' => new StadiumResource($this->whenLoaded('stadium')),
+            'events' => GameEventResource::collection($this->whenLoaded('events')),
         ];
     }
 }
