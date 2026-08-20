@@ -12,14 +12,27 @@ class StadiumService
 {
     public function __construct(private readonly StadiumRepository $repository) {}
 
-    public function index(): Collection
+    // Lista estádios do usuário, opcionalmente restrita a uma única liga (leagueId),
+    // sempre validando que essa liga está entre as que o usuário tem acesso.
+    public function index(?string $leagueId = null): Collection
     {
         $user = Auth::user();
+
         if ($user->isMaster()) {
-            return $this->repository->index(null);
+            return $this->repository->index($leagueId ? [$leagueId] : null);
         }
 
-        return $this->repository->index($user->leagueIds());
+        $leagueIds = $user->leagueIds();
+
+        if ($leagueId !== null) {
+            if (! in_array((int) $leagueId, $leagueIds)) {
+                throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa liga.']);
+            }
+
+            $leagueIds = [$leagueId];
+        }
+
+        return $this->repository->index($leagueIds);
     }
 
     public function store(array $data): Stadium

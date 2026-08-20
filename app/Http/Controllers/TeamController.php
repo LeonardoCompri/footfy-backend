@@ -7,6 +7,7 @@ use App\Http\Requests\TeamUpdateRequest;
 use App\Http\Resources\TeamResource;
 use App\Services\TeamService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -14,12 +15,14 @@ class TeamController extends Controller
 {
     public function __construct(private readonly TeamService $service) {}
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         try {
-            $response = $this->service->index();
+            $response = $this->service->index($request->query('league_id'));
 
             return response()->json(['data' => TeamResource::collection($response)]);
+        } catch (ValidationException $ex) {
+            return response()->json(["message" => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
                 "message" => "Houve um erro no servidor, tente novamente!"

@@ -232,6 +232,30 @@ class LeagueControllerTest extends TestCase
         $response->assertOk()->assertJsonCount(0, 'data');
     }
 
+    // ── Eager-load de championship ────────────────────────────────────────────
+
+    public function test_master_index_eager_loads_championship(): void
+    {
+        $this->authenticate();
+        $championship = Championship::factory()->create();
+        League::factory()->create(['championship_id' => $championship->id]);
+
+        $response = $this->getJson('/api/leagues');
+
+        $response->assertOk()->assertJsonPath('data.0.championship.id', $championship->id);
+    }
+
+    public function test_admin_index_eager_loads_championship(): void
+    {
+        $championship = Championship::factory()->create();
+        $league = League::factory()->create(['championship_id' => $championship->id]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $response = $this->getJson('/api/leagues');
+
+        $response->assertOk()->assertJsonPath('data.0.championship.id', $championship->id);
+    }
+
     // ── Rotas públicas ────────────────────────────────────────────────────────
 
     public function test_guest_can_show_league_via_public_route_with_related_data(): void

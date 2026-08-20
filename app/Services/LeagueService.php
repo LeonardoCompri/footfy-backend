@@ -16,10 +16,10 @@ class LeagueService
     {
         $user = Auth::user();
         if ($user->isMaster()) {
-            return $this->repository->index(null);
+            return $this->repository->index(null, ['championship']);
         }
 
-        return $this->repository->index($user->leagueIds());
+        return $this->repository->index($user->leagueIds(), ['championship']);
     }
 
     public function publicIndex(): Collection
