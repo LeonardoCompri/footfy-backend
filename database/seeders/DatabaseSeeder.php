@@ -20,7 +20,11 @@ class DatabaseSeeder extends Seeder
             ChampionshipSeeder::class,
             LeagueSeeder::class,
             TeamSeeder::class,
+            StadiumSeeder::class,
             PlayerSeeder::class,
+            TechnicalCommitteeMemberSeeder::class,
+            GameSeeder::class,
+            GameEventSeeder::class,
         ]);
 
         // Associar o usuário admin às duas primeiras ligas criadas

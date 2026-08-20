@@ -2,41 +2,33 @@
 
 namespace Database\Seeders;
 
+use App\Models\Championship;
 use App\Models\League;
+use Database\Seeders\Support\FootballData;
 use Illuminate\Database\Seeder;
 
 class LeagueSeeder extends Seeder
 {
     public function run(): void
     {
-        League::insert([
-            [
-                'name' => 'Brasileirão Série A 2026',
-                'start_date' => '2026-04-01',
-                'end_date' => '2026-12-07',
-                'organizer' => 'CBF',
-                'season' => '2026',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
-            [
-                'name' => 'Copa do Brasil 2026',
-                'start_date' => '2026-02-01',
-                'end_date' => '2026-09-30',
-                'organizer' => 'CBF',
-                'season' => '2026',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
-            [
-                'name' => 'Campeonato Paulista 2026',
-                'start_date' => '2026-01-15',
-                'end_date' => '2026-04-20',
-                'organizer' => 'FPF',
-                'season' => '2026',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
-        ]);
+        $championshipIds = Championship::pluck('id', 'name');
+        $championshipNames = FootballData::championships();
+        $now = now();
+
+        $rows = collect(FootballData::leagues())
+            ->map(fn (array $league) => [
+                'name' => $league['name'],
+                'start_date' => $league['start_date'],
+                'end_date' => $league['end_date'],
+                'organizer' => $league['organizer'],
+                'season' => $league['season'],
+                'championship_id' => $championshipIds[$championshipNames[$league['championship']]],
+                'created_at' => $now,
+                'updated_at' => $now,
+            ])
+            ->values()
+            ->all();
+
+        League::insert($rows);
     }
 }
