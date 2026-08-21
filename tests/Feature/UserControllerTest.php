@@ -61,13 +61,49 @@ class UserControllerTest extends TestCase
         $response->assertStatus(401);
     }
 
-    public function test_admin_cannot_list_users(): void
+    public function test_admin_can_list_users(): void
     {
         $this->authenticateAsAdmin();
+        User::factory()->count(2)->create();
 
         $response = $this->getJson('/api/users');
 
-        $response->assertForbidden();
+        // +1 porque o próprio admin também é listado
+        $response->assertOk()->assertJsonCount(3, 'data');
+    }
+
+    public function test_admin_can_show_user(): void
+    {
+        $this->authenticateAsAdmin();
+        $target = User::factory()->create();
+
+        $response = $this->getJson("/api/users/{$target->id}");
+
+        $response->assertOk()->assertJsonPath('data.id', $target->id);
+    }
+
+    public function test_admin_can_update_user_basic_data(): void
+    {
+        $this->authenticateAsAdmin();
+        $target = User::factory()->create();
+
+        $response = $this->putJson("/api/users/{$target->id}", ['name' => 'Nome Atualizado']);
+
+        $response->assertOk()->assertJsonPath('data.name', 'Nome Atualizado');
+        $this->assertDatabaseHas('users', ['id' => $target->id, 'name' => 'Nome Atualizado']);
+    }
+
+    public function test_admin_cannot_change_user_role(): void
+    {
+        $this->authenticateAsAdmin();
+        $target = User::factory()->create();
+        $target->assignRole('coach');
+
+        $response = $this->putJson("/api/users/{$target->id}", ['role' => 'master']);
+
+        $response->assertOk();
+        $this->assertTrue($target->fresh()->hasRole('coach'));
+        $this->assertFalse($target->fresh()->hasRole('master'));
     }
 
     public function test_admin_cannot_create_user(): void
@@ -295,5 +331,16 @@ class UserControllerTest extends TestCase
         ]);
 
         $response->assertForbidden();
+    }
+
+    public function test_admin_cannot_delete_user(): void
+    {
+        $this->authenticateAsAdmin();
+        $target = User::factory()->create();
+
+        $response = $this->deleteJson("/api/users/{$target->id}");
+
+        $response->assertForbidden();
+        $this->assertDatabaseHas('users', ['id' => $target->id]);
     }
 }
