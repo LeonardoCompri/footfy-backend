@@ -6,13 +6,17 @@ use App\Http\Requests\LeagueStoreRequest;
 use App\Http\Requests\LeagueUpdateRequest;
 use App\Http\Resources\LeagueResource;
 use App\Services\LeagueService;
+use App\Services\StandingsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class LeagueController extends Controller
 {
-    public function __construct(private readonly LeagueService $service) {}
+    public function __construct(
+        private readonly LeagueService $service,
+        private readonly StandingsService $standingsService,
+    ) {}
 
     public function index(): JsonResponse
     {
@@ -46,6 +50,39 @@ class LeagueController extends Controller
             $response = $this->service->publicShow($id);
 
             return response()->json(['data' => new LeagueResource($response)]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    // Tabela da Liga (classificação e/ou chaveamento, conforme o formato da liga).
+    public function table(string $id): JsonResponse
+    {
+        try {
+            $league = $this->service->show($id);
+            $response = $this->standingsService->build($league);
+
+            return response()->json(['data' => $response]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    public function publicTable(string $id): JsonResponse
+    {
+        try {
+            $league = $this->service->publicShow($id);
+            $response = $this->standingsService->build($league);
+
+            return response()->json(['data' => $response]);
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
