@@ -284,6 +284,68 @@ class LeagueControllerTest extends TestCase
         $response->assertStatus(422)->assertJson(['message' => 'Liga não encontrada!']);
     }
 
+    // ── Formato de disputa (format) ─────────────────────────────────────────────
+
+    public function test_master_can_create_league_with_round_robin_format(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/leagues', ['name' => 'Liga RR', 'format' => 'round_robin']);
+
+        $response->assertCreated()->assertJsonPath('data.format', 'round_robin');
+        $this->assertDatabaseHas('leagues', ['name' => 'Liga RR', 'format' => 'round_robin']);
+    }
+
+    public function test_master_can_create_league_with_knockout_format(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/leagues', ['name' => 'Liga Mata-Mata', 'format' => 'knockout']);
+
+        $response->assertCreated()->assertJsonPath('data.format', 'knockout');
+        $this->assertDatabaseHas('leagues', ['name' => 'Liga Mata-Mata', 'format' => 'knockout']);
+    }
+
+    public function test_master_can_create_league_with_hybrid_format(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/leagues', ['name' => 'Liga Híbrida', 'format' => 'hybrid']);
+
+        $response->assertCreated()->assertJsonPath('data.format', 'hybrid');
+        $this->assertDatabaseHas('leagues', ['name' => 'Liga Híbrida', 'format' => 'hybrid']);
+    }
+
+    public function test_league_defaults_to_round_robin_format_when_not_informed(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/leagues', ['name' => 'Liga Padrão']);
+
+        $response->assertCreated()->assertJsonPath('data.format', 'round_robin');
+    }
+
+    public function test_store_fails_with_invalid_format(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/leagues', ['name' => 'Liga Inválida', 'format' => 'invalid_format']);
+
+        $response->assertStatus(422);
+    }
+
+    public function test_master_can_update_league_format_to_hybrid_with_existing_games_without_phase(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'round_robin']);
+        Game::factory()->create(['league_id' => $league->id, 'round' => 1]);
+
+        $response = $this->putJson("/api/leagues/{$league->id}", ['format' => 'hybrid']);
+
+        $response->assertOk()->assertJsonPath('data.format', 'hybrid');
+        $this->assertDatabaseHas('leagues', ['id' => $league->id, 'format' => 'hybrid']);
+    }
+
     // ── Estrutura de resposta (LeagueResource) ──────────────────────────────────
 
     public function test_league_show_response_does_not_expose_internal_fields(): void
