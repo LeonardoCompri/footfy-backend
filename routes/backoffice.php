@@ -48,6 +48,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/', [TeamController::class, 'store'])->name('store');
         Route::put('/{id}', [TeamController::class, 'update'])->name('update')->middleware('access:team');
         Route::delete('/{id}', [TeamController::class, 'destroy'])->name('destroy')->middleware('access:team');
+        Route::post('/{id}/leagues', [TeamController::class, 'syncLeagues'])->name('leagues.sync');
+        Route::delete('/{id}/leagues/{lid}', [TeamController::class, 'removeLeague'])->name('leagues.remove');
     });
 
     Route::prefix('/players')->name('players.')->group(function () {
