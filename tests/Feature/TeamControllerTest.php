@@ -275,18 +275,36 @@ class TeamControllerTest extends TestCase
         $this->assertDatabaseHas('teams', ['id' => $team->id]);
     }
 
+    // ── TeamResource: elenco e comissão técnica ─────────────────────────────────
+
+    public function test_show_returns_players_and_technical_committee_members(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        $player = \App\Models\Player::factory()->create(['team_id' => $team->id]);
+        $member = \App\Models\TechnicalCommitteeMember::factory()->create(['team_id' => $team->id]);
+
+        $response = $this->getJson("/api/teams/{$team->id}");
+
+        $response->assertOk()
+            ->assertJsonPath('data.players.0.id', $player->id)
+            ->assertJsonPath('data.technicalCommitteeMembers.0.id', $member->id);
+    }
+
     // ── Rotas públicas ────────────────────────────────────────────────────────
 
     public function test_guest_can_show_team_via_public_route_with_players(): void
     {
         $team = Team::factory()->create();
         $player = \App\Models\Player::factory()->create(['team_id' => $team->id]);
+        $member = \App\Models\TechnicalCommitteeMember::factory()->create(['team_id' => $team->id]);
 
         $response = $this->getJson("/api/public/teams/{$team->id}");
 
         $response->assertOk()
             ->assertJsonPath('data.id', $team->id)
-            ->assertJsonPath('data.players.0.id', $player->id);
+            ->assertJsonPath('data.players.0.id', $player->id)
+            ->assertJsonPath('data.technicalCommitteeMembers.0.id', $member->id);
     }
 
     public function test_guest_show_via_public_route_returns_error_when_not_found(): void
@@ -294,5 +312,111 @@ class TeamControllerTest extends TestCase
         $response = $this->getJson('/api/public/teams/999');
 
         $response->assertStatus(422)->assertJson(['message' => 'Time não encontrado!']);
+    }
+
+    // ── Vínculo N:N time-liga ─────────────────────────────────────────────────
+
+    public function test_master_can_sync_leagues_to_team(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        $league1 = League::factory()->create();
+        $league2 = League::factory()->create();
+
+        $response = $this->postJson("/api/teams/{$team->id}/leagues", [
+            'league_ids' => [$league1->id, $league2->id],
+        ]);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('league_team', ['team_id' => $team->id, 'league_id' => $league1->id]);
+        $this->assertDatabaseHas('league_team', ['team_id' => $team->id, 'league_id' => $league2->id]);
+    }
+
+    public function test_master_can_remove_league_from_team(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        $league = League::factory()->create();
+        $league->teams()->attach($team->id);
+
+        $response = $this->deleteJson("/api/teams/{$team->id}/leagues/{$league->id}");
+
+        $response->assertOk();
+        $this->assertDatabaseMissing('league_team', ['team_id' => $team->id, 'league_id' => $league->id]);
+    }
+
+    public function test_sync_leagues_fails_with_invalid_league_id(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+
+        $response = $this->postJson("/api/teams/{$team->id}/leagues", [
+            'league_ids' => [9999],
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('league_ids.0');
+    }
+
+    public function test_sync_leagues_fails_without_league_ids(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+
+        $response = $this->postJson("/api/teams/{$team->id}/leagues", []);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('league_ids');
+    }
+
+    public function test_sync_leagues_fails_when_team_does_not_exist(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+
+        $response = $this->postJson('/api/teams/999/leagues', [
+            'league_ids' => [$league->id],
+        ]);
+
+        $response->assertStatus(422)->assertJson(['message' => 'Time não encontrado!']);
+    }
+
+    public function test_admin_can_sync_team_to_league_they_have_access_to(): void
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $response = $this->postJson("/api/teams/{$team->id}/leagues", [
+            'league_ids' => [$league->id],
+        ]);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('league_team', ['team_id' => $team->id, 'league_id' => $league->id]);
+    }
+
+    public function test_admin_cannot_sync_team_to_league_they_do_not_have_access_to(): void
+    {
+        $otherLeague = League::factory()->create();
+        $team = Team::factory()->create();
+        $this->authenticateAsAdmin();
+
+        $response = $this->postJson("/api/teams/{$team->id}/leagues", [
+            'league_ids' => [$otherLeague->id],
+        ]);
+
+        $response->assertStatus(422)->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+        $this->assertDatabaseMissing('league_team', ['team_id' => $team->id, 'league_id' => $otherLeague->id]);
+    }
+
+    public function test_admin_cannot_remove_league_from_team_they_do_not_have_access_to(): void
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
+        $this->authenticateAsAdmin();
+
+        $response = $this->deleteJson("/api/teams/{$team->id}/leagues/{$league->id}");
+
+        $response->assertStatus(422)->assertJson(['message' => 'Você não tem acesso a essa liga.']);
+        $this->assertDatabaseHas('league_team', ['team_id' => $team->id, 'league_id' => $league->id]);
     }
 }

@@ -273,4 +273,24 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
 
         $this->assertDatabaseHas('technical_committee_members', ['id' => $member->id, 'team_id' => null]);
     }
+
+    // ── Lookup de funções ────────────────────────────────────────────────────
+
+    public function test_authenticated_user_can_list_roles(): void
+    {
+        $this->authenticate();
+
+        $response = $this->getJson('/api/technical-committee-members/roles');
+
+        $response->assertOk()
+            ->assertJsonCount(count(TechnicalCommitteeMember::ROLES), 'data')
+            ->assertJsonPath('data.0.value', 'Treinador');
+    }
+
+    public function test_guest_cannot_list_roles(): void
+    {
+        $response = $this->getJson('/api/technical-committee-members/roles');
+
+        $response->assertStatus(401);
+    }
 }

@@ -13,16 +13,26 @@ class GameEventService
 {
     public function __construct(private readonly GameEventRepository $repository) {}
 
-    public function index(?string $type = null): Collection
+    // Lista eventos do usuário, opcionalmente restrita a um único jogo (gameId),
+    // sempre validando que esse jogo está entre as ligas que o usuário tem acesso.
+    public function index(?string $type = null, ?string $gameId = null): Collection
     {
         $user = Auth::user();
         if ($user->isMaster()) {
-            return $this->repository->index(null, $type);
+            return $this->repository->index($gameId ? [$gameId] : null, $type);
         }
         $leagueIds = $user->leagueIds();
         $gameIds = Game::whereIn('league_id', $leagueIds)
             ->pluck('id')
             ->toArray();
+
+        if ($gameId !== null) {
+            if (! in_array((int) $gameId, $gameIds)) {
+                throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa partida.']);
+            }
+
+            $gameIds = [$gameId];
+        }
 
         return $this->repository->index($gameIds, $type);
     }

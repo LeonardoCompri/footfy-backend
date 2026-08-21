@@ -283,4 +283,24 @@ class PlayerControllerTest extends TestCase
 
         $response->assertStatus(422)->assertJson(['message' => 'Jogador não encontrado!']);
     }
+
+    // ── Lookup de posições ───────────────────────────────────────────────────
+
+    public function test_authenticated_user_can_list_positions(): void
+    {
+        $this->authenticate();
+
+        $response = $this->getJson('/api/players/positions');
+
+        $response->assertOk()
+            ->assertJsonCount(count(Player::POSITIONS), 'data')
+            ->assertJsonPath('data.0.value', 'GOL');
+    }
+
+    public function test_guest_cannot_list_positions(): void
+    {
+        $response = $this->getJson('/api/players/positions');
+
+        $response->assertStatus(401);
+    }
 }

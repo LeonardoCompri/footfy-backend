@@ -36,4 +36,18 @@ class TeamRepository
     {
         return $team->delete();
     }
+
+    public function syncLeagues(Team $team, array $leagueIds): Team
+    {
+        $team->leagues()->syncWithoutDetaching($leagueIds);
+
+        return $team->load('leagues');
+    }
+
+    public function removeLeague(Team $team, string $leagueId): Team
+    {
+        $team->leagues()->detach($leagueId);
+
+        return $team->load('leagues');
+    }
 }

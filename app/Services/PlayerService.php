@@ -32,6 +32,12 @@ class PlayerService
         return $this->repository->store($data);
     }
 
+    // Lista de opções sugeridas para o select de posição no admin (Player::POSITIONS).
+    public function positions(): array
+    {
+        return Player::POSITIONS;
+    }
+
     public function show(string $id): Player
     {
         $player = $this->repository->show($id);

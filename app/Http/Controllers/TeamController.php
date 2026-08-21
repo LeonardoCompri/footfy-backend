@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\TeamLeaguesRequest;
 use App\Http\Requests\TeamStoreRequest;
 use App\Http\Requests\TeamUpdateRequest;
 use App\Http\Resources\TeamResource;
@@ -96,6 +97,37 @@ class TeamController extends Controller
             $this->service->destroy($id);
 
             return response()->json([], 204);
+        } catch (ValidationException $ex) {
+            return response()->json(["message" => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
+    }
+
+    public function syncLeagues(TeamLeaguesRequest $request, string $id): JsonResponse
+    {
+        try {
+            $leagueIds = $request->validated()['league_ids'];
+            $response = $this->service->syncLeagues($id, $leagueIds);
+
+            return response()->json(['data' => new TeamResource($response)]);
+        } catch (ValidationException $ex) {
+            return response()->json(["message" => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
+    }
+
+    public function removeLeague(string $id, string $lid): JsonResponse
+    {
+        try {
+            $response = $this->service->removeLeague($id, $lid);
+
+            return response()->json(['data' => new TeamResource($response)]);
         } catch (ValidationException $ex) {
             return response()->json(["message" => $ex->getMessage()], 422);
         } catch (Throwable $th) {

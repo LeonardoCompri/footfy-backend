@@ -53,6 +53,18 @@ class GameService
         return $game;
     }
 
+    // Busca a partida por id já com homeTeam/awayTeam/stadium/events, para consumo público (guest).
+    public function publicShow(string $id): Game
+    {
+        $game = $this->repository->show($id, ['homeTeam', 'awayTeam', 'stadium', 'events']);
+
+        if (! $game) {
+            throw ValidationException::withMessages(['message' => 'Partida não encontrada!']);
+        }
+
+        return $game;
+    }
+
     public function update(array $data, string $id): Game
     {
         $game = $this->show($id);
