@@ -27,6 +27,17 @@ class PlayerController extends Controller
         }
     }
 
+    public function positions(): JsonResponse
+    {
+        try {
+            return response()->json(['data' => $this->service->positions()]);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
+    }
+
     public function publicShow(string $id): JsonResponse
     {
         try {

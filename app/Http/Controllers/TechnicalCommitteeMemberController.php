@@ -27,6 +27,17 @@ class TechnicalCommitteeMemberController extends Controller
         }
     }
 
+    public function roles(): JsonResponse
+    {
+        try {
+            return response()->json(['data' => $this->service->roles()]);
+        } catch (Throwable $th) {
+            return response()->json([
+                "message" => "Houve um erro no servidor, tente novamente!"
+            ], 500);
+        }
+    }
+
     public function store(TechnicalCommitteeMemberStoreRequest $request): JsonResponse
     {
         try {

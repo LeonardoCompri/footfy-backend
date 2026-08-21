@@ -54,6 +54,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::prefix('/players')->name('players.')->group(function () {
         Route::get('/', [PlayerController::class, 'index'])->name('index');
+        Route::get('/positions', [PlayerController::class, 'positions'])->name('positions');
         Route::get('/{id}', [PlayerController::class, 'show'])->name('show')->middleware('access:player');
         Route::post('/', [PlayerController::class, 'store'])->name('store');
         Route::put('/{id}', [PlayerController::class, 'update'])->name('update')->middleware('access:player');
@@ -70,6 +71,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::prefix('/technical-committee-members')->name('technical-committee-members.')->group(function () {
         Route::get('/', [TechnicalCommitteeMemberController::class, 'index'])->name('index');
+        Route::get('/roles', [TechnicalCommitteeMemberController::class, 'roles'])->name('roles');
         Route::get('/{id}', [TechnicalCommitteeMemberController::class, 'show'])->name('show')->middleware('access:technical_committee_member');
         Route::post('/', [TechnicalCommitteeMemberController::class, 'store'])->name('store');
         Route::put('/{id}', [TechnicalCommitteeMemberController::class, 'update'])->name('update')->middleware('access:technical_committee_member');
