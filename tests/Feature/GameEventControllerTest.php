@@ -120,6 +120,61 @@ class GameEventControllerTest extends TestCase
         $response->assertOk()->assertJsonCount(1, 'data');
     }
 
+    public function test_master_can_filter_index_by_game_id(): void
+    {
+        $this->authenticate();
+        $scenarioA = $this->buildGameScenario();
+        $scenarioB = $this->buildGameScenario();
+        $eventA = GameEvent::factory()->create([
+            'game_id' => $scenarioA['game']->id,
+            'league_id' => $scenarioA['league']->id,
+            'team_id' => $scenarioA['homeTeam']->id,
+            'player_id' => $scenarioA['player']->id,
+        ]);
+        GameEvent::factory()->create([
+            'game_id' => $scenarioB['game']->id,
+            'league_id' => $scenarioB['league']->id,
+            'team_id' => $scenarioB['homeTeam']->id,
+            'player_id' => $scenarioB['player']->id,
+        ]);
+
+        $response = $this->getJson("/api/game-events?game_id={$scenarioA['game']->id}");
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $eventA->id);
+    }
+
+    public function test_admin_can_filter_index_by_game_id_of_assigned_league(): void
+    {
+        $league = League::factory()->create();
+        $scenario = $this->buildGameScenario($league->id);
+        $event = GameEvent::factory()->create([
+            'game_id' => $scenario['game']->id,
+            'league_id' => $league->id,
+            'team_id' => $scenario['homeTeam']->id,
+            'player_id' => $scenario['player']->id,
+        ]);
+
+        $this->authenticateAsAdmin([$league->id]);
+
+        $response = $this->getJson("/api/game-events?game_id={$scenario['game']->id}");
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $event->id);
+    }
+
+    public function test_admin_cannot_filter_index_by_game_id_outside_assignments(): void
+    {
+        $scenario = $this->buildGameScenario();
+        $this->authenticateAsAdmin();
+
+        $response = $this->getJson("/api/game-events?game_id={$scenario['game']->id}");
+
+        $response->assertStatus(422)->assertJson(['message' => 'Você não tem acesso a essa partida.']);
+    }
+
     public function test_master_can_create_goal_event(): void
     {
         $this->authenticate();

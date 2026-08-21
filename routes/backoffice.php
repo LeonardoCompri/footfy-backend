@@ -16,11 +16,20 @@ Route::post('/login', [AuthController::class, 'login'])->name('auth.login');
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('auth.logout');
 
-    Route::middleware(['role:master'])->prefix('/users')->name('users.')->group(function () {
+    // Leitura e edição de dados básicos ficam abertas a master e admin (a tela de
+    // Usuários precisa aparecer para os dois papéis). Criação, exclusão e gestão de
+    // vínculo com ligas continuam exclusivas de master, por envolverem definição de
+    // papel/permissões de outro usuário. UserService::update também ignora qualquer
+    // alteração do campo `role` vinda de quem não é master, para impedir que um admin
+    // se autopromova (ou promova terceiros) via PUT /users/{id}.
+    Route::middleware(['role:master|admin'])->prefix('/users')->name('users.')->group(function () {
         Route::get('/', [UserController::class, 'index'])->name('index');
-        Route::post('/', [UserController::class, 'store'])->name('store');
         Route::get('/{id}', [UserController::class, 'show'])->name('show');
         Route::put('/{id}', [UserController::class, 'update'])->name('update');
+    });
+
+    Route::middleware(['role:master'])->prefix('/users')->name('users.')->group(function () {
+        Route::post('/', [UserController::class, 'store'])->name('store');
         Route::delete('/{id}', [UserController::class, 'destroy'])->name('destroy');
         Route::post('/{id}/leagues', [UserController::class, 'syncLeagues'])->name('leagues.sync');
         Route::delete('/{id}/leagues/{lid}', [UserController::class, 'removeLeague'])->name('leagues.remove');
@@ -48,10 +57,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/', [TeamController::class, 'store'])->name('store');
         Route::put('/{id}', [TeamController::class, 'update'])->name('update')->middleware('access:team');
         Route::delete('/{id}', [TeamController::class, 'destroy'])->name('destroy')->middleware('access:team');
+        Route::post('/{id}/leagues', [TeamController::class, 'syncLeagues'])->name('leagues.sync');
+        Route::delete('/{id}/leagues/{lid}', [TeamController::class, 'removeLeague'])->name('leagues.remove');
     });
 
     Route::prefix('/players')->name('players.')->group(function () {
         Route::get('/', [PlayerController::class, 'index'])->name('index');
+        Route::get('/positions', [PlayerController::class, 'positions'])->name('positions');
         Route::get('/{id}', [PlayerController::class, 'show'])->name('show')->middleware('access:player');
         Route::post('/', [PlayerController::class, 'store'])->name('store');
         Route::put('/{id}', [PlayerController::class, 'update'])->name('update')->middleware('access:player');
@@ -68,6 +80,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::prefix('/technical-committee-members')->name('technical-committee-members.')->group(function () {
         Route::get('/', [TechnicalCommitteeMemberController::class, 'index'])->name('index');
+        Route::get('/roles', [TechnicalCommitteeMemberController::class, 'roles'])->name('roles');
         Route::get('/{id}', [TechnicalCommitteeMemberController::class, 'show'])->name('show')->middleware('access:technical_committee_member');
         Route::post('/', [TechnicalCommitteeMemberController::class, 'store'])->name('store');
         Route::put('/{id}', [TechnicalCommitteeMemberController::class, 'update'])->name('update')->middleware('access:technical_committee_member');

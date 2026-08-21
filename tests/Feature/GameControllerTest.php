@@ -423,4 +423,43 @@ class GameControllerTest extends TestCase
 
         $this->assertDatabaseHas('games', ['id' => $game->id, 'stadium_id' => null]);
     }
+
+    // ── Rotas públicas ────────────────────────────────────────────────────────
+
+    public function test_guest_can_show_game_via_public_route_with_related_data(): void
+    {
+        $league = League::factory()->create();
+        $home = Team::factory()->create();
+        $away = Team::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $game = Game::factory()->create([
+            'league_id' => $league->id,
+            'home_team_id' => $home->id,
+            'away_team_id' => $away->id,
+            'stadium_id' => $stadium->id,
+        ]);
+        $player = \App\Models\Player::factory()->create(['team_id' => $home->id]);
+        \App\Models\GameEvent::factory()->create([
+            'game_id' => $game->id,
+            'league_id' => $league->id,
+            'team_id' => $home->id,
+            'player_id' => $player->id,
+        ]);
+
+        $response = $this->getJson("/api/public/games/{$game->id}");
+
+        $response->assertOk()
+            ->assertJsonPath('data.id', $game->id)
+            ->assertJsonPath('data.homeTeam.id', $home->id)
+            ->assertJsonPath('data.awayTeam.id', $away->id)
+            ->assertJsonPath('data.stadium.id', $stadium->id)
+            ->assertJsonCount(1, 'data.events');
+    }
+
+    public function test_guest_show_via_public_route_returns_error_when_not_found(): void
+    {
+        $response = $this->getJson('/api/public/games/999');
+
+        $response->assertStatus(422)->assertJson(['message' => 'Partida não encontrada!']);
+    }
 }
