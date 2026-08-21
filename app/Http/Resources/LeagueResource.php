@@ -16,6 +16,7 @@ class LeagueResource extends JsonResource
             'end_date' => $this->end_date,
             'organizer' => $this->organizer,
             'season' => $this->season,
+            'format' => $this->format,
             'championship' => new ChampionshipResource($this->whenLoaded('championship')),
             'teams' => TeamResource::collection($this->whenLoaded('teams')),
             'games' => GameResource::collection($this->whenLoaded('games')),
