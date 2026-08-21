@@ -424,6 +424,106 @@ class GameControllerTest extends TestCase
         $this->assertDatabaseHas('games', ['id' => $game->id, 'stadium_id' => null]);
     }
 
+    // ── Rodada x Fase (formato da liga) ─────────────────────────────────────────
+
+    public function test_store_accepts_round_for_round_robin_league(): void
+    {
+        $this->authenticate();
+        $payload = $this->gamePayload(['round' => 3]);
+
+        $response = $this->postJson('/api/games', $payload);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.round', 3)
+            ->assertJsonPath('data.phase', null);
+    }
+
+    public function test_store_accepts_phase_tie_key_and_leg_for_knockout_league(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+        $payload = $this->gamePayload([
+            'league_id' => $league->id,
+            'phase' => 'Semifinal',
+            'phase_order' => 3,
+            'tie_key' => 'semi-1',
+            'leg' => 1,
+        ]);
+
+        $response = $this->postJson('/api/games', $payload);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.round', null)
+            ->assertJsonPath('data.phase', 'Semifinal')
+            ->assertJsonPath('data.tie_key', 'semi-1')
+            ->assertJsonPath('data.leg', 1);
+
+        $this->assertDatabaseHas('games', [
+            'league_id' => $league->id,
+            'phase' => 'Semifinal',
+            'tie_key' => 'semi-1',
+            'leg' => 1,
+            'round' => null,
+        ]);
+    }
+
+    public function test_store_fails_when_round_and_phase_are_sent_together(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'hybrid']);
+        $payload = $this->gamePayload(['league_id' => $league->id, 'round' => 1, 'phase' => 'Final']);
+
+        $response = $this->postJson('/api/games', $payload);
+
+        $response->assertStatus(422);
+    }
+
+    public function test_store_fails_when_knockout_league_game_informs_round_instead_of_phase(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+        $payload = $this->gamePayload(['league_id' => $league->id, 'round' => 1]);
+
+        $response = $this->postJson('/api/games', $payload);
+
+        $response->assertStatus(422);
+    }
+
+    public function test_store_fails_when_knockout_league_game_informs_neither_round_nor_phase(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+        $payload = $this->gamePayload(['league_id' => $league->id]);
+
+        $response = $this->postJson('/api/games', $payload);
+
+        $response->assertStatus(422);
+    }
+
+    public function test_store_fails_when_round_robin_league_game_informs_phase(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'round_robin']);
+        $payload = $this->gamePayload(['league_id' => $league->id, 'phase' => 'Final']);
+
+        $response = $this->postJson('/api/games', $payload);
+
+        $response->assertStatus(422);
+    }
+
+    public function test_update_league_from_round_robin_to_hybrid_does_not_break_existing_games_with_round(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'round_robin']);
+        $game = Game::factory()->create(['league_id' => $league->id, 'round' => 5]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['format' => 'hybrid'])->assertOk();
+
+        $response = $this->putJson("/api/games/{$game->id}", ['status' => 'finished']);
+
+        $response->assertOk()->assertJsonPath('data.round', 5);
+    }
+
     // ── Rotas públicas ────────────────────────────────────────────────────────
 
     public function test_guest_can_show_game_via_public_route_with_related_data(): void

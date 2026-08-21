@@ -19,6 +19,13 @@ class League extends Model
         'organizer',
         'season',
         'championship_id',
+        'format',
+    ];
+
+    public const FORMATS = ['round_robin', 'knockout', 'hybrid'];
+
+    protected $attributes = [
+        'format' => 'round_robin',
     ];
 
     public function championship(): BelongsTo

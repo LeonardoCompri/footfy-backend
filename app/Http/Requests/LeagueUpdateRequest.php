@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\League;
 use Illuminate\Foundation\Http\FormRequest;
 
 class LeagueUpdateRequest extends FormRequest
@@ -15,6 +16,7 @@ class LeagueUpdateRequest extends FormRequest
             'organizer' => ['nullable', 'string', 'max:255'],
             'season' => ['nullable', 'string', 'max:255'],
             'championship_id' => ['nullable', 'integer', 'exists:championships,id'],
+            'format' => ['sometimes', 'string', 'in:'.implode(',', League::FORMATS)],
         ];
     }
 }
