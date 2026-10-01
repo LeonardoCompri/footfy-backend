@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Http\Requests\LeagueStoreRequest;
 use App\Http\Requests\LeagueUpdateRequest;
 use App\Http\Resources\LeagueResource;
+use App\Services\DashboardService;
 use App\Services\LeagueService;
 use App\Services\StandingsService;
+use App\Services\StatisticsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -16,6 +18,8 @@ class LeagueController extends Controller
     public function __construct(
         private readonly LeagueService $service,
         private readonly StandingsService $standingsService,
+        private readonly StatisticsService $statisticsService,
+        private readonly DashboardService $dashboardService,
     ) {}
 
     public function index(): JsonResponse
@@ -81,6 +85,58 @@ class LeagueController extends Controller
         try {
             $league = $this->service->publicShow($id);
             $response = $this->standingsService->build($league);
+
+            return response()->json(['data' => $response]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    // Estatísticas da liga inteira (artilharia, assistências, cartões, gols por rodada/fase
+    // e vitória mandante/empate/vitória visitante) — grupos + mata-mata somados.
+    public function statistics(string $id): JsonResponse
+    {
+        try {
+            $league = $this->service->show($id);
+            $response = $this->statisticsService->build($league);
+
+            return response()->json(['data' => $response]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    public function publicStatistics(string $id): JsonResponse
+    {
+        try {
+            $league = $this->service->publicShow($id);
+            $response = $this->statisticsService->build($league);
+
+            return response()->json(['data' => $response]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    // Dashboard do admin: contadores do cabeçalho, últimos resultados/próximas partidas e os
+    // gráficos de gols por rodada/fase e vitória mandante/empate/vitória visitante.
+    public function dashboard(string $id): JsonResponse
+    {
+        try {
+            $league = $this->service->show($id);
+            $response = $this->dashboardService->build($league);
 
             return response()->json(['data' => $response]);
         } catch (ValidationException $ex) {
