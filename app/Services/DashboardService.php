@@ -20,7 +20,8 @@ class DashboardService
 
     /**
      * Monta o Dashboard do admin para uma liga: contadores do cabeçalho, últimos
-     * resultados/próximas partidas e os gráficos (`goals_by_bucket`/`results_split`).
+     * resultados/próximas partidas, os gráficos (`goals_by_bucket`/`results_split`) e o total
+     * de cartões da liga (`cards_split`).
      * Reaproveita TeamService/GameService/StadiumService (já validam acesso por liga) e
      * StatisticsService — nenhuma query nova de agregação é escrita aqui, só composição.
      */
@@ -44,6 +45,7 @@ class DashboardService
             'upcoming_games' => $this->upcomingGames($games),
             'goals_by_bucket' => $statistics['goals_by_bucket'],
             'results_split' => $statistics['results_split'],
+            'cards_split' => $statistics['cards_split'],
         ];
     }
 

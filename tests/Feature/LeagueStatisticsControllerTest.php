@@ -291,8 +291,108 @@ class LeagueStatisticsControllerTest extends TestCase
                 'top_cards' => [],
                 'goals_by_bucket' => [],
                 'results_split' => ['home_wins' => 0, 'draws' => 0, 'away_wins' => 0],
+                'cards_split' => ['yellow' => 0, 'red' => 0],
             ],
         ]);
+        // assertJson compara frouxamente; garante inteiros (não null/"0") no cards_split.
+        $this->assertSame(['yellow' => 0, 'red' => 0], $response->json('data.cards_split'));
+    }
+
+    // ── cards_split ───────────────────────────────────────────────────────────
+
+    /**
+     * Monta duas ligas: a liga alvo com 12 jogadores cartoados (acima do RANKING_LIMIT de
+     * top_cards) somando 14 amarelos e 3 vermelhos, e outra liga com cartões que não podem
+     * vazar para o total da primeira. Gols também são criados para garantir que só cartões
+     * entram na soma.
+     *
+     * @return array{0: League, 1: League}
+     */
+    private function buildTwoLeaguesWithCards(): array
+    {
+        $league = League::factory()->create(['format' => 'round_robin']);
+        [$teamA, $teamB] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamA->id, $teamB->id]);
+        $game = $this->finishedGame($league, $teamA, $teamB, 1, 0);
+
+        for ($i = 0; $i < 12; $i++) {
+            $player = Player::factory()->create(['team_id' => $teamA->id]);
+            $this->card($league, $game, $teamA, $player, 'yellow_card');
+        }
+        $repeatOffender = Player::factory()->create(['team_id' => $teamB->id]);
+        $this->card($league, $game, $teamB, $repeatOffender, 'yellow_card');
+        $this->card($league, $game, $teamB, $repeatOffender, 'yellow_card');
+        $this->card($league, $game, $teamB, $repeatOffender, 'red_card');
+        $sentOff = Player::factory()->create(['team_id' => $teamB->id]);
+        $this->card($league, $game, $teamB, $sentOff, 'red_card');
+        $this->card($league, $game, $teamB, $sentOff, 'red_card');
+        $this->goal($league, $game, $teamA, $sentOff);
+
+        $otherLeague = League::factory()->create(['format' => 'round_robin']);
+        [$teamC, $teamD] = Team::factory()->count(2)->create();
+        $otherLeague->teams()->attach([$teamC->id, $teamD->id]);
+        $otherGame = $this->finishedGame($otherLeague, $teamC, $teamD, 0, 0);
+        $otherPlayer = Player::factory()->create(['team_id' => $teamC->id]);
+        $this->card($otherLeague, $otherGame, $teamC, $otherPlayer, 'yellow_card');
+        $this->card($otherLeague, $otherGame, $teamC, $otherPlayer, 'yellow_card');
+        $this->card($otherLeague, $otherGame, $teamC, $otherPlayer, 'red_card');
+
+        return [$league, $otherLeague];
+    }
+
+    public function test_cards_split_counts_all_cards_of_the_league_without_ranking_limit(): void
+    {
+        $this->authenticate();
+        [$league, $otherLeague] = $this->buildTwoLeaguesWithCards();
+
+        $response = $this->getJson("/api/leagues/{$league->id}/statistics");
+
+        $response->assertOk();
+        // 12 + 2 amarelos, 1 + 2 vermelhos — mesmo com top_cards cortado em 10 jogadores.
+        $this->assertSame(['yellow' => 14, 'red' => 3], $response->json('data.cards_split'));
+        $this->assertCount(10, $response->json('data.top_cards'));
+
+        $otherResponse = $this->getJson("/api/leagues/{$otherLeague->id}/statistics");
+        $this->assertSame(['yellow' => 2, 'red' => 1], $otherResponse->json('data.cards_split'));
+    }
+
+    public function test_cards_split_on_public_route_matches_admin_route(): void
+    {
+        [$league] = $this->buildTwoLeaguesWithCards();
+
+        $publicResponse = $this->getJson("/api/public/leagues/{$league->id}/statistics");
+        $publicResponse->assertOk();
+        $this->assertSame(['yellow' => 14, 'red' => 3], $publicResponse->json('data.cards_split'));
+
+        $this->authenticateAsAdmin([$league->id]);
+        $adminResponse = $this->getJson("/api/leagues/{$league->id}/statistics");
+        $adminResponse->assertOk();
+        $this->assertSame($adminResponse->json('data.cards_split'), $publicResponse->json('data.cards_split'));
+    }
+
+    public function test_cards_split_runs_exactly_one_aggregate_query(): void
+    {
+        $this->authenticate();
+        [$league] = $this->buildTwoLeaguesWithCards();
+
+        // Aquece o cache de roles/permissions antes de medir.
+        $this->getJson("/api/leagues/{$league->id}/statistics")->assertOk();
+
+        $cardsSplitQueries = [];
+        DB::listen(function ($query) use (&$cardsSplitQueries) {
+            // Alias `as yellow,` é exclusivo do cardsSplit (topCards usa `as yellow_cards`).
+            if (str_contains($query->sql, 'as yellow,')) {
+                $cardsSplitQueries[] = $query->sql;
+            }
+        });
+
+        $this->getJson("/api/leagues/{$league->id}/statistics")->assertOk();
+
+        $this->assertCount(1, $cardsSplitQueries);
+        $sql = strtolower($cardsSplitQueries[0]);
+        $this->assertStringContainsString('sum(case when type', $sql);
+        $this->assertStringNotContainsString('group by', $sql);
+        $this->assertStringNotContainsString('join', $sql);
     }
 
     // ── Autorização ───────────────────────────────────────────────────────────
