@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Team;
 use App\Repositories\TeamRepository;
+use App\Services\Concerns\HandlesImageUpload;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
@@ -11,6 +12,8 @@ use Illuminate\Validation\ValidationException;
 
 class TeamService
 {
+    use HandlesImageUpload;
+
     public function __construct(private readonly TeamRepository $repository) {}
 
     // Lista times do usuário, opcionalmente restrita a uma única liga (leagueId),
@@ -38,6 +41,10 @@ class TeamService
 
     public function store(array $data): Team
     {
+        if (isset($data['logo'])) {
+            $data['logo'] = $this->storeImage($data['logo'], 'teams');
+        }
+
         return $this->repository->store($data);
     }
 
@@ -68,6 +75,12 @@ class TeamService
     public function update(array $data, string $id): Team
     {
         $team = $this->show($id);
+
+        if (isset($data['logo'])) {
+            $this->deleteImage($team->logo);
+            $data['logo'] = $this->storeImage($data['logo'], 'teams');
+        }
+
         $team->fill($data);
 
         $this->repository->update($team);
