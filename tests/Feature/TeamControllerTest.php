@@ -6,6 +6,8 @@ use App\Models\League;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -127,6 +129,94 @@ class TeamControllerTest extends TestCase
         $response = $this->postJson('/api/teams', []);
 
         $response->assertStatus(422);
+    }
+
+    // ── Upload de imagem (logo) ──────────────────────────────────────────────
+
+    public function test_master_can_create_team_with_logo(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+
+        $response = $this->postJson('/api/teams', [
+            'name' => 'Sport Club X',
+            'logo' => UploadedFile::fake()->image('logo.jpg'),
+        ]);
+
+        $response->assertCreated();
+        $team = Team::first();
+        $this->assertNotNull($team->logo);
+        Storage::disk('public')->assertExists($team->logo);
+        $response->assertJsonPath('data.logo', Storage::disk('public')->url($team->logo));
+    }
+
+    public function test_master_can_update_team_replacing_logo(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $oldPath = UploadedFile::fake()->image('old.jpg')->store('teams', 'public');
+        $team = Team::factory()->create(['logo' => $oldPath]);
+
+        $response = $this->putJson("/api/teams/{$team->id}", [
+            'logo' => UploadedFile::fake()->image('new.jpg'),
+        ]);
+
+        $response->assertOk();
+        $team->refresh();
+        $this->assertNotEquals($oldPath, $team->logo);
+        Storage::disk('public')->assertMissing($oldPath);
+        Storage::disk('public')->assertExists($team->logo);
+    }
+
+    public function test_create_team_without_logo_keeps_it_null(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/teams', ['name' => 'Sport Club X']);
+
+        $response->assertCreated()->assertJsonPath('data.logo', null);
+        $this->assertDatabaseHas('teams', ['name' => 'Sport Club X', 'logo' => null]);
+    }
+
+    public function test_update_team_without_logo_keeps_existing_logo(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $path = UploadedFile::fake()->image('logo.jpg')->store('teams', 'public');
+        $team = Team::factory()->create(['logo' => $path]);
+
+        $response = $this->putJson("/api/teams/{$team->id}", ['nickname' => 'NOVO']);
+
+        $response->assertOk();
+        $team->refresh();
+        $this->assertEquals($path, $team->logo);
+        Storage::disk('public')->assertExists($path);
+    }
+
+    public function test_store_fails_validation_with_invalid_logo_format(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+
+        $response = $this->postJson('/api/teams', [
+            'name' => 'Sport Club X',
+            'logo' => UploadedFile::fake()->create('logo.pdf', 100, 'application/pdf'),
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('logo');
+    }
+
+    public function test_store_fails_validation_with_logo_larger_than_2mb(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+
+        $response = $this->postJson('/api/teams', [
+            'name' => 'Sport Club X',
+            'logo' => UploadedFile::fake()->image('logo.jpg')->size(2049),
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('logo');
     }
 
     // ── Admin: escopo por liga ───────────────────────────────────────────────

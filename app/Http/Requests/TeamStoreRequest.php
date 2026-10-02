@@ -11,7 +11,7 @@ class TeamStoreRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'nickname' => ['nullable', 'string', 'max:255'],
-            'logo' => ['nullable', 'string', 'max:255'],
+            'logo' => ['nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:2048'],
         ];
     }
 }
