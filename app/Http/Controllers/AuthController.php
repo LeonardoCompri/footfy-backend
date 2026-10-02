@@ -25,9 +25,20 @@ class AuthController extends Controller
 
         $token = $user->createToken('api-token')->plainTextToken;
 
+        // A relação "permissions" do Spatie traz só as permissões diretas; o frontend precisa
+        // das efetivas (diretas + herdadas dos papéis), no formato {id, name, guard_name}.
+        $permissions = $user->getAllPermissions()
+            ->unique('id')
+            ->map(fn ($permission) => $permission->only(['id', 'name', 'guard_name']))
+            ->values();
+
+        // getAllPermissions() carrega roles.permissions; oculta para não alterar o formato de user.roles.
+        $user->roles->each->makeHidden('permissions');
+        $user->setRelation('permissions', $permissions);
+
         return response()->json([
             'token' => $token,
-            'user' => $user->load('roles', 'permissions')
+            'user' => $user
         ]);
     }
 
