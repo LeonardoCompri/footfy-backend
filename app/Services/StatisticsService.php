@@ -15,7 +15,7 @@ class StatisticsService
     /**
      * Estatísticas da liga inteira (grupos + mata-mata somados, mesmo em liga `hybrid` —
      * diferente da Tabela da Liga, que isola as duas fases). Reaproveitado tanto pela rota
-     * admin quanto pela pública (e pelo Dashboard, que usa `goals_by_bucket`/`results_split`
+     * admin quanto pela pública (e pelo Dashboard, que usa `goals_by_bucket`/`results_split`/`cards_split`
      * desta mesma resposta), seguindo o mesmo princípio do StandingsService.
      */
     public function build(League $league): array
@@ -28,6 +28,7 @@ class StatisticsService
             'top_cards' => $this->mapCardRanking($this->repository->topCards($leagueId, self::RANKING_LIMIT)),
             'goals_by_bucket' => $this->goalsByBucket($leagueId),
             'results_split' => $this->resultsSplit($leagueId),
+            'cards_split' => $this->cardsSplit($leagueId),
         ];
     }
 
@@ -92,6 +93,17 @@ class StatisticsService
             'home_wins' => (int) ($row->home_wins ?? 0),
             'draws' => (int) ($row->draws ?? 0),
             'away_wins' => (int) ($row->away_wins ?? 0),
+        ];
+    }
+
+    // Total de cartões da liga inteira (sem o limite de RANKING_LIMIT de `top_cards`).
+    private function cardsSplit(int $leagueId): array
+    {
+        $row = $this->repository->cardsSplit($leagueId);
+
+        return [
+            'yellow' => (int) ($row->yellow ?? 0),
+            'red' => (int) ($row->red ?? 0),
         ];
     }
 }

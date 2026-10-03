@@ -71,6 +71,23 @@ class StatisticsRepository
             ->get();
     }
 
+    /**
+     * Total de cartões amarelos/vermelhos da liga inteira, sem limite (diferente de topCards,
+     * que é um ranking top N). Uma única query agregada, coberta pelo índice
+     * game_events(league_id, type).
+     */
+    public function cardsSplit(int $leagueId): object
+    {
+        return GameEvent::query()
+            ->where('league_id', $leagueId)
+            ->whereIn('type', ['yellow_card', 'red_card'])
+            ->selectRaw(
+                "SUM(CASE WHEN type = 'yellow_card' THEN 1 ELSE 0 END) as yellow, ".
+                "SUM(CASE WHEN type = 'red_card' THEN 1 ELSE 0 END) as red"
+            )
+            ->first();
+    }
+
     // Gols por rodada (jogos com `round` preenchido), para o gráfico do Dashboard.
     public function goalsByRound(int $leagueId): Collection
     {
