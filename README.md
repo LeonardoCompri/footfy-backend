@@ -521,6 +521,58 @@ Erro 422 ao não encontrar:
 
 ------------------------------------------------------------------------
 
+### 📊 Estatísticas e Dashboard da Liga (`leagues`)
+
+| Método | Rota                                   | Acesso | Descrição |
+| ------ | --------------------------------------- | ------ | --------- |
+| GET    | `/api/leagues/{id}/statistics`          | 🔒 `access:league` | Estatísticas da liga (admin) |
+| GET    | `/api/public/leagues/{id}/statistics`   | público | Mesmas estatísticas, sem autenticação |
+| GET    | `/api/leagues/{id}/dashboard`           | 🔒 `access:league` | Dashboard do admin para a liga |
+
+Admin sem vínculo com a liga recebe `403` (`"Você não tem acesso a este recurso."`).
+As rotas admin e pública de `statistics` usam o mesmo cálculo e retornam o mesmo corpo.
+
+**Resposta de `statistics`:**
+
+```json
+{
+  "data": {
+    "top_scorers":  [ { "player_id": 1, "player_name": "...", "team_id": 1, "team_name": "...", "team_nickname": "...", "goals": 7 } ],
+    "top_assists":  [ { "player_id": 2, "player_name": "...", "team_id": 1, "team_name": "...", "team_nickname": "...", "assists": 4 } ],
+    "top_cards":    [ { "player_id": 3, "player_name": "...", "team_id": 2, "team_name": "...", "team_nickname": "...", "yellow_cards": 2, "red_cards": 1, "total_cards": 3 } ],
+    "goals_by_bucket": [ { "type": "round", "round": 1, "phase": null, "phase_order": null, "goals": 5 } ],
+    "results_split": { "home_wins": 4, "draws": 2, "away_wins": 3 },
+    "cards_split": { "yellow": 27, "red": 3 }
+  }
+}
+```
+
+- `top_scorers` / `top_assists` / `top_cards`: rankings limitados aos **10** primeiros jogadores.
+- `cards_split`: total de cartões amarelos (`yellow`) e vermelhos (`red`) de **todos** os
+  eventos da liga (grupos + mata-mata), **sem** o limite de 10 do `top_cards`. Sempre
+  inteiros — liga sem eventos retorna `{ "yellow": 0, "red": 0 }`. Cartões de outras
+  ligas nunca entram na soma.
+
+**Resposta de `dashboard`:**
+
+```json
+{
+  "data": {
+    "counters": { "teams": 8, "games": 28, "stadiums": 4, "season": "2026" },
+    "last_results": [ ... ],
+    "upcoming_games": [ ... ],
+    "goals_by_bucket": [ ... ],
+    "results_split": { "home_wins": 4, "draws": 2, "away_wins": 3 },
+    "cards_split": { "yellow": 27, "red": 3 }
+  }
+}
+```
+
+`goals_by_bucket`, `results_split` e `cards_split` do dashboard são os mesmos valores
+retornados por `statistics` para a liga.
+
+------------------------------------------------------------------------
+
 ## 📦 Padrão de Respostas e Erros
 
 | Situação                          | Status | Corpo |
