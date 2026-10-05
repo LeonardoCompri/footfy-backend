@@ -8,6 +8,7 @@ use App\Http\Requests\UserUpdateRequest;
 use App\Http\Resources\UserResource;
 use App\Services\UserService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -15,12 +16,14 @@ class UserController extends Controller
 {
     public function __construct(private readonly UserService $service) {}
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         try {
-            $response = $this->service->index();
+            $response = $this->service->index($request->query('league_id'));
 
             return response()->json(['data' => UserResource::collection($response)]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json(['message' => 'Houve um erro no servidor, tente novamente!'], 500);
         }

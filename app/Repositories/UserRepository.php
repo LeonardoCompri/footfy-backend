@@ -7,9 +7,29 @@ use Illuminate\Database\Eloquent\Collection;
 
 class UserRepository
 {
-    public function index(): Collection
+    // leagueIds: restringe a usuários vinculados a ao menos uma dessas ligas.
+    // excludeMasters: remove usuários com papel master do resultado filtrado.
+    // includeUserId: usuário sempre incluído, independentemente dos filtros acima.
+    public function index(?array $leagueIds = null, ?int $includeUserId = null, bool $excludeMasters = false): Collection
     {
-        return User::with('leagues')->get();
+        $query = User::with(['leagues', 'roles']);
+
+        $query->where(function ($q) use ($leagueIds, $includeUserId, $excludeMasters) {
+            $q->where(function ($filtered) use ($leagueIds, $excludeMasters) {
+                if ($leagueIds !== null) {
+                    $filtered->whereHas('leagues', fn ($l) => $l->whereIn('leagues.id', $leagueIds));
+                }
+                if ($excludeMasters) {
+                    $filtered->whereDoesntHave('roles', fn ($r) => $r->where('name', 'master'));
+                }
+            });
+
+            if ($includeUserId !== null) {
+                $q->orWhere('users.id', $includeUserId);
+            }
+        });
+
+        return $query->get();
     }
 
     public function store(array $data, string $role): User

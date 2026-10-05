@@ -17,15 +17,17 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('auth.logout');
 
     // Leitura e edição de dados básicos ficam abertas a master e admin (a tela de
-    // Usuários precisa aparecer para os dois papéis). Criação, exclusão e gestão de
-    // vínculo com ligas continuam exclusivas de master, por envolverem definição de
-    // papel/permissões de outro usuário. UserService::update também ignora qualquer
-    // alteração do campo `role` vinda de quem não é master, para impedir que um admin
-    // se autopromova (ou promova terceiros) via PUT /users/{id}.
+    // Usuários precisa aparecer para os dois papéis), mas o admin só enxerga/edita
+    // usuários das suas ligas: `access:user` libera leitura do próprio usuário ou de
+    // não-masters que compartilhem liga; `access:user_write` libera edição do próprio
+    // usuário ou de coach/player que compartilhem liga (nunca master nem outro admin).
+    // UserService::index aplica o mesmo escopo na listagem, e UserUpdateRequest proíbe
+    // (422) o campo `role` para quem não é master, impedindo autopromoção. Criação,
+    // exclusão e gestão de vínculo com ligas continuam exclusivas de master.
     Route::middleware(['role:master|admin'])->prefix('/users')->name('users.')->group(function () {
         Route::get('/', [UserController::class, 'index'])->name('index');
-        Route::get('/{id}', [UserController::class, 'show'])->name('show');
-        Route::put('/{id}', [UserController::class, 'update'])->name('update');
+        Route::get('/{id}', [UserController::class, 'show'])->name('show')->middleware('access:user');
+        Route::put('/{id}', [UserController::class, 'update'])->name('update')->middleware('access:user_write');
     });
 
     Route::middleware(['role:master'])->prefix('/users')->name('users.')->group(function () {

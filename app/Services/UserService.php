@@ -12,9 +12,28 @@ class UserService
 {
     public function __construct(private readonly UserRepository $repository) {}
 
-    public function index(): Collection
+    // Master vê todos os usuários (opcionalmente só os de uma liga). Demais papéis veem
+    // apenas usuários não-master vinculados às suas ligas, sempre incluindo a si mesmos;
+    // um leagueId fora das ligas do usuário é rejeitado.
+    public function index(?string $leagueId = null): Collection
     {
-        return $this->repository->index();
+        $user = Auth::user();
+
+        if ($user->isMaster()) {
+            return $this->repository->index($leagueId ? [$leagueId] : null);
+        }
+
+        $leagueIds = $user->leagueIds();
+
+        if ($leagueId !== null) {
+            if (! in_array((int) $leagueId, $leagueIds)) {
+                throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa liga.']);
+            }
+
+            $leagueIds = [$leagueId];
+        }
+
+        return $this->repository->index($leagueIds, $user->id, true);
     }
 
     public function store(array $data): User
@@ -36,15 +55,9 @@ class UserService
         return $user;
     }
 
-    // Usuários não-master (ex.: admin, que agora também acessa esta rota) não podem
-    // alterar o papel de ninguém por aqui — o campo `role` é ignorado nesse caso.
     public function update(array $data, string $id): User
     {
         $user = $this->show($id);
-
-        if (isset($data['role']) && ! Auth::user()->isMaster()) {
-            unset($data['role']);
-        }
 
         return $this->repository->update($user, $data);
     }
