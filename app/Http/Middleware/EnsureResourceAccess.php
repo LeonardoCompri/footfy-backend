@@ -23,6 +23,8 @@ class EnsureResourceAccess
             return $next($request);
         }
 
+        // As rotas restringem {id} a dígitos (where no grupo em routes/backoffice.php), então
+        // o (int) abaixo é uma conversão exata, não um cast frouxo de valores como "1abc".
         $id = $request->route('id');
         $leagueIds = $user->leagueIds();
 

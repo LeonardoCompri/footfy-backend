@@ -13,7 +13,9 @@ use App\Http\Controllers\UserController;
 
 Route::post('/login', [AuthController::class, 'login'])->name('auth.login');
 
-Route::middleware(['auth:sanctum'])->group(function () {
+// {id}/{lid} só aceitam dígitos: valores como "1abc", "0x1" ou "1e0" viram 404 em vez de
+// chegar ao middleware `access:`/Service e serem convertidos por cast frouxo (PHP/MySQL).
+Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('auth.logout');
 
     // Leitura e edição de dados básicos ficam abertas a master e admin (a tela de

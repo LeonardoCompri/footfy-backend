@@ -7,6 +7,7 @@ use App\Models\Stadium;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -295,5 +296,34 @@ class StadiumControllerTest extends TestCase
         $response = $this->deleteJson("/api/stadiums/{$stadium->id}");
 
         $response->assertForbidden();
+    }
+
+    // ── Regressão: filtro ?league_id= inválido ────────────────────────────────
+
+    public static function invalidLeagueIdQueryProvider(): array
+    {
+        return [
+            'array' => ['league_id[]=1'],
+            'sufixo não numérico' => ['league_id=1abc'],
+            'texto' => ['league_id=abc'],
+        ];
+    }
+
+    #[DataProvider('invalidLeagueIdQueryProvider')]
+    public function test_invalid_league_id_filter_returns_422(string $query): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->getJson("/api/stadiums?{$query}")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('league_id');
+    }
+
+    public function test_non_numeric_id_returns_404(): void
+    {
+        $this->authenticate();
+
+        $this->getJson('/api/stadiums/1abc')->assertNotFound();
     }
 }

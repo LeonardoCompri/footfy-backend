@@ -361,4 +361,22 @@ class LeagueControllerTest extends TestCase
         $this->assertArrayNotHasKey('created_at', $data);
         $this->assertArrayNotHasKey('updated_at', $data);
     }
+
+    // ── Regressão: {id} só aceita dígitos ─────────────────────────────────────
+
+    public function test_admin_non_numeric_league_id_returns_404(): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->getJson("/api/leagues/{$league->id}abc")->assertNotFound();
+        $this->getJson("/api/leagues/{$league->id}abc/dashboard")->assertNotFound();
+    }
+
+    public function test_public_non_numeric_league_id_returns_404(): void
+    {
+        $league = League::factory()->create();
+
+        $this->getJson("/api/public/leagues/{$league->id}abc")->assertNotFound();
+    }
 }
