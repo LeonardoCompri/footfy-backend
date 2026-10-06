@@ -8,7 +8,9 @@ use App\Services\Concerns\HandlesImageUpload;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class TeamService
 {
@@ -39,19 +41,61 @@ class TeamService
         return $this->repository->index($leagueIds);
     }
 
+    /**
+     * Cria o time e, se vierem league_ids, já o vincula às ligas na mesma transação.
+     * O acesso às ligas é checado antes de gravar o logo; se a criação/vínculo falhar
+     * depois do upload, o arquivo é removido para não ficar órfão no disco.
+     */
     public function store(array $data): Team
     {
+        $leagueIds = $data['league_ids'] ?? [];
+        unset($data['league_ids']);
+
+        if (! empty($leagueIds)) {
+            $this->ensureUserHasAccessToLeagues($leagueIds);
+        }
+
         if (isset($data['logo'])) {
             $data['logo'] = $this->storeImage($data['logo'], 'teams');
         }
 
-        return $this->repository->store($data);
+        try {
+            return DB::transaction(function () use ($data, $leagueIds) {
+                $team = $this->repository->store($data);
+
+                // Sempre carrega `leagues` (mesmo vazio) para a resposta do store.
+                return $this->repository->syncLeagues($team, $leagueIds);
+            });
+        } catch (Throwable $th) {
+            $this->deleteImage($data['logo'] ?? null);
+
+            throw $th;
+        }
     }
 
-    // Busca time por id já com jogadores e comissão técnica, evitando N+1 no TeamResource.
-    public function show(string $id): Team
+    /**
+     * Busca time por id já com jogadores, comissão técnica e ligas, evitando N+1 no TeamResource.
+     * Ligas: master vê todas; não-master vê só a liga de $leagueId (que precisa estar entre as
+     * suas) ou, sem filtro, apenas as ligas do time às quais tem acesso.
+     */
+    public function show(string $id, ?string $leagueId = null): Team
     {
-        $team = $this->repository->show($id, ['players', 'technicalCommitteeMembers']);
+        $user = Auth::user();
+        $visibleLeagueIds = null;
+
+        if (! $user->isMaster()) {
+            $visibleLeagueIds = $user->leagueIds();
+
+            if ($leagueId !== null) {
+                if (! in_array((int) $leagueId, $visibleLeagueIds)) {
+                    throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa liga.']);
+                }
+
+                $visibleLeagueIds = [(int) $leagueId];
+            }
+        }
+
+        $team = $this->repository->showWithLeagues($id, ['players', 'technicalCommitteeMembers'], $visibleLeagueIds);
 
         if (! $team) {
             throw ValidationException::withMessages(['message' => 'Time não encontrado!']);
