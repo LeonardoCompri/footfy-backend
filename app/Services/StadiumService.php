@@ -61,9 +61,15 @@ class StadiumService
         return $stadium;
     }
 
+    // games.stadium_id é nullOnDelete, então o banco não barra a exclusão: a checagem de
+    // partidas vinculadas precisa ser explícita para não apagar o estádio do histórico.
     public function destroy(string $id): ?bool
     {
         $stadium = $this->show($id);
+
+        if ($this->repository->hasGames($stadium)) {
+            throw ValidationException::withMessages(['message' => 'Não é possível remover o estádio pois existem partidas vinculadas a ele.']);
+        }
 
         return $this->repository->destroy($stadium);
     }
