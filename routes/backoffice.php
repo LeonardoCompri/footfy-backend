@@ -82,7 +82,7 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::get('/{id}', [StadiumController::class, 'show'])->name('show')->middleware('access:stadium');
         Route::post('/', [StadiumController::class, 'store'])->name('store');
         Route::put('/{id}', [StadiumController::class, 'update'])->name('update')->middleware('access:stadium');
-        Route::delete('/{id}', [StadiumController::class, 'destroy'])->name('destroy')->middleware(['role:master', 'access:stadium']);
+        Route::delete('/{id}', [StadiumController::class, 'destroy'])->name('destroy')->middleware(['permission:stadium:delete', 'access:stadium']);
     });
 
     Route::prefix('/technical-committee-members')->name('technical-committee-members.')->group(function () {

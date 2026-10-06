@@ -2,13 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Models\Game;
 use App\Models\League;
 use App\Models\Stadium;
 use App\Models\User;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
-use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class StadiumControllerTest extends TestCase
@@ -19,8 +21,9 @@ class StadiumControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        Role::create(['name' => 'master']);
-        Role::create(['name' => 'admin']);
+        // Papéis e permissões reais do RoleSeeder: a exclusão de estádio é autorizada por
+        // `permission:stadium:delete` (admin e master têm; coach não).
+        $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
     private function authenticate(): User
@@ -277,7 +280,7 @@ class StadiumControllerTest extends TestCase
         $response->assertForbidden();
     }
 
-    public function test_admin_cannot_delete_stadium_even_with_league_access(): void
+    public function test_admin_with_league_access_can_delete_stadium(): void
     {
         $league = League::factory()->create();
         $stadium = Stadium::factory()->create(['league_id' => $league->id]);
@@ -285,17 +288,63 @@ class StadiumControllerTest extends TestCase
 
         $response = $this->deleteJson("/api/stadiums/{$stadium->id}");
 
-        $response->assertForbidden();
+        $response->assertStatus(204);
+        $this->assertDatabaseMissing('stadiums', ['id' => $stadium->id]);
     }
 
     public function test_admin_without_league_access_cannot_delete_stadium(): void
     {
         $stadium = Stadium::factory()->create();
-        $this->authenticateAsAdmin();
+        $this->authenticateAsAdmin([League::factory()->create()->id]);
 
         $response = $this->deleteJson("/api/stadiums/{$stadium->id}");
 
-        $response->assertForbidden();
+        $response->assertForbidden()
+            ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
+        $this->assertDatabaseHas('stadiums', ['id' => $stadium->id]);
+    }
+
+    public function test_user_without_stadium_delete_permission_cannot_delete_stadium(): void
+    {
+        $league = League::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $coach = User::factory()->create();
+        $coach->assignRole('coach');
+        $coach->leagues()->sync([$league->id]);
+        Sanctum::actingAs($coach);
+
+        $response = $this->deleteJson("/api/stadiums/{$stadium->id}");
+
+        $response->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->assertDatabaseHas('stadiums', ['id' => $stadium->id]);
+    }
+
+    public function test_cannot_delete_stadium_with_linked_games(): void
+    {
+        $league = League::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        Game::factory()->create(['league_id' => $league->id, 'stadium_id' => $stadium->id]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $response = $this->deleteJson("/api/stadiums/{$stadium->id}");
+
+        $response->assertStatus(422)
+            ->assertJsonPath('message', 'Não é possível remover o estádio pois existem partidas vinculadas a ele.');
+        $this->assertDatabaseHas('stadiums', ['id' => $stadium->id]);
+    }
+
+    public function test_master_cannot_delete_stadium_with_linked_games(): void
+    {
+        $this->authenticate();
+        $stadium = Stadium::factory()->create();
+        Game::factory()->create(['league_id' => $stadium->league_id, 'stadium_id' => $stadium->id]);
+
+        $response = $this->deleteJson("/api/stadiums/{$stadium->id}");
+
+        $response->assertStatus(422)
+            ->assertJsonPath('message', 'Não é possível remover o estádio pois existem partidas vinculadas a ele.');
+        $this->assertDatabaseHas('stadiums', ['id' => $stadium->id]);
     }
 
     // ── Regressão: filtro ?league_id= inválido ────────────────────────────────

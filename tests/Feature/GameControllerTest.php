@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -414,13 +415,28 @@ class GameControllerTest extends TestCase
         $this->assertDatabaseMissing('games', ['id' => $game->id]);
     }
 
-    public function test_destroying_stadium_nullifies_game_stadium_id(): void
+    public function test_deleting_stadium_with_games_via_api_is_blocked_and_keeps_game_stadium_id(): void
     {
+        Role::findByName('master')->givePermissionTo(Permission::create(['name' => 'stadium:delete']));
         $this->authenticate();
         $stadium = Stadium::factory()->create();
         $game = Game::factory()->create(['stadium_id' => $stadium->id]);
 
-        $this->deleteJson("/api/stadiums/{$stadium->id}")->assertStatus(204);
+        $this->deleteJson("/api/stadiums/{$stadium->id}")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Não é possível remover o estádio pois existem partidas vinculadas a ele.');
+
+        $this->assertDatabaseHas('games', ['id' => $game->id, 'stadium_id' => $stadium->id]);
+    }
+
+    public function test_stadium_fk_on_games_is_null_on_delete(): void
+    {
+        // A API bloqueia a exclusão (StadiumService::destroy), mas a FK em si continua
+        // nullOnDelete: uma exclusão direta no banco não apaga as partidas.
+        $stadium = Stadium::factory()->create();
+        $game = Game::factory()->create(['stadium_id' => $stadium->id]);
+
+        $stadium->delete();
 
         $this->assertDatabaseHas('games', ['id' => $game->id, 'stadium_id' => null]);
     }

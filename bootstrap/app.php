@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'role'   => \Spatie\Permission\Middleware\RoleMiddleware::class,
+            'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'access' => \App\Http\Middleware\EnsureResourceAccess::class,
             'public_route' => \App\Http\Middleware\PublicRouteMiddleware::class
         ]);

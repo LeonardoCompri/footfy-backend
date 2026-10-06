@@ -32,6 +32,11 @@ class StadiumRepository
         return $stadium->save();
     }
 
+    public function hasGames(Stadium $stadium): bool
+    {
+        return $stadium->games()->exists();
+    }
+
     public function destroy(Stadium $stadium): ?bool
     {
         return $stadium->delete();
