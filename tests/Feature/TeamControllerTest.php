@@ -5,8 +5,10 @@ namespace Tests\Feature;
 use App\Models\League;
 use App\Models\Team;
 use App\Models\User;
+use App\Repositories\TeamRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -76,7 +78,9 @@ class TeamControllerTest extends TestCase
             'nickname' => 'SCX',
         ]);
 
-        $response->assertCreated()->assertJsonPath('data.name', 'Sport Club X');
+        $response->assertCreated()
+            ->assertJsonPath('data.name', 'Sport Club X')
+            ->assertJsonPath('data.leagues', []);
         $this->assertDatabaseHas('teams', ['name' => 'Sport Club X']);
     }
 
@@ -218,6 +222,288 @@ class TeamControllerTest extends TestCase
         ]);
 
         $response->assertStatus(422)->assertJsonValidationErrors('logo');
+    }
+
+    // ── Store com ligas (league_ids) ──────────────────────────────────────────
+
+    public function test_master_can_create_team_with_leagues(): void
+    {
+        $this->authenticate();
+        $league1 = League::factory()->create();
+        $league2 = League::factory()->create();
+
+        $response = $this->postJson('/api/teams', [
+            'name' => 'Sport Club X',
+            'league_ids' => [$league1->id, $league2->id],
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonCount(2, 'data.leagues')
+            ->assertJsonFragment(['id' => $league1->id, 'name' => $league1->name])
+            ->assertJsonFragment(['id' => $league2->id, 'name' => $league2->name]);
+        $teamId = $response->json('data.id');
+        $this->assertDatabaseHas('league_team', ['team_id' => $teamId, 'league_id' => $league1->id]);
+        $this->assertDatabaseHas('league_team', ['team_id' => $teamId, 'league_id' => $league2->id]);
+    }
+
+    public function test_admin_can_create_team_with_assigned_league(): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $response = $this->postJson('/api/teams', [
+            'name' => 'Sport Club X',
+            'league_ids' => [$league->id],
+        ]);
+
+        $response->assertCreated()->assertJsonPath('data.leagues', [['id' => $league->id, 'name' => $league->name]]);
+        $this->assertDatabaseHas('league_team', ['team_id' => $response->json('data.id'), 'league_id' => $league->id]);
+    }
+
+    public function test_admin_can_create_team_without_leagues(): void
+    {
+        $this->authenticateAsAdmin();
+
+        $response = $this->postJson('/api/teams', ['name' => 'Sport Club X']);
+
+        $response->assertCreated()->assertJsonPath('data.leagues', []);
+        $this->assertDatabaseHas('teams', ['name' => 'Sport Club X']);
+    }
+
+    public function test_admin_cannot_create_team_with_unassigned_league(): void
+    {
+        Storage::fake('public');
+        $assigned = League::factory()->create();
+        $otherLeague = League::factory()->create();
+        $this->authenticateAsAdmin([$assigned->id]);
+
+        $response = $this->post('/api/teams', [
+            'name' => 'Sport Club X',
+            'logo' => UploadedFile::fake()->image('logo.jpg'),
+            'league_ids' => [$assigned->id, $otherLeague->id],
+        ], ['Accept' => 'application/json']);
+
+        $response->assertStatus(422)->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+        $this->assertDatabaseCount('teams', 0);
+        $this->assertDatabaseCount('league_team', 0);
+        $this->assertEmpty(Storage::disk('public')->allFiles());
+    }
+
+    public function test_store_fails_validation_with_nonexistent_league_id(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/teams', [
+            'name' => 'Sport Club X',
+            'league_ids' => [9999],
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('league_ids.0');
+        $this->assertDatabaseCount('teams', 0);
+    }
+
+    public function test_store_fails_validation_when_league_ids_is_not_array(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/teams', [
+            'name' => 'Sport Club X',
+            'league_ids' => 'abc',
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('league_ids');
+    }
+
+    public function test_master_can_create_team_with_logo_and_leagues_via_multipart(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $league1 = League::factory()->create();
+        $league2 = League::factory()->create();
+
+        // post() com UploadedFile envia multipart/form-data; league_ids chega como league_ids[] (strings).
+        $response = $this->post('/api/teams', [
+            'name' => 'Sport Club X',
+            'logo' => UploadedFile::fake()->image('logo.png'),
+            'league_ids' => [(string) $league1->id, (string) $league2->id],
+        ], ['Accept' => 'application/json']);
+
+        $response->assertCreated()->assertJsonCount(2, 'data.leagues');
+        $team = Team::first();
+        Storage::disk('public')->assertExists($team->logo);
+        $this->assertEqualsCanonicalizing([$league1->id, $league2->id], $team->leagues()->pluck('leagues.id')->all());
+    }
+
+    public function test_store_rolls_back_and_removes_logo_when_league_sync_fails(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $league = League::factory()->create();
+        $this->partialMock(TeamRepository::class, function ($mock) {
+            $mock->shouldReceive('syncLeagues')->andThrow(new \RuntimeException('falha simulada'));
+        });
+
+        $response = $this->post('/api/teams', [
+            'name' => 'Sport Club X',
+            'logo' => UploadedFile::fake()->image('logo.jpg'),
+            'league_ids' => [$league->id],
+        ], ['Accept' => 'application/json']);
+
+        $response->assertStatus(500);
+        $this->assertDatabaseCount('teams', 0);
+        $this->assertEmpty(Storage::disk('public')->allFiles());
+    }
+
+    // ── Show: ligas do time ───────────────────────────────────────────────────
+
+    public function test_master_show_returns_all_team_leagues(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        $league1 = League::factory()->create();
+        $league2 = League::factory()->create();
+        $team->leagues()->attach([$league1->id, $league2->id]);
+
+        $response = $this->getJson("/api/teams/{$team->id}");
+
+        $response->assertOk()
+            ->assertJsonCount(2, 'data.leagues')
+            ->assertJsonFragment(['id' => $league1->id, 'name' => $league1->name])
+            ->assertJsonFragment(['id' => $league2->id, 'name' => $league2->name]);
+    }
+
+    public function test_master_show_ignores_league_id_filter_for_leagues(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        $league1 = League::factory()->create();
+        $league2 = League::factory()->create();
+        $team->leagues()->attach([$league1->id, $league2->id]);
+
+        $response = $this->getJson("/api/teams/{$team->id}?league_id={$league1->id}");
+
+        $response->assertOk()->assertJsonCount(2, 'data.leagues');
+    }
+
+    public function test_admin_show_returns_only_accessible_team_leagues(): void
+    {
+        $team = Team::factory()->create();
+        $assigned = League::factory()->create();
+        $other = League::factory()->create();
+        $team->leagues()->attach([$assigned->id, $other->id]);
+        $this->authenticateAsAdmin([$assigned->id]);
+
+        $response = $this->getJson("/api/teams/{$team->id}");
+
+        $response->assertOk()->assertJsonPath('data.leagues', [['id' => $assigned->id, 'name' => $assigned->name]]);
+    }
+
+    public function test_admin_show_with_league_id_returns_only_that_league(): void
+    {
+        $team = Team::factory()->create();
+        $league1 = League::factory()->create();
+        $league2 = League::factory()->create();
+        $team->leagues()->attach([$league1->id, $league2->id]);
+        $this->authenticateAsAdmin([$league1->id, $league2->id]);
+
+        $response = $this->getJson("/api/teams/{$team->id}?league_id={$league2->id}");
+
+        $response->assertOk()->assertJsonPath('data.leagues', [['id' => $league2->id, 'name' => $league2->name]]);
+    }
+
+    public function test_admin_show_with_league_id_not_linked_to_team_returns_empty_leagues(): void
+    {
+        $team = Team::factory()->create();
+        $teamLeague = League::factory()->create();
+        $otherLeague = League::factory()->create();
+        $team->leagues()->attach($teamLeague->id);
+        $this->authenticateAsAdmin([$teamLeague->id, $otherLeague->id]);
+
+        $response = $this->getJson("/api/teams/{$team->id}?league_id={$otherLeague->id}");
+
+        $response->assertOk()->assertJsonPath('data.leagues', []);
+    }
+
+    public function test_admin_show_with_unassigned_league_id_returns_422(): void
+    {
+        $team = Team::factory()->create();
+        $assigned = League::factory()->create();
+        $other = League::factory()->create();
+        $team->leagues()->attach([$assigned->id, $other->id]);
+        $this->authenticateAsAdmin([$assigned->id]);
+
+        $response = $this->getJson("/api/teams/{$team->id}?league_id={$other->id}");
+
+        $response->assertStatus(422)->assertJson(['message' => 'Você não tem acesso a essa liga.']);
+    }
+
+    #[DataProvider('invalidLeagueIdQueryProvider')]
+    public function test_show_with_invalid_league_id_filter_returns_422(string $query): void
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $team->leagues()->attach($league->id);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->getJson("/api/teams/{$team->id}?{$query}")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('league_id');
+    }
+
+    public function test_admin_update_response_keeps_leagues_scoped_to_access(): void
+    {
+        $team = Team::factory()->create();
+        $assigned = League::factory()->create();
+        $other = League::factory()->create();
+        $team->leagues()->attach([$assigned->id, $other->id]);
+        $this->authenticateAsAdmin([$assigned->id]);
+
+        $response = $this->putJson("/api/teams/{$team->id}", ['nickname' => 'NOVO']);
+
+        $response->assertOk()
+            ->assertJsonPath('data.nickname', 'NOVO')
+            ->assertJsonPath('data.leagues', [['id' => $assigned->id, 'name' => $assigned->name]]);
+        $this->assertEquals(2, $team->leagues()->count());
+    }
+
+    public function test_show_runs_fixed_number_of_queries_regardless_of_relations_size(): void
+    {
+        // Reautentica com instância nova do usuário a cada request para que o cache de
+        // roles em memória não faça a primeira medição ter uma query a mais.
+        $countQueries = function (Team $team, User $admin): int {
+            Sanctum::actingAs($admin->fresh());
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->getJson("/api/teams/{$team->id}")->assertOk();
+            $count = count(DB::getQueryLog());
+            DB::disableQueryLog();
+
+            return $count;
+        };
+
+        $leagues = League::factory()->count(5)->create();
+        $admin = $this->authenticateAsAdmin($leagues->pluck('id')->all());
+
+        $smallTeam = Team::factory()->create();
+        $smallTeam->leagues()->attach($leagues->first()->id);
+        \App\Models\Player::factory()->create(['team_id' => $smallTeam->id]);
+        \App\Models\TechnicalCommitteeMember::factory()->create(['team_id' => $smallTeam->id]);
+
+        $bigTeam = Team::factory()->create();
+        $bigTeam->leagues()->attach($leagues->pluck('id')->all());
+        \App\Models\Player::factory()->count(5)->create(['team_id' => $bigTeam->id]);
+        \App\Models\TechnicalCommitteeMember::factory()->count(5)->create(['team_id' => $bigTeam->id]);
+
+        $smallCount = $countQueries($smallTeam, $admin);
+        $bigCount = $countQueries($bigTeam, $admin);
+
+        $this->assertSame($smallCount, $bigCount);
+
+        $this->getJson("/api/teams/{$bigTeam->id}")
+            ->assertOk()
+            ->assertJsonCount(5, 'data.leagues')
+            ->assertJsonCount(5, 'data.players')
+            ->assertJsonCount(5, 'data.technicalCommitteeMembers');
     }
 
     // ── Admin: escopo por liga ───────────────────────────────────────────────

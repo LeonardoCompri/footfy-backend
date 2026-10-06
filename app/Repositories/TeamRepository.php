@@ -27,6 +27,17 @@ class TeamRepository
         return Team::with($with)->find($id);
     }
 
+    /**
+     * Busca o time com as relações de $with e as ligas carregadas no mesmo eager-load,
+     * restritas a $leagueIds quando informado (null = todas as ligas do time).
+     */
+    public function showWithLeagues(string $id, array $with = [], ?array $leagueIds = null): ?Team
+    {
+        $with['leagues'] = fn ($q) => $leagueIds === null ? $q : $q->whereIn('leagues.id', $leagueIds);
+
+        return Team::with($with)->find($id);
+    }
+
     public function update(Team $team): bool
     {
         return $team->save();
