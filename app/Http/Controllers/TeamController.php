@@ -53,6 +53,8 @@ class TeamController extends Controller
             $response = $this->service->store($data);
 
             return response()->json(['data' => new TeamResource($response)], 201);
+        } catch (ValidationException $ex) {
+            return response()->json(["message" => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
                 "message" => "Houve um erro no servidor, tente novamente!"
@@ -60,10 +62,10 @@ class TeamController extends Controller
         }
     }
 
-    public function show(string $id): JsonResponse
+    public function show(LeagueFilterRequest $request, string $id): JsonResponse
     {
         try {
-            $response = $this->service->show($id);
+            $response = $this->service->show($id, $request->validated('league_id'));
 
             return response()->json(['data' => new TeamResource($response)]);
         } catch (ValidationException $ex) {
