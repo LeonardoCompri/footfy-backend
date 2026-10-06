@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\TechnicalCommitteeMember;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -14,7 +15,7 @@ class TechnicalCommitteeMemberFactory extends Factory
         return [
             'team_id'    => null,
             'name'       => fake()->name(),
-            'role'       => 'Treinador principal',
+            'role'       => fake()->randomElement(TechnicalCommitteeMember::roleValues()),
             'birth_date' => fake()->date(),
         ];
     }
