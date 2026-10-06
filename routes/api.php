@@ -6,7 +6,8 @@ use App\Http\Controllers\LeagueController;
 use App\Http\Controllers\PlayerController;
 use App\Http\Controllers\TeamController;
 
-Route::prefix('/public')->name('public.')->middleware(['public_route'])->group(function () {
+// Mesma restrição numérica de {id} das rotas do backoffice (ver routes/backoffice.php).
+Route::prefix('/public')->name('public.')->middleware(['public_route'])->where(['id' => '[0-9]+'])->group(function () {
     Route::get('/championships', [ChampionshipController::class, 'publicIndex'])->name('championships.index');
     Route::get('/championships/{id}', [ChampionshipController::class, 'publicShow'])->name('championships.show');
     Route::get('/leagues/{id}', [LeagueController::class, 'publicShow'])->name('leagues.show');

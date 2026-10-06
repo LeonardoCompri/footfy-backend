@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\LeagueFilterRequest;
 use App\Http\Requests\UserLeaguesRequest;
 use App\Http\Requests\UserStoreRequest;
 use App\Http\Requests\UserUpdateRequest;
 use App\Http\Resources\UserResource;
 use App\Services\UserService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -16,10 +16,10 @@ class UserController extends Controller
 {
     public function __construct(private readonly UserService $service) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(LeagueFilterRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index($request->query('league_id'));
+            $response = $this->service->index($request->validated('league_id'));
 
             return response()->json(['data' => UserResource::collection($response)]);
         } catch (ValidationException $ex) {

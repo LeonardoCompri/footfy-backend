@@ -323,6 +323,139 @@ class UserControllerTest extends TestCase
         $this->getJson('/api/users')->assertOk()->assertJsonCount(4, 'data');
     }
 
+    public static function invalidLeagueIdQueryProvider(): array
+    {
+        return [
+            'array' => ['league_id[]=1'],
+            'sufixo não numérico' => ['league_id=1abc'],
+            'texto' => ['league_id=abc'],
+            'hexadecimal' => ['league_id=0x1'],
+            'notação científica' => ['league_id=1e0'],
+            'negativo' => ['league_id=-1'],
+            'sinal de mais' => ['league_id=%2B1'],
+        ];
+    }
+
+    #[DataProvider('invalidLeagueIdQueryProvider')]
+    public function test_admin_invalid_league_id_filter_returns_422(string $query): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $admin->leagues()->attach(League::factory()->create()->id);
+
+        $this->getJson("/api/users?{$query}")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('league_id');
+    }
+
+    #[DataProvider('invalidLeagueIdQueryProvider')]
+    public function test_master_invalid_league_id_filter_returns_422(string $query): void
+    {
+        $this->authenticate();
+        League::factory()->create(['id' => 1]);
+
+        $this->getJson("/api/users?{$query}")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('league_id');
+    }
+
+    public function test_admin_filter_by_nonexistent_league_keeps_access_message(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $admin->leagues()->attach(League::factory()->create()->id);
+
+        $this->getJson('/api/users?league_id=999999')
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a essa liga.']);
+    }
+
+    // O TrimStrings global remove espaços das pontas antes da validação: " 1" vira "1".
+    public function test_league_id_with_surrounding_spaces_is_trimmed(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+
+        $this->getJson("/api/users?league_id=%20{$league->id}%20")
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $admin->id);
+    }
+
+    public function test_master_filter_by_nonexistent_league_returns_empty_list(): void
+    {
+        $this->authenticate();
+        $this->createUserWithRole('admin', [League::factory()->create()->id]);
+
+        $this->getJson('/api/users?league_id=999999')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
+    // ── Regressão: {id}/{lid} só aceitam dígitos ──────────────────────────────
+
+    public static function nonNumericIdSuffixProvider(): array
+    {
+        return [
+            'sufixo texto' => ['abc'],
+            'hexadecimal' => ['x1'],
+            'notação científica' => ['e0'],
+        ];
+    }
+
+    #[DataProvider('nonNumericIdSuffixProvider')]
+    public function test_show_with_non_numeric_id_returns_404(string $suffix): void
+    {
+        $master = $this->authenticate();
+
+        $this->getJson("/api/users/{$master->id}{$suffix}")->assertNotFound();
+    }
+
+    #[DataProvider('nonNumericIdSuffixProvider')]
+    public function test_admin_show_own_profile_with_non_numeric_id_returns_404(string $suffix): void
+    {
+        $admin = $this->authenticateAsAdmin();
+
+        $this->getJson("/api/users/{$admin->id}{$suffix}")->assertNotFound();
+    }
+
+    #[DataProvider('nonNumericIdSuffixProvider')]
+    public function test_update_with_non_numeric_id_returns_404(string $suffix): void
+    {
+        $admin = $this->authenticateAsAdmin();
+
+        $this->putJson("/api/users/{$admin->id}{$suffix}", ['name' => 'Outro Nome'])->assertNotFound();
+        $this->assertNotSame('Outro Nome', $admin->fresh()->name);
+    }
+
+    public function test_destroy_with_non_numeric_id_returns_404(): void
+    {
+        $this->authenticate();
+        $target = $this->createUserWithRole('coach');
+
+        $this->deleteJson("/api/users/{$target->id}abc")->assertNotFound();
+        $this->assertNotNull($target->fresh());
+    }
+
+    public function test_remove_league_with_non_numeric_lid_returns_404(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $target = $this->createUserWithRole('coach', [$league->id]);
+
+        $this->deleteJson("/api/users/{$target->id}/leagues/{$league->id}abc")->assertNotFound();
+        $this->assertTrue($target->fresh()->leagues->contains($league->id));
+    }
+
+    public function test_sync_leagues_with_non_numeric_id_returns_404(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $target = $this->createUserWithRole('coach');
+
+        $this->postJson("/api/users/{$target->id}abc/leagues", ['league_ids' => [$league->id]])->assertNotFound();
+        $this->assertCount(0, $target->fresh()->leagues);
+    }
+
     // ── Regressão: ações exclusivas de master ─────────────────────────────────
 
     public function test_admin_cannot_remove_league_from_user(): void

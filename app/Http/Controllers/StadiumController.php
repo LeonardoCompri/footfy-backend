@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\LeagueFilterRequest;
 use App\Http\Requests\StadiumStoreRequest;
 use App\Http\Requests\StadiumUpdateRequest;
 use App\Http\Resources\StadiumResource;
 use App\Services\StadiumService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -15,10 +15,10 @@ class StadiumController extends Controller
 {
     public function __construct(private readonly StadiumService $service) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(LeagueFilterRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index($request->query('league_id'));
+            $response = $this->service->index($request->validated('league_id'));
 
             return response()->json(['data' => StadiumResource::collection($response)]);
         } catch (ValidationException $ex) {

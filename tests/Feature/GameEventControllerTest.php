@@ -10,6 +10,7 @@ use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -532,5 +533,35 @@ class GameEventControllerTest extends TestCase
         $this->deleteJson("/api/games/{$gameId}")->assertStatus(204);
 
         $this->assertDatabaseMissing('game_events', ['id' => $event->id]);
+    }
+
+    // ── Regressão: filtros ?game_id=/?type= inválidos ─────────────────────────
+
+    public static function invalidIndexQueryProvider(): array
+    {
+        return [
+            'game_id array' => ['game_id[]=1', 'game_id'],
+            'game_id sufixo não numérico' => ['game_id=1abc', 'game_id'],
+            'game_id texto' => ['game_id=abc', 'game_id'],
+            'type array' => ['type[]=goal', 'type'],
+        ];
+    }
+
+    #[DataProvider('invalidIndexQueryProvider')]
+    public function test_invalid_index_filter_returns_422(string $query, string $field): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->getJson("/api/game-events?{$query}")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors($field);
+    }
+
+    public function test_non_numeric_id_returns_404(): void
+    {
+        $this->authenticate();
+
+        $this->getJson('/api/game-events/1abc')->assertNotFound();
     }
 }
