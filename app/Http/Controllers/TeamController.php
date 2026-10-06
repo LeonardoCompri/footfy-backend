@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\LeagueFilterRequest;
 use App\Http\Requests\TeamLeaguesRequest;
 use App\Http\Requests\TeamStoreRequest;
 use App\Http\Requests\TeamUpdateRequest;
 use App\Http\Resources\TeamResource;
 use App\Services\TeamService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -16,10 +16,10 @@ class TeamController extends Controller
 {
     public function __construct(private readonly TeamService $service) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(LeagueFilterRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index($request->query('league_id'));
+            $response = $this->service->index($request->validated('league_id'));
 
             return response()->json(['data' => TeamResource::collection($response)]);
         } catch (ValidationException $ex) {

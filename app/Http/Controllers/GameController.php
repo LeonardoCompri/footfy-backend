@@ -4,10 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\GameStoreRequest;
 use App\Http\Requests\GameUpdateRequest;
+use App\Http\Requests\LeagueFilterRequest;
 use App\Http\Resources\GameResource;
 use App\Services\GameService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -15,10 +15,10 @@ class GameController extends Controller
 {
     public function __construct(private readonly GameService $service) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(LeagueFilterRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index($request->query('league_id'));
+            $response = $this->service->index($request->validated('league_id'));
 
             return response()->json(['data' => GameResource::collection($response)]);
         } catch (ValidationException $ex) {

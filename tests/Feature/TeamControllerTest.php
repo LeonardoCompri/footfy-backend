@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -508,5 +509,34 @@ class TeamControllerTest extends TestCase
 
         $response->assertStatus(422)->assertJson(['message' => 'Você não tem acesso a essa liga.']);
         $this->assertDatabaseHas('league_team', ['team_id' => $team->id, 'league_id' => $league->id]);
+    }
+
+    // ── Regressão: filtro ?league_id= inválido ────────────────────────────────
+
+    public static function invalidLeagueIdQueryProvider(): array
+    {
+        return [
+            'array' => ['league_id[]=1'],
+            'sufixo não numérico' => ['league_id=1abc'],
+            'texto' => ['league_id=abc'],
+        ];
+    }
+
+    #[DataProvider('invalidLeagueIdQueryProvider')]
+    public function test_invalid_league_id_filter_returns_422(string $query): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->getJson("/api/teams?{$query}")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('league_id');
+    }
+
+    public function test_non_numeric_id_returns_404(): void
+    {
+        $this->authenticate();
+
+        $this->getJson('/api/teams/1abc')->assertNotFound();
     }
 }

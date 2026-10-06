@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UserUpdateRequest extends FormRequest
 {
@@ -15,7 +16,11 @@ class UserUpdateRequest extends FormRequest
             'email'    => ['sometimes', 'nullable', 'email', "unique:users,email,{$userId}"],
             'document' => ['sometimes', 'string', 'size:11', "unique:users,document,{$userId}"],
             'password' => ['sometimes', 'string', 'min:6'],
-            'role'     => ['sometimes', 'string', 'in:master,admin,coach,player'],
+            // Só master altera papel; para os demais o campo é rejeitado (422).
+            'role'     => [
+                Rule::prohibitedIf(fn () => ! $this->user()->isMaster()),
+                'sometimes', 'string', 'in:master,admin,coach,player',
+            ],
         ];
     }
 }

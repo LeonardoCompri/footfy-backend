@@ -6,6 +6,7 @@ use App\Models\League;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -41,6 +42,17 @@ class UserControllerTest extends TestCase
         return $user;
     }
 
+    private function createUserWithRole(string $role, array $leagueIds = []): User
+    {
+        $user = User::factory()->create();
+        $user->assignRole($role);
+        if ($leagueIds) {
+            $user->leagues()->attach($leagueIds);
+        }
+
+        return $user;
+    }
+
     private function validUserPayload(array $overrides = []): array
     {
         return array_merge([
@@ -63,19 +75,27 @@ class UserControllerTest extends TestCase
 
     public function test_admin_can_list_users(): void
     {
-        $this->authenticateAsAdmin();
-        User::factory()->count(2)->create();
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $this->createUserWithRole('coach', [$league->id]);
+        $this->createUserWithRole('player', [$league->id]);
+        // fora do escopo: sem liga e de liga alheia
+        User::factory()->create();
+        $this->createUserWithRole('coach', [League::factory()->create()->id]);
 
         $response = $this->getJson('/api/users');
 
-        // +1 porque o próprio admin também é listado
+        // 2 da mesma liga + o próprio admin
         $response->assertOk()->assertJsonCount(3, 'data');
     }
 
     public function test_admin_can_show_user(): void
     {
-        $this->authenticateAsAdmin();
-        $target = User::factory()->create();
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $target = $this->createUserWithRole('coach', [$league->id]);
 
         $response = $this->getJson("/api/users/{$target->id}");
 
@@ -84,8 +104,10 @@ class UserControllerTest extends TestCase
 
     public function test_admin_can_update_user_basic_data(): void
     {
-        $this->authenticateAsAdmin();
-        $target = User::factory()->create();
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $target = $this->createUserWithRole('player', [$league->id]);
 
         $response = $this->putJson("/api/users/{$target->id}", ['name' => 'Nome Atualizado']);
 
@@ -95,15 +117,377 @@ class UserControllerTest extends TestCase
 
     public function test_admin_cannot_change_user_role(): void
     {
-        $this->authenticateAsAdmin();
-        $target = User::factory()->create();
-        $target->assignRole('coach');
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $target = $this->createUserWithRole('coach', [$league->id]);
 
         $response = $this->putJson("/api/users/{$target->id}", ['role' => 'master']);
 
-        $response->assertOk();
+        $response->assertStatus(422)->assertJsonValidationErrors('role');
         $this->assertTrue($target->fresh()->hasRole('coach'));
         $this->assertFalse($target->fresh()->hasRole('master'));
+    }
+
+    // ── Admin x master ────────────────────────────────────────────────────────
+
+    public function test_admin_cannot_show_master(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $master = $this->createUserWithRole('master', [$league->id]);
+
+        $this->getJson("/api/users/{$master->id}")
+            ->assertForbidden()
+            ->assertJson(['message' => 'Você não tem acesso a este recurso.']);
+    }
+
+    public function test_admin_cannot_update_master(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $master = $this->createUserWithRole('master', [$league->id]);
+        $original = $master->only(['email', 'document', 'password']);
+
+        $response = $this->putJson("/api/users/{$master->id}", [
+            'email' => 'tomada@footfy.com',
+            'document' => '00011122233',
+            'password' => 'senha-nova',
+        ]);
+
+        $response->assertForbidden();
+        $fresh = $master->fresh();
+        $this->assertSame($original['email'], $fresh->email);
+        $this->assertSame($original['document'], $fresh->document);
+        $this->assertSame($original['password'], $fresh->password);
+    }
+
+    public function test_admin_cannot_delete_master(): void
+    {
+        $this->authenticateAsAdmin();
+        $master = $this->createUserWithRole('master');
+
+        $this->deleteJson("/api/users/{$master->id}")->assertForbidden();
+        $this->assertDatabaseHas('users', ['id' => $master->id]);
+    }
+
+    public function test_admin_list_does_not_include_master_of_same_league(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $master = $this->createUserWithRole('master', [$league->id]);
+
+        $ids = collect($this->getJson('/api/users')->assertOk()->json('data'))->pluck('id');
+
+        $this->assertNotContains($master->id, $ids);
+        $this->assertContains($admin->id, $ids);
+    }
+
+    // ── Admin x usuários de outra liga ────────────────────────────────────────
+
+    public static function rolesProvider(): array
+    {
+        return [['coach'], ['player'], ['admin']];
+    }
+
+    #[DataProvider('rolesProvider')]
+    public function test_admin_cannot_access_user_from_other_league(string $role): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $admin->leagues()->attach(League::factory()->create()->id);
+        $target = $this->createUserWithRole($role, [League::factory()->create()->id]);
+
+        $this->getJson("/api/users/{$target->id}")->assertForbidden();
+        $this->putJson("/api/users/{$target->id}", ['name' => 'Hack'])->assertForbidden();
+        $this->assertDatabaseMissing('users', ['id' => $target->id, 'name' => 'Hack']);
+
+        $ids = collect($this->getJson('/api/users')->assertOk()->json('data'))->pluck('id');
+        $this->assertNotContains($target->id, $ids);
+    }
+
+    // ── Admin x coach/player/admin da mesma liga ──────────────────────────────
+
+    #[DataProvider('rolesProvider')]
+    public function test_admin_can_show_user_of_same_league(string $role): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $target = $this->createUserWithRole($role, [$league->id]);
+
+        $this->getJson("/api/users/{$target->id}")->assertOk()->assertJsonPath('data.id', $target->id);
+    }
+
+    public function test_admin_can_update_coach_of_same_league(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $target = $this->createUserWithRole('coach', [$league->id]);
+
+        $this->putJson("/api/users/{$target->id}", ['name' => 'Treinador Novo', 'email' => 'treinador@footfy.com'])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Treinador Novo')
+            ->assertJsonPath('data.email', 'treinador@footfy.com');
+        $this->assertDatabaseHas('users', ['id' => $target->id, 'name' => 'Treinador Novo', 'email' => 'treinador@footfy.com']);
+    }
+
+    public function test_admin_cannot_update_other_admin_of_same_league(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $other = $this->createUserWithRole('admin', [$league->id]);
+
+        $this->putJson("/api/users/{$other->id}", ['name' => 'Hack'])->assertForbidden();
+        $this->assertDatabaseMissing('users', ['id' => $other->id, 'name' => 'Hack']);
+    }
+
+    // ── Admin x ele mesmo ─────────────────────────────────────────────────────
+
+    public function test_admin_can_show_and_update_himself(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+
+        $this->getJson("/api/users/{$admin->id}")->assertOk()->assertJsonPath('data.id', $admin->id);
+        $this->putJson("/api/users/{$admin->id}", ['name' => 'Admin Novo'])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Admin Novo');
+    }
+
+    public function test_admin_cannot_change_own_role(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+
+        $this->putJson("/api/users/{$admin->id}", ['role' => 'master'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('role');
+        $this->assertTrue($admin->fresh()->hasRole('admin'));
+        $this->assertFalse($admin->fresh()->hasRole('master'));
+    }
+
+    // ── Filtro ?league_id= ────────────────────────────────────────────────────
+
+    public function test_admin_cannot_filter_by_league_he_does_not_belong_to(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $admin->leagues()->attach(League::factory()->create()->id);
+        $other = League::factory()->create();
+
+        $this->getJson("/api/users?league_id={$other->id}")
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a essa liga.']);
+    }
+
+    public function test_admin_can_filter_by_own_league(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league1 = League::factory()->create();
+        $league2 = League::factory()->create();
+        $admin->leagues()->attach([$league1->id, $league2->id]);
+        $inLeague1 = $this->createUserWithRole('coach', [$league1->id]);
+        $inLeague2 = $this->createUserWithRole('player', [$league2->id]);
+
+        $ids = collect($this->getJson("/api/users?league_id={$league1->id}")->assertOk()->json('data'))->pluck('id');
+
+        $this->assertContains($inLeague1->id, $ids);
+        $this->assertNotContains($inLeague2->id, $ids);
+        $this->assertContains($admin->id, $ids);
+        $this->assertCount(2, $ids);
+    }
+
+    public function test_master_can_filter_users_by_league(): void
+    {
+        $master = $this->authenticate();
+        $league = League::factory()->create();
+        $inLeague = $this->createUserWithRole('admin', [$league->id]);
+        $this->createUserWithRole('coach', [League::factory()->create()->id]);
+        User::factory()->create();
+
+        $this->getJson("/api/users?league_id={$league->id}")
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $inLeague->id);
+    }
+
+    public function test_master_without_filter_sees_all_users(): void
+    {
+        $this->authenticate();
+        $this->createUserWithRole('master');
+        $this->createUserWithRole('admin', [League::factory()->create()->id]);
+        User::factory()->create();
+
+        $this->getJson('/api/users')->assertOk()->assertJsonCount(4, 'data');
+    }
+
+    public static function invalidLeagueIdQueryProvider(): array
+    {
+        return [
+            'array' => ['league_id[]=1'],
+            'sufixo não numérico' => ['league_id=1abc'],
+            'texto' => ['league_id=abc'],
+            'hexadecimal' => ['league_id=0x1'],
+            'notação científica' => ['league_id=1e0'],
+            'negativo' => ['league_id=-1'],
+            'sinal de mais' => ['league_id=%2B1'],
+        ];
+    }
+
+    #[DataProvider('invalidLeagueIdQueryProvider')]
+    public function test_admin_invalid_league_id_filter_returns_422(string $query): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $admin->leagues()->attach(League::factory()->create()->id);
+
+        $this->getJson("/api/users?{$query}")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('league_id');
+    }
+
+    #[DataProvider('invalidLeagueIdQueryProvider')]
+    public function test_master_invalid_league_id_filter_returns_422(string $query): void
+    {
+        $this->authenticate();
+        League::factory()->create(['id' => 1]);
+
+        $this->getJson("/api/users?{$query}")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('league_id');
+    }
+
+    public function test_admin_filter_by_nonexistent_league_keeps_access_message(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $admin->leagues()->attach(League::factory()->create()->id);
+
+        $this->getJson('/api/users?league_id=999999')
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a essa liga.']);
+    }
+
+    // O TrimStrings global remove espaços das pontas antes da validação: " 1" vira "1".
+    public function test_league_id_with_surrounding_spaces_is_trimmed(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+
+        $this->getJson("/api/users?league_id=%20{$league->id}%20")
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $admin->id);
+    }
+
+    public function test_master_filter_by_nonexistent_league_returns_empty_list(): void
+    {
+        $this->authenticate();
+        $this->createUserWithRole('admin', [League::factory()->create()->id]);
+
+        $this->getJson('/api/users?league_id=999999')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
+    // ── Regressão: {id}/{lid} só aceitam dígitos ──────────────────────────────
+
+    public static function nonNumericIdSuffixProvider(): array
+    {
+        return [
+            'sufixo texto' => ['abc'],
+            'hexadecimal' => ['x1'],
+            'notação científica' => ['e0'],
+        ];
+    }
+
+    #[DataProvider('nonNumericIdSuffixProvider')]
+    public function test_show_with_non_numeric_id_returns_404(string $suffix): void
+    {
+        $master = $this->authenticate();
+
+        $this->getJson("/api/users/{$master->id}{$suffix}")->assertNotFound();
+    }
+
+    #[DataProvider('nonNumericIdSuffixProvider')]
+    public function test_admin_show_own_profile_with_non_numeric_id_returns_404(string $suffix): void
+    {
+        $admin = $this->authenticateAsAdmin();
+
+        $this->getJson("/api/users/{$admin->id}{$suffix}")->assertNotFound();
+    }
+
+    #[DataProvider('nonNumericIdSuffixProvider')]
+    public function test_update_with_non_numeric_id_returns_404(string $suffix): void
+    {
+        $admin = $this->authenticateAsAdmin();
+
+        $this->putJson("/api/users/{$admin->id}{$suffix}", ['name' => 'Outro Nome'])->assertNotFound();
+        $this->assertNotSame('Outro Nome', $admin->fresh()->name);
+    }
+
+    public function test_destroy_with_non_numeric_id_returns_404(): void
+    {
+        $this->authenticate();
+        $target = $this->createUserWithRole('coach');
+
+        $this->deleteJson("/api/users/{$target->id}abc")->assertNotFound();
+        $this->assertNotNull($target->fresh());
+    }
+
+    public function test_remove_league_with_non_numeric_lid_returns_404(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $target = $this->createUserWithRole('coach', [$league->id]);
+
+        $this->deleteJson("/api/users/{$target->id}/leagues/{$league->id}abc")->assertNotFound();
+        $this->assertTrue($target->fresh()->leagues->contains($league->id));
+    }
+
+    public function test_sync_leagues_with_non_numeric_id_returns_404(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $target = $this->createUserWithRole('coach');
+
+        $this->postJson("/api/users/{$target->id}abc/leagues", ['league_ids' => [$league->id]])->assertNotFound();
+        $this->assertCount(0, $target->fresh()->leagues);
+    }
+
+    // ── Regressão: ações exclusivas de master ─────────────────────────────────
+
+    public function test_admin_cannot_remove_league_from_user(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $target = $this->createUserWithRole('coach', [$league->id]);
+
+        $this->deleteJson("/api/users/{$target->id}/leagues/{$league->id}")->assertForbidden();
+        $this->assertDatabaseHas('user_leagues', ['user_id' => $target->id, 'league_id' => $league->id]);
+    }
+
+    public function test_admin_cannot_delete_user_of_same_league(): void
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+        $target = $this->createUserWithRole('player', [$league->id]);
+
+        $this->deleteJson("/api/users/{$target->id}")->assertForbidden();
+        $this->assertDatabaseHas('users', ['id' => $target->id]);
+    }
+
+    public function test_master_can_update_master(): void
+    {
+        $this->authenticate();
+        $other = $this->createUserWithRole('master');
+
+        $this->putJson("/api/users/{$other->id}", ['name' => 'Outro Master'])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Outro Master');
     }
 
     public function test_admin_cannot_create_user(): void

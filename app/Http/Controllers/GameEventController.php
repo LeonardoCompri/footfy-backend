@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\GameEventIndexRequest;
 use App\Http\Requests\GameEventStoreRequest;
 use App\Http\Requests\GameEventUpdateRequest;
 use App\Http\Resources\GameEventResource;
 use App\Services\GameEventService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -15,10 +15,10 @@ class GameEventController extends Controller
 {
     public function __construct(private readonly GameEventService $service) {}
 
-    public function index(Request $request): JsonResponse
+    public function index(GameEventIndexRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index($request->query('type'), $request->query('game_id'));
+            $response = $this->service->index($request->validated('type'), $request->validated('game_id'));
 
             return response()->json(['data' => GameEventResource::collection($response)]);
         } catch (ValidationException $ex) {

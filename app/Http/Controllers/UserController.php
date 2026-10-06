@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\LeagueFilterRequest;
 use App\Http\Requests\UserLeaguesRequest;
 use App\Http\Requests\UserStoreRequest;
 use App\Http\Requests\UserUpdateRequest;
@@ -15,12 +16,14 @@ class UserController extends Controller
 {
     public function __construct(private readonly UserService $service) {}
 
-    public function index(): JsonResponse
+    public function index(LeagueFilterRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index();
+            $response = $this->service->index($request->validated('league_id'));
 
             return response()->json(['data' => UserResource::collection($response)]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json(['message' => 'Houve um erro no servidor, tente novamente!'], 500);
         }
