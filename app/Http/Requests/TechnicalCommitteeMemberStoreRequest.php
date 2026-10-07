@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Models\TechnicalCommitteeMember;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class TechnicalCommitteeMemberStoreRequest extends FormRequest
 {
@@ -11,8 +13,15 @@ class TechnicalCommitteeMemberStoreRequest extends FormRequest
         return [
             'team_id'    => ['nullable', 'integer', 'exists:teams,id'],
             'name'       => ['required', 'string', 'max:255'],
-            'role'       => ['required', 'string', 'max:255'],
+            'role'       => ['required', 'string', Rule::in(TechnicalCommitteeMember::roleValues())],
             'birth_date' => ['nullable', 'date'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'role.in' => 'A função informada é inválida.',
         ];
     }
 }

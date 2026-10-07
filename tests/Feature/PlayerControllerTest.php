@@ -284,6 +284,71 @@ class PlayerControllerTest extends TestCase
         $response->assertStatus(422)->assertJson(['message' => 'Jogador não encontrado!']);
     }
 
+    // ── Validação de posição contra a lista oficial ──────────────────────────
+
+    public function test_store_fails_when_position_is_not_in_official_list(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/players', ['name' => 'Jogador', 'position' => 'XXX']);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['position' => 'A posição informada é inválida.']);
+        $this->assertDatabaseCount('players', 0);
+    }
+
+    public function test_store_fails_when_position_is_a_title_instead_of_code(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/players', ['name' => 'Jogador', 'position' => 'Atacante']);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('position');
+    }
+
+    public function test_store_accepts_null_position(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/players', ['name' => 'Jogador', 'position' => null]);
+
+        $response->assertCreated()->assertJsonPath('data.position', null);
+    }
+
+    public function test_update_fails_when_position_is_not_in_official_list(): void
+    {
+        $this->authenticate();
+        $player = Player::factory()->create(['position' => 'ZAG']);
+
+        $response = $this->putJson("/api/players/{$player->id}", ['position' => 'XXX']);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['position' => 'A posição informada é inválida.']);
+        $this->assertDatabaseHas('players', ['id' => $player->id, 'position' => 'ZAG']);
+    }
+
+    public function test_update_accepts_null_position(): void
+    {
+        $this->authenticate();
+        $player = Player::factory()->create(['position' => 'ZAG']);
+
+        $response = $this->putJson("/api/players/{$player->id}", ['position' => null]);
+
+        $response->assertOk()->assertJsonPath('data.position', null);
+    }
+
+    public function test_update_only_name_keeps_position(): void
+    {
+        $this->authenticate();
+        $player = Player::factory()->create(['position' => 'ATA']);
+
+        $response = $this->putJson("/api/players/{$player->id}", ['name' => 'Nome Novo']);
+
+        $response->assertOk()
+            ->assertJsonPath('data.name', 'Nome Novo')
+            ->assertJsonPath('data.position', 'ATA');
+    }
+
     // ── Lookup de posições ───────────────────────────────────────────────────
 
     public function test_authenticated_user_can_list_positions(): void
