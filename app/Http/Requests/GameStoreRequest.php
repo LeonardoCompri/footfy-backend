@@ -22,9 +22,16 @@ class GameStoreRequest extends FormRequest
             'round' => ['nullable', 'integer', 'min:1'],
             'phase' => ['nullable', 'string', 'max:255'],
             'phase_order' => ['nullable', 'integer', 'min:1'],
-            'tie_key' => ['nullable', 'string', 'max:255'],
+            'tie_key' => ['nullable', 'required_with:leg', 'string', 'max:255'],
             'leg' => ['nullable', 'integer', 'in:1,2'],
             'status' => ['required', 'string', 'in:scheduled,in_progress,finished,cancelled'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'tie_key.required_with' => 'Informe a chave do confronto para partidas de ida e volta.',
         ];
     }
 
