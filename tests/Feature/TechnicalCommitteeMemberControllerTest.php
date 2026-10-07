@@ -73,18 +73,18 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $response = $this->postJson('/api/technical-committee-members', [
             'team_id' => $team->id,
             'name' => 'Membro Teste',
-            'role' => 'Treinador principal',
+            'role' => 'Treinador',
             'birth_date' => '1975-03-15',
         ]);
 
         $response->assertCreated()
             ->assertJsonPath('data.name', 'Membro Teste')
-            ->assertJsonPath('data.role', 'Treinador principal')
+            ->assertJsonPath('data.role', 'Treinador')
             ->assertJsonPath('data.team_id', $team->id);
 
         $this->assertDatabaseHas('technical_committee_members', [
             'name' => 'Membro Teste',
-            'role' => 'Treinador principal',
+            'role' => 'Treinador',
             'team_id' => $team->id,
         ]);
     }
@@ -127,7 +127,7 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/technical-committee-members', ['role' => 'Treinador principal']);
+        $response = $this->postJson('/api/technical-committee-members', ['role' => 'Treinador']);
 
         $response->assertStatus(422);
     }
@@ -147,7 +147,7 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
 
         $response = $this->postJson('/api/technical-committee-members', [
             'name' => 'Membro Teste',
-            'role' => 'Treinador principal',
+            'role' => 'Treinador',
             'team_id' => 999,
         ]);
 
@@ -173,19 +173,19 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $this->postJson('/api/technical-committee-members', [
             'team_id' => $team->id,
             'name' => 'Treinador Principal',
-            'role' => 'Treinador principal',
+            'role' => 'Treinador',
         ])->assertCreated();
 
         $this->postJson('/api/technical-committee-members', [
             'team_id' => $team->id,
             'name' => 'Auxiliar Técnico',
-            'role' => 'Auxiliar técnico',
+            'role' => 'Auxiliar Técnico',
         ])->assertCreated();
 
         $this->postJson('/api/technical-committee-members', [
             'team_id' => $team->id,
             'name' => 'Preparador Físico',
-            'role' => 'Preparador físico',
+            'role' => 'Preparador Físico',
         ])->assertCreated();
 
         $response = $this->getJson('/api/technical-committee-members');
@@ -272,6 +272,103 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $this->deleteJson("/api/teams/{$team->id}")->assertStatus(204);
 
         $this->assertDatabaseHas('technical_committee_members', ['id' => $member->id, 'team_id' => null]);
+    }
+
+    // ── Validação de função contra a lista oficial ───────────────────────────
+
+    public function test_store_fails_when_role_is_not_in_official_list(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/technical-committee-members', [
+            'name' => 'Membro Teste',
+            'role' => 'Astronauta',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['role' => 'A função informada é inválida.']);
+        $this->assertDatabaseCount('technical_committee_members', 0);
+    }
+
+    public function test_store_accepts_role_from_official_list(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/technical-committee-members', [
+            'name' => 'Membro Teste',
+            'role' => 'Preparador Físico',
+        ]);
+
+        $response->assertCreated()->assertJsonPath('data.role', 'Preparador Físico');
+    }
+
+    public function test_update_fails_when_role_is_not_in_official_list(): void
+    {
+        $this->authenticate();
+        $member = TechnicalCommitteeMember::factory()->create(['role' => 'Treinador']);
+
+        $response = $this->putJson("/api/technical-committee-members/{$member->id}", ['role' => 'Astronauta']);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['role' => 'A função informada é inválida.']);
+        $this->assertDatabaseHas('technical_committee_members', ['id' => $member->id, 'role' => 'Treinador']);
+    }
+
+    public function test_update_accepts_role_from_official_list(): void
+    {
+        $this->authenticate();
+        $member = TechnicalCommitteeMember::factory()->create(['role' => 'Treinador']);
+
+        $response = $this->putJson("/api/technical-committee-members/{$member->id}", ['role' => 'Médico']);
+
+        $response->assertOk()->assertJsonPath('data.role', 'Médico');
+    }
+
+    public function test_update_of_legacy_member_keeping_legacy_role_is_accepted(): void
+    {
+        $this->authenticate();
+        $member = TechnicalCommitteeMember::factory()->create(['role' => 'Massagista', 'name' => 'Nome Antigo']);
+
+        $response = $this->putJson("/api/technical-committee-members/{$member->id}", [
+            'name' => 'Nome Novo',
+            'role' => 'Massagista',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.name', 'Nome Novo')
+            ->assertJsonPath('data.role', 'Massagista');
+    }
+
+    public function test_update_of_legacy_member_without_role_is_accepted(): void
+    {
+        $this->authenticate();
+        $member = TechnicalCommitteeMember::factory()->create(['role' => 'Massagista']);
+
+        $response = $this->putJson("/api/technical-committee-members/{$member->id}", ['name' => 'Nome Novo']);
+
+        $response->assertOk()->assertJsonPath('data.role', 'Massagista');
+    }
+
+    public function test_update_of_legacy_member_to_another_invalid_role_fails(): void
+    {
+        $this->authenticate();
+        $member = TechnicalCommitteeMember::factory()->create(['role' => 'Massagista']);
+
+        $response = $this->putJson("/api/technical-committee-members/{$member->id}", ['role' => 'Astronauta']);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('role');
+        $this->assertDatabaseHas('technical_committee_members', ['id' => $member->id, 'role' => 'Massagista']);
+    }
+
+    public function test_legacy_role_of_one_member_is_not_accepted_for_another_member(): void
+    {
+        $this->authenticate();
+        TechnicalCommitteeMember::factory()->create(['role' => 'Massagista']);
+        $member = TechnicalCommitteeMember::factory()->create(['role' => 'Treinador']);
+
+        $response = $this->putJson("/api/technical-committee-members/{$member->id}", ['role' => 'Massagista']);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('role');
     }
 
     // ── Lookup de funções ────────────────────────────────────────────────────

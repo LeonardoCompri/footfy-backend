@@ -23,7 +23,7 @@ class TechnicalCommitteeMemberSeeder extends Seeder
             $rows[] = [
                 'team_id' => $team->id,
                 'name' => $headCoaches[$teamKey],
-                'role' => 'Técnico',
+                'role' => 'Treinador',
                 'birth_date' => $faker->dateTimeBetween('-65 years', '-38 years')->format('Y-m-d'),
                 'created_at' => $now,
                 'updated_at' => $now,

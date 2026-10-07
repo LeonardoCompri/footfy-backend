@@ -10,9 +10,9 @@ class TechnicalCommitteeMember extends Model
     use HasFactory;
 
     /**
-     * Opções sugeridas para o campo `role` (texto livre, não enum — ver
-     * TechnicalCommitteeMemberStoreRequest/UpdateRequest), usadas para alimentar
-     * o select de função no admin.
+     * Lista oficial de funções (coluna `role` é string no banco, sem enum).
+     * Fonte única: alimenta o select do admin (GET /technical-committee-members/roles)
+     * e a validação de TechnicalCommitteeMemberStoreRequest/UpdateRequest.
      */
     public const ROLES = [
         ['value' => 'Treinador', 'title' => 'Treinador'],
@@ -24,6 +24,14 @@ class TechnicalCommitteeMember extends Model
         ['value' => 'Analista de Desempenho', 'title' => 'Analista de Desempenho'],
         ['value' => 'Roupeiro', 'title' => 'Roupeiro'],
     ];
+
+    /**
+     * Funções aceitas no campo `role` (ex: ['Treinador', 'Auxiliar Técnico', ...]).
+     */
+    public static function roleValues(): array
+    {
+        return array_column(self::ROLES, 'value');
+    }
 
     protected $fillable = [
         'team_id',

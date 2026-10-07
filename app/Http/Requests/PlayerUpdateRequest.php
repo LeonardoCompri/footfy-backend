@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Player;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -12,7 +13,7 @@ class PlayerUpdateRequest extends FormRequest
         return [
             'team_id' => ['nullable', 'integer', 'exists:teams,id'],
             'name' => ['sometimes', 'string', 'max:255'],
-            'position' => ['nullable', 'string', 'max:255'],
+            'position' => ['nullable', 'string', Rule::in(Player::positionValues())],
             'number' => ['nullable', 'integer'],
             'birth_date' => ['nullable', 'date'],
             'document' => [
@@ -21,6 +22,13 @@ class PlayerUpdateRequest extends FormRequest
                 'size:11',
                 Rule::unique('players', 'document')->ignore($this->route('id')),
             ],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'position.in' => 'A posição informada é inválida.',
         ];
     }
 }

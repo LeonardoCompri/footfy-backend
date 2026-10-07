@@ -10,9 +10,9 @@ class Player extends Model
     use HasFactory;
 
     /**
-     * Opções sugeridas para o campo `position` (texto livre, não enum — ver
-     * PlayerStoreRequest/PlayerUpdateRequest), usadas para alimentar o select
-     * de posição no admin.
+     * Lista oficial de posições (coluna `position` é string no banco, sem enum).
+     * Fonte única: alimenta o select do admin (GET /players/positions) e a
+     * validação de PlayerStoreRequest/PlayerUpdateRequest.
      */
     public const POSITIONS = [
         ['value' => 'GOL', 'title' => 'Goleiro'],
@@ -21,6 +21,14 @@ class Player extends Model
         ['value' => 'MEI', 'title' => 'Meio-Campo'],
         ['value' => 'ATA', 'title' => 'Atacante'],
     ];
+
+    /**
+     * Códigos aceitos no campo `position` (ex: ['GOL', 'ZAG', ...]).
+     */
+    public static function positionValues(): array
+    {
+        return array_column(self::POSITIONS, 'value');
+    }
 
     protected $fillable = [
         'team_id',
