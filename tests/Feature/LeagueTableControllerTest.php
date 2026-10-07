@@ -260,6 +260,119 @@ class LeagueTableControllerTest extends TestCase
         $this->assertCount(2, $tie['legs']);
     }
 
+    public function test_knockout_tie_with_only_first_leg_registered_and_finished_is_open(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+        [$teamOne, $teamTwo] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamOne->id, $teamTwo->id]);
+
+        // Volta ainda não cadastrada.
+        $this->finishedGame($league, $teamOne, $teamTwo, 2, 0, [
+            'round' => null, 'phase' => 'Semifinal', 'phase_order' => 1, 'tie_key' => 'semi-1', 'leg' => 1,
+        ]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/table");
+
+        $response->assertOk();
+        $tie = $response->json('data.phases')[0]['ties'][0];
+
+        $this->assertFalse($tie['decided']);
+        $this->assertNull($tie['winner_team_id']);
+        $this->assertCount(1, $tie['legs']);
+
+        // Agregado parcial continua sendo exibido.
+        $aggregates = collect($tie['teams'])->pluck('aggregate_score', 'team_id');
+        $this->assertSame(2, $aggregates[$teamOne->id]);
+        $this->assertSame(0, $aggregates[$teamTwo->id]);
+    }
+
+    public function test_knockout_tie_with_only_second_leg_registered_and_finished_is_open(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+        [$teamOne, $teamTwo] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamOne->id, $teamTwo->id]);
+
+        $this->finishedGame($league, $teamTwo, $teamOne, 1, 0, [
+            'round' => null, 'phase' => 'Semifinal', 'phase_order' => 1, 'tie_key' => 'semi-1', 'leg' => 2,
+        ]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/table");
+
+        $response->assertOk();
+        $tie = $response->json('data.phases')[0]['ties'][0];
+
+        $this->assertFalse($tie['decided']);
+        $this->assertNull($tie['winner_team_id']);
+    }
+
+    public function test_knockout_single_game_tie_is_decided_once_finished(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+        [$teamOne, $teamTwo] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamOne->id, $teamTwo->id]);
+
+        $this->finishedGame($league, $teamOne, $teamTwo, 0, 1, [
+            'round' => null, 'phase' => 'Final', 'phase_order' => 1, 'tie_key' => 'final-1', 'leg' => null,
+        ]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/table");
+
+        $response->assertOk();
+        $tie = $response->json('data.phases')[0]['ties'][0];
+
+        $this->assertTrue($tie['decided']);
+        $this->assertSame($teamTwo->id, $tie['winner_team_id']);
+    }
+
+    public function test_knockout_legacy_game_with_leg_and_without_tie_key_is_never_decided(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+        [$teamOne, $teamTwo] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamOne->id, $teamTwo->id]);
+
+        // Dado legado: `leg` preenchido sem `tie_key` vira um grupo isolado (`game-{id}`).
+        $this->finishedGame($league, $teamOne, $teamTwo, 3, 0, [
+            'round' => null, 'phase' => 'Final', 'phase_order' => 1, 'tie_key' => null, 'leg' => 1,
+        ]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/table");
+
+        $response->assertOk();
+        $tie = $response->json('data.phases')[0]['ties'][0];
+
+        $this->assertNull($tie['tie_key']);
+        $this->assertFalse($tie['decided']);
+        $this->assertNull($tie['winner_team_id']);
+    }
+
+    public function test_knockout_tie_with_both_legs_finished_and_tied_aggregate_is_decided_without_winner(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+        [$teamOne, $teamTwo] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamOne->id, $teamTwo->id]);
+
+        $this->finishedGame($league, $teamOne, $teamTwo, 1, 0, [
+            'round' => null, 'phase' => 'Final', 'phase_order' => 1, 'tie_key' => 'final-1', 'leg' => 1,
+        ]);
+        $this->finishedGame($league, $teamTwo, $teamOne, 1, 0, [
+            'round' => null, 'phase' => 'Final', 'phase_order' => 1, 'tie_key' => 'final-1', 'leg' => 2,
+        ]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/table");
+
+        $response->assertOk();
+        $tie = $response->json('data.phases')[0]['ties'][0];
+
+        // Agregado 1x1: decidido, mas sem critério de desempate modelado (sem vencedor).
+        $this->assertTrue($tie['decided']);
+        $this->assertNull($tie['winner_team_id']);
+    }
+
     // ── hybrid ────────────────────────────────────────────────────────────────
 
     public function test_hybrid_league_ignores_phase_games_in_standings_but_returns_phases_too(): void
@@ -290,7 +403,15 @@ class LeagueTableControllerTest extends TestCase
 
         $phases = $response->json('data.phases');
         $this->assertCount(1, $phases);
-        $this->assertSame('final-1', $phases[0]['ties'][0]['tie_key']);
+        $tie = $phases[0]['ties'][0];
+        $this->assertSame('final-1', $tie['tie_key']);
+
+        // Só a Ida foi cadastrada: confronto segue em aberto, com o agregado parcial.
+        $this->assertFalse($tie['decided']);
+        $this->assertNull($tie['winner_team_id']);
+        $aggregates = collect($tie['teams'])->pluck('aggregate_score', 'team_id');
+        $this->assertSame(5, $aggregates[$teamC->id]);
+        $this->assertSame(0, $aggregates[$teamD->id]);
     }
 
     // ── Autorização ───────────────────────────────────────────────────────────

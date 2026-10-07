@@ -192,8 +192,12 @@ class StandingsService
     }
 
     // Um confronto (ida/volta ou jogo único): placar agregado por time somando as pernas já
-    // finalizadas, e vencedor calculado a partir do agregado. Se alguma perna ainda não foi
-    // realizada, o confronto fica `decided = false` (em aberto), sem vencedor.
+    // finalizadas, e vencedor calculado a partir do agregado. Ida e volta (alguma perna com
+    // `leg`) só fica `decided = true` quando a Ida (leg=1) e a Volta (leg=2) existem e ambas
+    // foram finalizadas — com só uma perna cadastrada o confronto segue em aberto, exibindo o
+    // agregado parcial. Isso também cobre jogos legados com `leg` e sem `tie_key` (grupo
+    // `game-{id}` isolado, que nunca terá as duas pernas). Jogo único (nenhuma perna com `leg`)
+    // é decidido assim que finalizado.
     private function buildTie(Collection $tieGames): array
     {
         $legs = $tieGames->sortBy('leg')->values();
@@ -203,7 +207,12 @@ class StandingsService
             ->unique()
             ->values();
 
-        $decided = $legs->every(fn (Game $game) => $this->isLegFinished($game));
+        $isTwoLegged = $legs->contains(fn (Game $game) => $game->leg !== null);
+        $decided = $isTwoLegged
+            ? collect([1, 2])->every(fn (int $leg) => $legs->contains(
+                fn (Game $game) => (int) $game->leg === $leg && $this->isLegFinished($game)
+            ))
+            : $legs->every(fn (Game $game) => $this->isLegFinished($game));
 
         $aggregate = $teamIds->mapWithKeys(fn ($teamId) => [$teamId => 0])->all();
         $teamSummaries = [];

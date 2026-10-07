@@ -484,6 +484,65 @@ class GameControllerTest extends TestCase
         ]);
     }
 
+    public function test_store_fails_when_leg_is_sent_without_tie_key(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+        $payload = $this->gamePayload([
+            'league_id' => $league->id,
+            'phase' => 'Semifinal',
+            'phase_order' => 1,
+            'leg' => 1,
+        ]);
+
+        $response = $this->postJson('/api/games', $payload);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['tie_key'])
+            ->assertJsonPath('errors.tie_key.0', 'Informe a chave do confronto para partidas de ida e volta.');
+    }
+
+    public function test_update_fails_when_leg_is_sent_for_game_without_tie_key(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+        $game = Game::factory()->create([
+            'league_id' => $league->id,
+            'round' => null,
+            'phase' => 'Final',
+            'phase_order' => 1,
+            'tie_key' => null,
+            'leg' => null,
+        ]);
+
+        $response = $this->putJson("/api/games/{$game->id}", ['leg' => 1]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['tie_key'])
+            ->assertJsonPath('errors.tie_key.0', 'Informe a chave do confronto para partidas de ida e volta.');
+        $this->assertDatabaseHas('games', ['id' => $game->id, 'leg' => null]);
+    }
+
+    public function test_update_accepts_only_leg_when_game_already_has_tie_key(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+        $game = Game::factory()->create([
+            'league_id' => $league->id,
+            'round' => null,
+            'phase' => 'Final',
+            'phase_order' => 1,
+            'tie_key' => 'final-1',
+            'leg' => 1,
+        ]);
+
+        $response = $this->putJson("/api/games/{$game->id}", ['leg' => 2]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.leg', 2)
+            ->assertJsonPath('data.tie_key', 'final-1');
+    }
+
     public function test_store_fails_when_round_and_phase_are_sent_together(): void
     {
         $this->authenticate();

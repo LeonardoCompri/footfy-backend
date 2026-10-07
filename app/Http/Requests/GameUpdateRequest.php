@@ -45,7 +45,21 @@ class GameUpdateRequest extends FormRequest
             }
 
             $this->validateRoundAndPhase($validator, $game, $leagueId ? League::find($leagueId) : null);
+            $this->validateTieKey($validator, $game);
         });
+    }
+
+    // Partida de ida e volta (`leg` preenchido) precisa de `tie_key` para ser agrupada com a
+    // outra perna. Usa o valor gravado como fallback para aceitar updates parciais (ex: PUT só
+    // com `leg` num jogo que já tem `tie_key`) e barrar o PUT que zera `tie_key` de um jogo com `leg`.
+    private function validateTieKey(Validator $validator, ?Game $game): void
+    {
+        $leg = $this->input('leg', $game?->leg);
+        $tieKey = $this->input('tie_key', $game?->tie_key);
+
+        if ($leg !== null && blank($tieKey)) {
+            $validator->errors()->add('tie_key', 'Informe a chave do confronto para partidas de ida e volta.');
+        }
     }
 
     private function validateRoundAndPhase(Validator $validator, ?Game $game, ?League $league): void
