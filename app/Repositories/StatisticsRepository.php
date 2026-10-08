@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Models\Game;
 use App\Models\GameEvent;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 class StatisticsRepository
@@ -88,48 +89,60 @@ class StatisticsRepository
             ->first();
     }
 
-    // Gols por rodada (jogos com `round` preenchido), para o gráfico do Dashboard.
+    /**
+     * Gols por rodada (jogos com `round` preenchido), para o gráfico do Dashboard. Vem do
+     * placar (`home_score + away_score`) das partidas finalizadas com placar preenchido, não
+     * dos eventos `goal` — assim liga sem súmula lançada não aparece com 0 gols.
+     */
     public function goalsByRound(int $leagueId): Collection
     {
-        return GameEvent::query()
-            ->join('games', 'games.id', '=', 'game_events.game_id')
-            ->where('game_events.league_id', $leagueId)
-            ->where('game_events.type', 'goal')
-            ->whereNotNull('games.round')
-            ->groupBy('games.round')
-            ->selectRaw('games.round as round, COUNT(*) as goals')
-            ->orderBy('games.round')
+        return $this->finishedGamesWithScore($leagueId)
+            ->whereNotNull('round')
+            ->groupBy('round')
+            ->selectRaw('games.round as round, SUM(games.home_score + games.away_score) as goals')
+            ->orderBy('round')
             ->get();
     }
 
-    // Gols por fase (jogos com `phase` preenchida), para ligas knockout/hybrid.
+    // Mesma fonte de goalsByRound (placar das partidas finalizadas), agrupada por fase
+    // (jogos com `phase` preenchida), para ligas knockout/hybrid.
     public function goalsByPhase(int $leagueId): Collection
     {
-        return GameEvent::query()
-            ->join('games', 'games.id', '=', 'game_events.game_id')
-            ->where('game_events.league_id', $leagueId)
-            ->where('game_events.type', 'goal')
-            ->whereNotNull('games.phase')
-            ->groupBy('games.phase', 'games.phase_order')
-            ->selectRaw('games.phase as phase, games.phase_order as phase_order, COUNT(*) as goals')
-            ->orderBy('games.phase_order')
+        return $this->finishedGamesWithScore($leagueId)
+            ->whereNotNull('phase')
+            ->groupBy('phase', 'phase_order')
+            ->selectRaw('games.phase as phase, games.phase_order as phase_order, SUM(games.home_score + games.away_score) as goals')
+            ->orderBy('phase_order')
             ->get();
     }
 
-    // Contagem de vitória mandante / empate / vitória visitante entre as partidas finalizadas
-    // da liga inteira (grupos + mata-mata).
-    public function resultsSplit(int $leagueId): object
+    /**
+     * Resumo das partidas finalizadas com placar da liga inteira (grupos + mata-mata), numa
+     * única query: vitória mandante / empate / vitória visitante, total de gols pelo placar
+     * (`goals`) e quantidade de partidas (`finished_games`). Sem partidas, os SUMs vêm `null`
+     * e `finished_games` vem 0.
+     */
+    public function finishedGamesSummary(int $leagueId): object
+    {
+        return $this->finishedGamesWithScore($leagueId)
+            ->selectRaw(
+                'SUM(CASE WHEN home_score > away_score THEN 1 ELSE 0 END) as home_wins, '.
+                'SUM(CASE WHEN home_score = away_score THEN 1 ELSE 0 END) as draws, '.
+                'SUM(CASE WHEN home_score < away_score THEN 1 ELSE 0 END) as away_wins, '.
+                'SUM(home_score + away_score) as goals, '.
+                'COUNT(*) as finished_games'
+            )
+            ->first();
+    }
+
+    // Partidas da liga que contam para os totais de gols/resultados: finalizadas e com
+    // placar preenchido (partida agendada com placar não entra).
+    private function finishedGamesWithScore(int $leagueId): Builder
     {
         return Game::query()
             ->where('league_id', $leagueId)
             ->where('status', 'finished')
             ->whereNotNull('home_score')
-            ->whereNotNull('away_score')
-            ->selectRaw(
-                'SUM(CASE WHEN home_score > away_score THEN 1 ELSE 0 END) as home_wins, '.
-                'SUM(CASE WHEN home_score = away_score THEN 1 ELSE 0 END) as draws, '.
-                'SUM(CASE WHEN home_score < away_score THEN 1 ELSE 0 END) as away_wins'
-            )
-            ->first();
+            ->whereNotNull('away_score');
     }
 }

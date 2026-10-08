@@ -542,12 +542,19 @@ As rotas admin e pública de `statistics` usam o mesmo cálculo e retornam o mes
     "top_cards":    [ { "player_id": 3, "player_name": "...", "team_id": 2, "team_name": "...", "team_nickname": "...", "yellow_cards": 2, "red_cards": 1, "total_cards": 3 } ],
     "goals_by_bucket": [ { "type": "round", "round": 1, "phase": null, "phase_order": null, "goals": 5 } ],
     "results_split": { "home_wins": 4, "draws": 2, "away_wins": 3 },
+    "totals": { "goals": 23, "finished_games": 9, "goals_average": 2.56 },
     "cards_split": { "yellow": 27, "red": 3 }
   }
 }
 ```
 
-- `top_scorers` / `top_assists` / `top_cards`: rankings limitados aos **10** primeiros jogadores.
+- `goals_by_bucket` / `totals`: gols calculados pelo **placar** (`home_score + away_score`)
+  das partidas `finished` com placar preenchido — não dependem da súmula (eventos `goal`).
+  Partidas não finalizadas nunca entram, mesmo com placar preenchido.
+- `totals.goals_average`: `round(goals / finished_games, 2)`, sempre float (ex: `2.0`);
+  `null` quando não há partidas finalizadas.
+- `top_scorers` / `top_assists` / `top_cards`: rankings limitados aos **10** primeiros jogadores,
+  calculados pelos eventos da súmula.
 - `cards_split`: total de cartões amarelos (`yellow`) e vermelhos (`red`) de **todos** os
   eventos da liga (grupos + mata-mata), **sem** o limite de 10 do `top_cards`. Sempre
   inteiros — liga sem eventos retorna `{ "yellow": 0, "red": 0 }`. Cartões de outras
@@ -563,12 +570,13 @@ As rotas admin e pública de `statistics` usam o mesmo cálculo e retornam o mes
     "upcoming_games": [ ... ],
     "goals_by_bucket": [ ... ],
     "results_split": { "home_wins": 4, "draws": 2, "away_wins": 3 },
+    "totals": { "goals": 23, "finished_games": 9, "goals_average": 2.56 },
     "cards_split": { "yellow": 27, "red": 3 }
   }
 }
 ```
 
-`goals_by_bucket`, `results_split` e `cards_split` do dashboard são os mesmos valores
+`goals_by_bucket`, `results_split`, `totals` e `cards_split` do dashboard são os mesmos valores
 retornados por `statistics` para a liga.
 
 ------------------------------------------------------------------------
