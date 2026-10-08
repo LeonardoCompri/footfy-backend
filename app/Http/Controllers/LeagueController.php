@@ -96,15 +96,16 @@ class LeagueController extends Controller
         }
     }
 
-    // Estatísticas da liga inteira (artilharia, assistências, cartões, gols por rodada/fase
-    // e vitória mandante/empate/vitória visitante) — grupos + mata-mata somados.
+    // Estatísticas da liga inteira (artilharia, assistências, cartões, gols por rodada/fase,
+    // totais de gols/média e vitória mandante/empate/vitória visitante) — grupos + mata-mata
+    // somados. JSON_PRESERVE_ZERO_FRACTION mantém `totals.goals_average` como float (2.0, não 2).
     public function statistics(string $id): JsonResponse
     {
         try {
             $league = $this->service->show($id);
             $response = $this->statisticsService->build($league);
 
-            return response()->json(['data' => $response]);
+            return response()->json(['data' => $response], 200, [], JSON_PRESERVE_ZERO_FRACTION);
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
@@ -120,7 +121,7 @@ class LeagueController extends Controller
             $league = $this->service->publicShow($id);
             $response = $this->statisticsService->build($league);
 
-            return response()->json(['data' => $response]);
+            return response()->json(['data' => $response], 200, [], JSON_PRESERVE_ZERO_FRACTION);
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
@@ -131,14 +132,15 @@ class LeagueController extends Controller
     }
 
     // Dashboard do admin: contadores do cabeçalho, últimos resultados/próximas partidas e os
-    // gráficos de gols por rodada/fase e vitória mandante/empate/vitória visitante.
+    // gráficos de gols por rodada/fase e vitória mandante/empate/vitória visitante, além de
+    // `totals` (gols/média) — mesmo JSON_PRESERVE_ZERO_FRACTION de `statistics`.
     public function dashboard(string $id): JsonResponse
     {
         try {
             $league = $this->service->show($id);
             $response = $this->dashboardService->build($league);
 
-            return response()->json(['data' => $response]);
+            return response()->json(['data' => $response], 200, [], JSON_PRESERVE_ZERO_FRACTION);
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
