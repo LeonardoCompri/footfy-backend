@@ -160,6 +160,8 @@ class LeagueDashboardControllerTest extends TestCase
 
         $this->assertSame($statistics->json('data.goals_by_bucket'), $dashboard->json('data.goals_by_bucket'));
         $this->assertSame($statistics->json('data.results_split'), $dashboard->json('data.results_split'));
+        $this->assertSame($statistics->json('data.totals'), $dashboard->json('data.totals'));
+        $this->assertSame(['goals' => 3, 'finished_games' => 1, 'goals_average' => 3.0], $dashboard->json('data.totals'));
         $this->assertSame(['home_wins' => 1, 'draws' => 0, 'away_wins' => 0], $dashboard->json('data.results_split'));
     }
 
@@ -267,6 +269,10 @@ class LeagueDashboardControllerTest extends TestCase
         $this->assertSame([], $response->json('data.last_results'));
         $this->assertSame([], $response->json('data.upcoming_games'));
         $this->assertSame(['yellow' => 0, 'red' => 0], $response->json('data.cards_split'));
+        $this->assertSame(
+            ['goals' => 0, 'finished_games' => 0, 'goals_average' => null],
+            $response->json('data.totals')
+        );
     }
 
     // ── Autorização ───────────────────────────────────────────────────────────

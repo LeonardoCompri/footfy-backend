@@ -205,7 +205,8 @@ class LeagueStatisticsControllerTest extends TestCase
 
         $this->assertSame(2, $buckets[1]['goals']);
         $this->assertSame('round', $buckets[1]['type']);
-        $this->assertSame(1, $buckets[2]['goals']);
+        // Gols vêm do placar (1x1), não dos eventos (só 1 lançado na súmula).
+        $this->assertSame(2, $buckets[2]['goals']);
     }
 
     public function test_goals_by_bucket_groups_by_phase_for_knockout(): void
@@ -232,7 +233,8 @@ class LeagueStatisticsControllerTest extends TestCase
         $response->assertOk();
         $buckets = collect($response->json('data.goals_by_bucket'))->keyBy('phase');
 
-        $this->assertSame(2, $buckets['Semifinal']['goals']);
+        // Gols vêm do placar (2x1), não dos eventos (só 2 lançados na súmula).
+        $this->assertSame(3, $buckets['Semifinal']['goals']);
         $this->assertSame('phase', $buckets['Semifinal']['type']);
         $this->assertSame(1, $buckets['Final']['goals']);
     }
@@ -294,8 +296,173 @@ class LeagueStatisticsControllerTest extends TestCase
                 'cards_split' => ['yellow' => 0, 'red' => 0],
             ],
         ]);
-        // assertJson compara frouxamente; garante inteiros (não null/"0") no cards_split.
+        // assertJson compara frouxamente; garante inteiros (não null/"0") no cards_split/totals.
         $this->assertSame(['yellow' => 0, 'red' => 0], $response->json('data.cards_split'));
+        $this->assertSame(
+            ['goals' => 0, 'finished_games' => 0, 'goals_average' => null],
+            $response->json('data.totals')
+        );
+    }
+
+    // ── totals / gols pelo placar (sem depender da súmula) ───────────────────
+
+    /**
+     * Liga com 2x1 (rodada 1) e 0x0 (rodada 2) finalizadas, sem nenhum evento lançado, e uma
+     * partida agendada (sem placar) na rodada 3.
+     *
+     * @return array{0: League, 1: Game, 2: Team}
+     */
+    private function buildLeagueWithScoresAndNoEvents(): array
+    {
+        $league = League::factory()->create(['format' => 'round_robin']);
+        [$teamA, $teamB] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamA->id, $teamB->id]);
+
+        $game = $this->finishedGame($league, $teamA, $teamB, 2, 1, ['round' => 1]);
+        $this->finishedGame($league, $teamB, $teamA, 0, 0, ['round' => 2]);
+        Game::factory()->create([
+            'league_id' => $league->id,
+            'home_team_id' => $teamA->id,
+            'away_team_id' => $teamB->id,
+            'home_score' => null,
+            'away_score' => null,
+            'status' => 'scheduled',
+            'round' => 3,
+        ]);
+
+        return [$league, $game, $teamA];
+    }
+
+    public function test_totals_and_buckets_come_from_score_when_there_are_no_events(): void
+    {
+        $this->authenticate();
+        [$league] = $this->buildLeagueWithScoresAndNoEvents();
+
+        $response = $this->getJson("/api/leagues/{$league->id}/statistics");
+
+        $response->assertOk();
+        $this->assertSame(
+            ['goals' => 3, 'finished_games' => 2, 'goals_average' => 1.5],
+            $response->json('data.totals')
+        );
+
+        $buckets = collect($response->json('data.goals_by_bucket'))->keyBy('round');
+        $this->assertCount(2, $buckets);
+        $this->assertSame(3, $buckets[1]['goals']);
+        $this->assertSame(0, $buckets[2]['goals']);
+        $this->assertFalse($buckets->has(3));
+
+        $this->assertSame([], $response->json('data.top_scorers'));
+        $this->assertSame([], $response->json('data.top_assists'));
+    }
+
+    public function test_goals_average_is_a_float_even_when_division_is_exact(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'round_robin']);
+        [$teamA, $teamB] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamA->id, $teamB->id]);
+        $this->finishedGame($league, $teamA, $teamB, 3, 1, ['round' => 1]);
+        $this->finishedGame($league, $teamB, $teamA, 0, 0, ['round' => 2]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/statistics");
+
+        $response->assertOk();
+        // 4 gols / 2 partidas = 2.0 (float no JSON, não o inteiro 2).
+        $this->assertStringContainsString('"goals_average":2.0', $response->getContent());
+        $this->assertSame(2.0, $response->json('data.totals.goals_average'));
+    }
+
+    public function test_scheduled_game_with_score_does_not_count_in_totals_or_buckets(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'round_robin']);
+        [$teamA, $teamB] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamA->id, $teamB->id]);
+
+        $this->finishedGame($league, $teamA, $teamB, 1, 0, ['round' => 1]);
+        $this->finishedGame($league, $teamA, $teamB, 4, 4, ['round' => 2, 'status' => 'scheduled']);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/statistics");
+
+        $response->assertOk();
+        $this->assertSame(
+            ['goals' => 1, 'finished_games' => 1, 'goals_average' => 1.0],
+            $response->json('data.totals')
+        );
+        $buckets = collect($response->json('data.goals_by_bucket'))->keyBy('round');
+        $this->assertCount(1, $buckets);
+        $this->assertSame(1, $buckets[1]['goals']);
+        $this->assertSame(['home_wins' => 1, 'draws' => 0, 'away_wins' => 0], $response->json('data.results_split'));
+    }
+
+    public function test_goal_event_does_not_change_score_based_total_but_feeds_top_scorers(): void
+    {
+        $this->authenticate();
+        [$league, $game, $teamA] = $this->buildLeagueWithScoresAndNoEvents();
+        $player = Player::factory()->create(['team_id' => $teamA->id]);
+        $this->goal($league, $game, $teamA, $player);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/statistics");
+
+        $response->assertOk();
+        $this->assertSame(3, $response->json('data.totals.goals'));
+        $buckets = collect($response->json('data.goals_by_bucket'))->keyBy('round');
+        $this->assertSame(3, $buckets[1]['goals']);
+
+        $scorers = collect($response->json('data.top_scorers'))->keyBy('player_id');
+        $this->assertCount(1, $scorers);
+        $this->assertSame(1, $scorers[$player->id]['goals']);
+    }
+
+    public function test_hybrid_league_puts_score_goals_in_round_and_phase_buckets(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'hybrid']);
+        [$teamA, $teamB, $teamC, $teamD] = Team::factory()->count(4)->create();
+        $league->teams()->attach([$teamA->id, $teamB->id, $teamC->id, $teamD->id]);
+
+        $this->finishedGame($league, $teamA, $teamB, 2, 1, ['round' => 1]);
+        $this->finishedGame($league, $teamC, $teamD, 1, 1, ['round' => 1]);
+        $this->finishedGame($league, $teamA, $teamC, 0, 1, ['round' => 2]);
+        $this->finishedGame($league, $teamA, $teamC, 3, 2, [
+            'round' => null, 'phase' => 'Semifinal', 'phase_order' => 1, 'tie_key' => 'semi-1', 'leg' => 1,
+        ]);
+        $this->finishedGame($league, $teamA, $teamB, 1, 0, [
+            'round' => null, 'phase' => 'Final', 'phase_order' => 2, 'tie_key' => 'final-1', 'leg' => 1,
+        ]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/statistics");
+
+        $response->assertOk();
+        $this->assertSame([
+            ['type' => 'round', 'round' => 1, 'phase' => null, 'phase_order' => null, 'goals' => 5],
+            ['type' => 'round', 'round' => 2, 'phase' => null, 'phase_order' => null, 'goals' => 1],
+            ['type' => 'phase', 'round' => null, 'phase' => 'Semifinal', 'phase_order' => 1, 'goals' => 5],
+            ['type' => 'phase', 'round' => null, 'phase' => 'Final', 'phase_order' => 2, 'goals' => 1],
+        ], $response->json('data.goals_by_bucket'));
+        $this->assertSame(
+            ['goals' => 12, 'finished_games' => 5, 'goals_average' => 2.4],
+            $response->json('data.totals')
+        );
+    }
+
+    public function test_totals_on_public_route_match_admin_route(): void
+    {
+        [$league] = $this->buildLeagueWithScoresAndNoEvents();
+
+        $publicResponse = $this->getJson("/api/public/leagues/{$league->id}/statistics");
+        $publicResponse->assertOk();
+
+        $this->authenticateAsAdmin([$league->id]);
+        $adminResponse = $this->getJson("/api/leagues/{$league->id}/statistics");
+        $adminResponse->assertOk();
+
+        $this->assertSame(
+            ['goals' => 3, 'finished_games' => 2, 'goals_average' => 1.5],
+            $publicResponse->json('data.totals')
+        );
+        $this->assertSame($adminResponse->json('data.totals'), $publicResponse->json('data.totals'));
     }
 
     // ── cards_split ───────────────────────────────────────────────────────────
@@ -470,6 +637,45 @@ class LeagueStatisticsControllerTest extends TestCase
 
         $smallLeague = $this->buildLeagueWithGoals(3);
         $largeLeague = $this->buildLeagueWithGoals(15);
+
+        // Aquece o cache de roles/permissions antes de medir.
+        $this->getJson("/api/leagues/{$smallLeague->id}/statistics")->assertOk();
+
+        DB::enableQueryLog();
+        DB::flushQueryLog();
+        $this->getJson("/api/leagues/{$smallLeague->id}/statistics")->assertOk();
+        $smallQueryCount = count(DB::getQueryLog());
+
+        DB::flushQueryLog();
+        $this->getJson("/api/leagues/{$largeLeague->id}/statistics")->assertOk();
+        $largeQueryCount = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        $this->assertSame($smallQueryCount, $largeQueryCount);
+    }
+
+    private function buildLeagueWithFinishedGames(int $gamesCount): League
+    {
+        $league = League::factory()->create(['format' => 'hybrid']);
+        [$teamA, $teamB] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamA->id, $teamB->id]);
+
+        for ($i = 1; $i <= $gamesCount; $i++) {
+            $this->finishedGame($league, $teamA, $teamB, $i % 3, 1, ['round' => $i]);
+            $this->finishedGame($league, $teamB, $teamA, 1, $i % 2, [
+                'round' => null, 'phase' => "Fase {$i}", 'phase_order' => $i, 'tie_key' => "tie-{$i}", 'leg' => 1,
+            ]);
+        }
+
+        return $league;
+    }
+
+    public function test_statistics_query_count_does_not_grow_with_game_count(): void
+    {
+        $this->authenticate();
+
+        $smallLeague = $this->buildLeagueWithFinishedGames(2);
+        $largeLeague = $this->buildLeagueWithFinishedGames(12);
 
         // Aquece o cache de roles/permissions antes de medir.
         $this->getJson("/api/leagues/{$smallLeague->id}/statistics")->assertOk();
