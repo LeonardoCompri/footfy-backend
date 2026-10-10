@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Game;
 use App\Repositories\GameRepository;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
@@ -12,14 +13,22 @@ class GameService
 {
     public function __construct(private readonly GameRepository $repository) {}
 
-    // Lista partidas do usuário, opcionalmente restrita a uma única liga (leagueId),
-    // sempre validando que essa liga está entre as que o usuário tem acesso.
-    public function index(?string $leagueId = null): Collection
+    public function index(?string $leagueId = null, array $filters = []): Collection
+    {
+        return $this->repository->index($this->resolveLeagueIds($leagueId), $filters);
+    }
+
+    public function paginate(?string $leagueId, array $filters, int $perPage, int $page): LengthAwarePaginator
+    {
+        return $this->repository->paginate($this->resolveLeagueIds($leagueId), $filters, $perPage, $page);
+    }
+
+    private function resolveLeagueIds(?string $leagueId): ?array
     {
         $user = Auth::user();
 
         if ($user->isMaster()) {
-            return $this->repository->index($leagueId ? [$leagueId] : null);
+            return $leagueId ? [$leagueId] : null;
         }
 
         $leagueIds = $user->leagueIds();
@@ -32,7 +41,7 @@ class GameService
             $leagueIds = [$leagueId];
         }
 
-        return $this->repository->index($leagueIds);
+        return $leagueIds;
     }
 
     public function store(array $data): Game
@@ -40,8 +49,6 @@ class GameService
         return $this->repository->store($data);
     }
 
-    // Carrega a partida já com homeTeam/awayTeam/stadium/events, para evitar
-    // N+1 no GameResource ao exibir o detalhe de uma partida.
     public function show(string $id): Game
     {
         $game = $this->repository->show($id, ['homeTeam', 'awayTeam', 'stadium', 'events']);
@@ -53,7 +60,6 @@ class GameService
         return $game;
     }
 
-    // Busca a partida por id já com homeTeam/awayTeam/stadium/events, para consumo público (guest).
     public function publicShow(string $id): Game
     {
         $game = $this->repository->show($id, ['homeTeam', 'awayTeam', 'stadium', 'events']);
