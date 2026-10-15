@@ -48,4 +48,9 @@ class User extends Authenticatable
     {
         return $this->leagues()->pluck('leagues.id')->toArray();
     }
+
+    public function hasLeagueId(int $leagueId): bool
+    {
+        return $this->leagues()->where('leagues.id', $leagueId)->exists();
+    }
 }
