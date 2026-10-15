@@ -13,35 +13,14 @@ class GameService
 {
     public function __construct(private readonly GameRepository $repository) {}
 
-    public function index(?string $leagueId = null, array $filters = []): Collection
-    {
-        return $this->repository->index($this->resolveLeagueIds($leagueId), $filters);
-    }
-
-    public function paginate(?string $leagueId, array $filters, int $perPage, int $page): LengthAwarePaginator
-    {
-        return $this->repository->paginate($this->resolveLeagueIds($leagueId), $filters, $perPage, $page);
-    }
-
-    private function resolveLeagueIds(?string $leagueId): ?array
+    public function index(string $leagueId, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
         $user = Auth::user();
-
-        if ($user->isMaster()) {
-            return $leagueId ? [$leagueId] : null;
+        if(!$user->isMaster() && !$user->hasLeagueId($leagueId)) {            
+            throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa liga.']);
         }
 
-        $leagueIds = $user->leagueIds();
-
-        if ($leagueId !== null) {
-            if (! in_array((int) $leagueId, $leagueIds)) {
-                throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa liga.']);
-            }
-
-            $leagueIds = [$leagueId];
-        }
-
-        return $leagueIds;
+        return $this->repository->index($leagueId, $filters, $paginate);
     }
 
     public function store(array $data): Game

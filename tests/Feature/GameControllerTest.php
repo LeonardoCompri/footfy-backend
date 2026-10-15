@@ -73,14 +73,14 @@ class GameControllerTest extends TestCase
 
     // ── Master ────────────────────────────────────────────────────────────────
 
-    public function test_master_index_returns_all_games(): void
+    public function test_master_index_without_league_id_returns_422(): void
     {
         $this->authenticate();
         Game::factory()->count(3)->create();
 
-        $response = $this->getJson('/api/games');
-
-        $response->assertOk()->assertJsonCount(3, 'data');
+        $this->getJson('/api/games')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('league_id');
     }
 
     public function test_master_can_create_game(): void
@@ -252,33 +252,26 @@ class GameControllerTest extends TestCase
 
     // ── Admin: escopo por liga ───────────────────────────────────────────────
 
-    public function test_admin_index_only_sees_games_in_assigned_leagues(): void
+    public function test_admin_index_without_league_id_returns_422(): void
     {
         $assignedLeague = League::factory()->create();
-        $unassignedLeague = League::factory()->create();
-        $home = Team::factory()->create();
-        $away = Team::factory()->create();
-
-        $gameInScope = Game::factory()->create(['league_id' => $assignedLeague->id, 'home_team_id' => $home->id, 'away_team_id' => $away->id]);
-        $gameOutScope = Game::factory()->create(['league_id' => $unassignedLeague->id, 'home_team_id' => $home->id, 'away_team_id' => $away->id]);
-
+        Game::factory()->create(['league_id' => $assignedLeague->id]);
         $this->authenticateAsAdmin([$assignedLeague->id]);
 
-        $response = $this->getJson('/api/games');
-
-        $response->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.id', $gameInScope->id);
+        $this->getJson('/api/games')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('league_id');
     }
 
-    public function test_admin_with_no_leagues_sees_empty_game_list(): void
+    public function test_admin_with_no_leagues_cannot_list_games_of_any_league(): void
     {
-        Game::factory()->count(2)->create();
+        $league = League::factory()->create();
+        Game::factory()->count(2)->create(['league_id' => $league->id]);
         $this->authenticateAsAdmin();
 
-        $response = $this->getJson('/api/games');
-
-        $response->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson("/api/games?league_id={$league->id}")
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a essa liga.']);
     }
 
     // ── Filtro por league_id ─────────────────────────────────────────────────
@@ -358,15 +351,20 @@ class GameControllerTest extends TestCase
             ->assertJsonCount(1, 'data.events');
     }
 
-    public function test_index_does_not_include_nested_relations_by_default(): void
+    public function test_index_includes_teams_and_stadium_but_not_events(): void
     {
         $this->authenticate();
-        Game::factory()->create();
+        $league = League::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $game = Game::factory()->create(['league_id' => $league->id, 'stadium_id' => $stadium->id]);
 
-        $response = $this->getJson('/api/games');
+        $response = $this->getJson("/api/games?league_id={$league->id}");
 
-        $response->assertOk();
-        $this->assertArrayNotHasKey('homeTeam', $response->json('data.0'));
+        $response->assertOk()
+            ->assertJsonPath('data.0.homeTeam.id', $game->home_team_id)
+            ->assertJsonPath('data.0.awayTeam.id', $game->away_team_id)
+            ->assertJsonPath('data.0.stadium.id', $stadium->id);
+        $this->assertArrayNotHasKey('events', $response->json('data.0'));
     }
 
     public function test_admin_can_show_game_in_assigned_league(): void
@@ -640,16 +638,21 @@ class GameControllerTest extends TestCase
         $response->assertStatus(422)->assertJson(['message' => 'Partida não encontrada!']);
     }
 
-    // ── Index: paginação opcional e filtros ───────────────────────────────────
+    // ── Index: paginação e filtros ────────────────────────────────────────────
 
-    public function test_index_without_pagination_params_returns_all_games_without_meta(): void
+    public function test_index_without_pagination_params_returns_first_page_with_default_meta(): void
     {
         $this->authenticate();
-        Game::factory()->count(25)->create();
+        $league = League::factory()->create();
+        Game::factory()->count(25)->create(['league_id' => $league->id]);
 
-        $response = $this->getJson('/api/games');
-
-        $response->assertOk()->assertJsonCount(25, 'data')->assertJsonMissingPath('meta');
+        $this->getJson("/api/games?league_id={$league->id}")
+            ->assertOk()
+            ->assertJsonCount(20, 'data')
+            ->assertJsonPath('meta.current_page', 1)
+            ->assertJsonPath('meta.per_page', 20)
+            ->assertJsonPath('meta.total', 25)
+            ->assertJsonPath('meta.last_page', 2);
     }
 
     public function test_index_paginates_45_games_in_pages_of_20(): void
@@ -660,7 +663,7 @@ class GameControllerTest extends TestCase
 
         $ids = [];
         foreach ([1 => 20, 2 => 20, 3 => 5] as $page => $expected) {
-            $response = $this->getJson("/api/games?page={$page}");
+            $response = $this->getJson("/api/games?league_id={$league->id}&page={$page}");
 
             $response->assertOk()
                 ->assertJsonCount($expected, 'data')
@@ -676,12 +679,13 @@ class GameControllerTest extends TestCase
         $this->assertCount(45, array_unique($ids));
     }
 
-    public function test_index_per_page_alone_enables_pagination(): void
+    public function test_index_per_page_alone_defaults_to_first_page(): void
     {
         $this->authenticate();
-        Game::factory()->count(12)->create();
+        $league = League::factory()->create();
+        Game::factory()->count(12)->create(['league_id' => $league->id]);
 
-        $this->getJson('/api/games?per_page=5')
+        $this->getJson("/api/games?league_id={$league->id}&per_page=5")
             ->assertOk()
             ->assertJsonCount(5, 'data')
             ->assertJsonPath('meta.current_page', 1)
@@ -693,9 +697,10 @@ class GameControllerTest extends TestCase
     public function test_index_page_beyond_last_returns_empty_data_with_consistent_meta(): void
     {
         $this->authenticate();
-        Game::factory()->count(45)->create();
+        $league = League::factory()->create();
+        Game::factory()->count(45)->create(['league_id' => $league->id]);
 
-        $this->getJson('/api/games?page=99')
+        $this->getJson("/api/games?league_id={$league->id}&page=99")
             ->assertOk()
             ->assertJsonCount(0, 'data')
             ->assertJsonPath('meta.current_page', 99)
@@ -704,7 +709,8 @@ class GameControllerTest extends TestCase
             ->assertJsonPath('meta.last_page', 3);
     }
 
-    // Cria um cenário fixo para os testes de filtro, numa única liga.
+    // Cria um cenário fixo para os testes de filtro, numa única liga (mais uma partida
+    // do mesmo time em outra liga, que nunca deve aparecer).
     private function seedFilterScenario(): array
     {
         $league = League::factory()->create();
@@ -715,6 +721,7 @@ class GameControllerTest extends TestCase
         $otherR1 = Game::factory()->create(['league_id' => $league->id, 'round' => 1, 'phase' => 'Grupos', 'status' => 'finished']);
         $awayR2 = Game::factory()->create(['league_id' => $league->id, 'away_team_id' => $team->id, 'round' => 2, 'phase' => 'Final', 'status' => 'finished']);
         $otherR2 = Game::factory()->create(['league_id' => $league->id, 'round' => 2, 'phase' => 'Final', 'status' => 'cancelled']);
+        Game::factory()->create(['home_team_id' => $team->id, 'round' => 1, 'phase' => 'Grupos', 'status' => 'scheduled']);
 
         return compact('league', 'team', 'homeR1', 'awayR1', 'otherR1', 'awayR2', 'otherR2');
     }
@@ -730,40 +737,37 @@ class GameControllerTest extends TestCase
     public static function paginationModeProvider(): array
     {
         return [
-            'sem paginação' => [false],
-            'paginado' => [true],
+            'paginação padrão' => ['', 20],
+            'paginação explícita' => ['&page=1&per_page=10', 10],
         ];
     }
 
     #[DataProvider('paginationModeProvider')]
-    public function test_index_filters_isolated_and_combined(bool $paginated): void
+    public function test_index_filters_isolated_and_combined(string $suffix, int $perPage): void
     {
         $this->authenticate();
         $s = $this->seedFilterScenario();
-        $suffix = $paginated ? '&page=1&per_page=10' : '';
+        $prefix = "league_id={$s['league']->id}";
 
         $cases = [
-            "round=1" => [$s['homeR1'], $s['awayR1'], $s['otherR1']],
-            "phase=Final" => [$s['awayR2'], $s['otherR2']],
-            "status=finished" => [$s['homeR1'], $s['otherR1'], $s['awayR2']],
-            "team_id={$s['team']->id}" => [$s['homeR1'], $s['awayR1'], $s['awayR2']],
-            "team_id={$s['team']->id}&round=1" => [$s['homeR1'], $s['awayR1']],
-            "team_id={$s['team']->id}&status=finished" => [$s['homeR1'], $s['awayR2']],
-            "round=2&phase=Final&status=cancelled" => [$s['otherR2']],
-            "league_id={$s['league']->id}&team_id={$s['team']->id}&phase=Grupos&status=scheduled" => [$s['awayR1']],
+            "" => [$s['homeR1'], $s['awayR1'], $s['otherR1'], $s['awayR2'], $s['otherR2']],
+            "&round=1" => [$s['homeR1'], $s['awayR1'], $s['otherR1']],
+            "&phase=Final" => [$s['awayR2'], $s['otherR2']],
+            "&status=finished" => [$s['homeR1'], $s['otherR1'], $s['awayR2']],
+            "&team_id={$s['team']->id}" => [$s['homeR1'], $s['awayR1'], $s['awayR2']],
+            "&team_id={$s['team']->id}&round=1" => [$s['homeR1'], $s['awayR1']],
+            "&team_id={$s['team']->id}&status=finished" => [$s['homeR1'], $s['awayR2']],
+            "&round=2&phase=Final&status=cancelled" => [$s['otherR2']],
+            "&team_id={$s['team']->id}&phase=Grupos&status=scheduled" => [$s['awayR1']],
         ];
 
         foreach ($cases as $query => $games) {
-            $response = $this->getJson("/api/games?{$query}{$suffix}");
+            $response = $this->getJson("/api/games?{$prefix}{$query}{$suffix}");
 
-            $response->assertOk();
+            $response->assertOk()
+                ->assertJsonPath('meta.total', count($games))
+                ->assertJsonPath('meta.per_page', $perPage);
             $this->assertGameIds(array_map(fn ($g) => $g->id, $games), $response);
-
-            if ($paginated) {
-                $response->assertJsonPath('meta.total', count($games));
-            } else {
-                $response->assertJsonMissingPath('meta');
-            }
         }
     }
 
@@ -774,9 +778,9 @@ class GameControllerTest extends TestCase
         $team = Team::factory()->create();
         $mine = Game::factory()->create(['league_id' => $league->id, 'away_team_id' => $team->id]);
         Game::factory()->create(['league_id' => $otherLeague->id, 'home_team_id' => $team->id]);
-        $this->authenticateAsAdmin([$league->id]);
+        $this->authenticateAsAdmin([$league->id, $otherLeague->id]);
 
-        $response = $this->getJson("/api/games?team_id={$team->id}&per_page=10");
+        $response = $this->getJson("/api/games?league_id={$league->id}&team_id={$team->id}&per_page=10");
 
         $response->assertOk()->assertJsonPath('meta.total', 1);
         $this->assertGameIds([$mine->id], $response);
@@ -817,43 +821,23 @@ class GameControllerTest extends TestCase
             ->assertJson(['message' => 'Você não tem acesso a essa liga.']);
     }
 
-    public function test_admin_paginated_index_without_league_id_only_sees_assigned_leagues(): void
+    public function test_index_orders_by_round_phase_order_match_date_and_id_across_pages(): void
     {
-        $leagueA = League::factory()->create();
-        $leagueB = League::factory()->create();
-        $otherLeague = League::factory()->create();
-        Game::factory()->count(3)->create(['league_id' => $leagueA->id]);
-        Game::factory()->count(2)->create(['league_id' => $leagueB->id]);
-        Game::factory()->count(4)->create(['league_id' => $otherLeague->id]);
-        $this->authenticateAsAdmin([$leagueA->id, $leagueB->id]);
-
-        $response = $this->getJson('/api/games?per_page=2');
-
-        $response->assertOk()
-            ->assertJsonCount(2, 'data')
-            ->assertJsonPath('meta.total', 5)
-            ->assertJsonPath('meta.last_page', 3);
-
-        $all = $this->getJson('/api/games?per_page=100')->json('data');
-        $this->assertEqualsCanonicalizing(
-            [$leagueA->id, $leagueB->id],
-            array_values(array_unique(array_column($all, 'league_id')))
-        );
-    }
-
-    public function test_admin_paginated_index_with_multiple_leagues_groups_games_by_league(): void
-    {
-        $leagueA = League::factory()->create();
-        $leagueB = League::factory()->create();
-        // Rodadas intercaladas entre as ligas: sem league_id na ordenação viriam misturadas.
-        $gamesB = Game::factory()->count(13)->sequence(fn ($s) => ['round' => $s->index % 4 + 1])->create(['league_id' => $leagueB->id]);
-        $gamesA = Game::factory()->count(12)->sequence(fn ($s) => ['round' => $s->index % 4 + 1])->create(['league_id' => $leagueA->id]);
+        $league = League::factory()->create();
+        // Rodadas intercaladas e datas decrescentes em relação ao id (com pares de mesma
+        // data), para que só a ordenação completa reproduza a sequência esperada.
+        $games = Game::factory()->count(25)
+            ->sequence(fn ($s) => [
+                'round' => $s->index % 4 + 1,
+                'match_date' => now()->startOfDay()->addDays(intdiv(25 - $s->index, 2))->format('Y-m-d H:i:s'),
+            ])
+            ->create(['league_id' => $league->id]);
         Game::factory()->count(3)->create();
-        $this->authenticateAsAdmin([$leagueA->id, $leagueB->id]);
+        $this->authenticateAsAdmin([$league->id]);
 
         $items = [];
         foreach ([1 => 10, 2 => 10, 3 => 5] as $page => $expected) {
-            $response = $this->getJson("/api/games?page={$page}&per_page=10");
+            $response = $this->getJson("/api/games?league_id={$league->id}&page={$page}&per_page=10");
 
             $response->assertOk()
                 ->assertJsonCount($expected, 'data')
@@ -863,50 +847,50 @@ class GameControllerTest extends TestCase
             $items = array_merge($items, $response->json('data'));
         }
 
-        $ids = array_column($items, 'id');
-        $this->assertCount(25, array_unique($ids));
-        $this->assertEqualsCanonicalizing($gamesA->merge($gamesB)->pluck('id')->all(), $ids);
+        $expectedIds = $games
+            ->sortBy([['round', 'asc'], ['match_date', 'asc'], ['id', 'asc']])
+            ->pluck('id')
+            ->values()
+            ->all();
 
-        // Todas as partidas da liga A (id menor) antes das da liga B, cada bloco por rodada.
-        $leagueIds = array_column($items, 'league_id');
-        $this->assertSame(
-            array_merge(array_fill(0, 12, $leagueA->id), array_fill(0, 13, $leagueB->id)),
-            $leagueIds
-        );
-        foreach ([array_slice($items, 0, 12), array_slice($items, 12)] as $block) {
-            $rounds = array_column($block, 'round');
-            $sorted = $rounds;
-            sort($sorted);
-            $this->assertSame($sorted, $rounds);
-        }
+        $this->assertSame($expectedIds, array_column($items, 'id'));
     }
 
     public function test_paginated_index_runs_constant_number_of_queries(): void
     {
         $this->authenticate();
         $league = League::factory()->create();
-        Game::factory()->count(30)->create(['league_id' => $league->id, 'round' => 1]);
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        Game::factory()->count(30)->create(['league_id' => $league->id, 'round' => 1, 'stadium_id' => $stadium->id]);
 
         DB::enableQueryLog();
         $this->getJson("/api/games?league_id={$league->id}&round=1&per_page=20")->assertOk();
-        $gameQueries = array_filter(DB::getQueryLog(), fn ($q) => str_contains($q['query'], '"games"'));
+        $log = DB::getQueryLog();
         DB::disableQueryLog();
 
-        // Deferred join: count + ids da página + linhas desses ids, sem N+1 por partida.
-        $this->assertCount(3, $gameQueries);
+        // count + página de partidas e uma query por relação carregada, sem N+1 por partida.
+        $this->assertCount(2, array_filter($log, fn ($q) => str_contains($q['query'], 'from "games"')));
+        $this->assertCount(2, array_filter($log, fn ($q) => str_contains($q['query'], 'from "teams"')));
+        $this->assertCount(1, array_filter($log, fn ($q) => str_contains($q['query'], 'from "stadiums"')));
     }
 
-    public function test_paginated_index_beyond_last_page_only_runs_count_query(): void
+    public function test_paginated_index_beyond_last_page_does_not_load_relations(): void
     {
         $this->authenticate();
-        Game::factory()->count(5)->create();
+        $league = League::factory()->create();
+        Game::factory()->count(5)->create(['league_id' => $league->id]);
 
         DB::enableQueryLog();
-        $this->getJson('/api/games?page=3&per_page=5')->assertOk()->assertJsonCount(0, 'data')->assertJsonPath('meta.total', 5);
-        $gameQueries = array_filter(DB::getQueryLog(), fn ($q) => str_contains($q['query'], '"games"'));
+        $this->getJson("/api/games?league_id={$league->id}&page=3&per_page=5")
+            ->assertOk()
+            ->assertJsonCount(0, 'data')
+            ->assertJsonPath('meta.total', 5);
+        $log = DB::getQueryLog();
         DB::disableQueryLog();
 
-        $this->assertCount(1, $gameQueries);
+        // count + página vazia; sem partidas na página, nenhuma relação é carregada.
+        $this->assertCount(2, array_filter($log, fn ($q) => str_contains($q['query'], 'from "games"')));
+        $this->assertCount(0, array_filter($log, fn ($q) => str_contains($q['query'], 'from "teams"')));
     }
 
     // ── Regressão: filtro ?league_id= inválido ────────────────────────────────
