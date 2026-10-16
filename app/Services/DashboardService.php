@@ -98,7 +98,7 @@ class DashboardService
     private function teamSummary(?Team $team): ?array
     {
         return $team
-            ? ['id' => $team->id, 'name' => $team->name, 'nickname' => $team->nickname, 'logo' => $team->logo]
+            ? ['id' => $team->id, 'name' => $team->name, 'nickname' => $team->nickname, 'logo' => $team->logoUrl()]
             : null;
     }
 }

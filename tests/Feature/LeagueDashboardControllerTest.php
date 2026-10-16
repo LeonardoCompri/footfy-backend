@@ -11,6 +11,7 @@ use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -137,6 +138,47 @@ class LeagueDashboardControllerTest extends TestCase
         $upcomingGames = $response->json('data.upcoming_games');
         $this->assertCount(2, $upcomingGames);
         $this->assertSame($nextGame->id, $upcomingGames[0]['id']);
+    }
+
+    public function test_dashboard_returns_team_logos_as_public_url_or_null(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'round_robin']);
+        $withLogo = Team::factory()->create(['logo' => 'teams/escudo.png']);
+        $withoutLogo = Team::factory()->create(['logo' => null]);
+        $league->teams()->attach([$withLogo->id, $withoutLogo->id]);
+
+        Game::factory()->create([
+            'league_id' => $league->id,
+            'home_team_id' => $withLogo->id,
+            'away_team_id' => $withoutLogo->id,
+            'status' => 'finished',
+            'home_score' => 1,
+            'away_score' => 0,
+            'match_date' => now()->subDay(),
+        ]);
+        Game::factory()->create([
+            'league_id' => $league->id,
+            'home_team_id' => $withoutLogo->id,
+            'away_team_id' => $withLogo->id,
+            'status' => 'scheduled',
+            'home_score' => null,
+            'away_score' => null,
+            'match_date' => now()->addDay(),
+        ]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/dashboard");
+
+        $expectedUrl = Storage::disk('public')->url('teams/escudo.png');
+        $response->assertOk()
+            ->assertJsonPath('data.last_results.0.home_team.logo', $expectedUrl)
+            ->assertJsonPath('data.last_results.0.away_team.logo', null)
+            ->assertJsonPath('data.upcoming_games.0.home_team.logo', null)
+            ->assertJsonPath('data.upcoming_games.0.away_team.logo', $expectedUrl);
+
+        $resourceLogo = $this->getJson("/api/teams/{$withLogo->id}")->json('data.logo');
+        $this->assertSame($resourceLogo, $expectedUrl);
     }
 
     public function test_dashboard_includes_goals_by_bucket_and_results_split_consistent_with_statistics(): void
