@@ -10,6 +10,7 @@ use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -457,6 +458,56 @@ class LeagueTableControllerTest extends TestCase
         $response = $this->getJson("/api/public/leagues/{$league->id}/table");
 
         $response->assertOk()->assertJsonPath('data.standings.0.team_id', $teamA->id);
+    }
+
+    // ── Logo do time como URL pública ────────────────────────────────────────
+
+    private function leagueWithLogoAndWithoutLogo(): array
+    {
+        Storage::fake('public');
+
+        $league = League::factory()->create(['format' => 'round_robin']);
+        $withLogo = Team::factory()->create(['logo' => 'teams/escudo.png']);
+        $withoutLogo = Team::factory()->create(['logo' => null]);
+        $league->teams()->attach([$withLogo->id, $withoutLogo->id]);
+        $this->finishedGame($league, $withLogo, $withoutLogo, 1, 0);
+
+        return [$league, $withLogo];
+    }
+
+    public function test_admin_table_returns_team_logo_as_public_url(): void
+    {
+        $this->authenticate();
+        [$league] = $this->leagueWithLogoAndWithoutLogo();
+
+        $response = $this->getJson("/api/leagues/{$league->id}/table");
+
+        $response->assertOk()
+            ->assertJsonPath('data.standings.0.team.logo', Storage::disk('public')->url('teams/escudo.png'))
+            ->assertJsonPath('data.standings.1.team.logo', null);
+    }
+
+    public function test_public_table_returns_team_logo_as_public_url(): void
+    {
+        [$league] = $this->leagueWithLogoAndWithoutLogo();
+
+        $response = $this->getJson("/api/public/leagues/{$league->id}/table");
+
+        $response->assertOk()
+            ->assertJsonPath('data.standings.0.team.logo', Storage::disk('public')->url('teams/escudo.png'))
+            ->assertJsonPath('data.standings.1.team.logo', null);
+    }
+
+    public function test_table_team_logo_matches_team_resource_format(): void
+    {
+        $this->authenticate();
+        [$league, $withLogo] = $this->leagueWithLogoAndWithoutLogo();
+
+        $tableLogo = $this->getJson("/api/leagues/{$league->id}/table")->json('data.standings.0.team.logo');
+        $resourceLogo = $this->getJson("/api/teams/{$withLogo->id}")->json('data.logo');
+
+        $this->assertNotNull($tableLogo);
+        $this->assertSame($resourceLogo, $tableLogo);
     }
 
     // ── Performance: sem N+1 ─────────────────────────────────────────────────

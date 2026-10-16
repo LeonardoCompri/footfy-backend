@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class Team extends Model
 {
@@ -17,6 +18,11 @@ class Team extends Model
         'created_at',
         'updated_at',
     ];
+
+    public function logoUrl(): ?string
+    {
+        return $this->logo ? Storage::disk('public')->url($this->logo) : null;
+    }
 
     public function players()
     {
