@@ -52,7 +52,7 @@ class StandingsService
 
             return [
                 'team_id' => $team->id,
-                'team' => ['id' => $team->id, 'name' => $team->name, 'nickname' => $team->nickname, 'logo' => $team->logo],
+                'team' => ['id' => $team->id, 'name' => $team->name, 'nickname' => $team->nickname, 'logo' => $team->logoUrl()],
                 'played' => $played,
                 'wins' => $wins,
                 'draws' => $draws,
