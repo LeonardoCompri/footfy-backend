@@ -641,4 +641,113 @@ class GameEventControllerTest extends TestCase
             ->assertForbidden()
             ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
     }
+
+    // ── Liga da partida na escrita (FOOT-0044) ────────────────────────────────
+
+    public function test_admin_cannot_create_event_in_game_of_unassigned_league(): void
+    {
+        $payload = $this->eventPayload();
+        $this->authenticateAsAdmin([League::factory()->create()->id]);
+
+        $this->postJson('/api/game-events', $payload)
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+
+        $this->assertDatabaseCount('game_events', 0);
+    }
+
+    /** Evento na liga A e outra partida, na liga B, com o mesmo time (aceita pelo request). */
+    private function eventAndGameOfAnotherLeague(): array
+    {
+        $scenario = $this->buildGameScenario();
+        $event = GameEvent::factory()->create([
+            'game_id' => $scenario['game']->id,
+            'league_id' => $scenario['league']->id,
+            'team_id' => $scenario['homeTeam']->id,
+            'player_id' => $scenario['player']->id,
+        ]);
+        $otherGame = Game::factory()->create(['home_team_id' => $scenario['homeTeam']->id]);
+
+        return [$scenario, $event, $otherGame];
+    }
+
+    public function test_admin_cannot_move_event_to_game_of_unassigned_league(): void
+    {
+        [$scenario, $event, $otherGame] = $this->eventAndGameOfAnotherLeague();
+        $this->authenticateAsAdmin([$scenario['league']->id]);
+
+        $this->putJson("/api/game-events/{$event->id}", ['game_id' => $otherGame->id])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+
+        $this->assertDatabaseHas('game_events', [
+            'id' => $event->id,
+            'game_id' => $scenario['game']->id,
+            'league_id' => $scenario['league']->id,
+        ]);
+    }
+
+    public function test_master_can_create_event_and_move_it_to_game_of_any_league(): void
+    {
+        $this->authenticate();
+        [, $event, $otherGame] = $this->eventAndGameOfAnotherLeague();
+
+        $this->postJson('/api/game-events', $this->eventPayload())->assertCreated();
+        $this->putJson("/api/game-events/{$event->id}", ['game_id' => $otherGame->id])
+            ->assertOk()
+            ->assertJsonPath('data.game_id', $otherGame->id);
+
+        $this->assertDatabaseHas('game_events', ['id' => $event->id, 'league_id' => $otherGame->league_id]);
+    }
+
+    public static function arrayFieldStoreProvider(): array
+    {
+        return [
+            'game_id' => ['game_id'],
+            'player_id' => ['player_id'],
+            'related_player_id' => ['related_player_id'],
+        ];
+    }
+
+    #[DataProvider('arrayFieldStoreProvider')]
+    public function test_store_with_field_sent_as_array_returns_422_instead_of_500(string $field): void
+    {
+        $this->authenticate();
+        // Cenário antes do payload: o player_id do payload não é 1, então `(int) [id]` (= 1) não cai
+        // por acaso na checagem "relacionado igual ao principal" e o after() chegaria ao find(array).
+        $scenario = $this->buildGameScenario();
+        $payload = $this->eventPayload();
+        $payload[$field] = [$field === 'game_id' ? $scenario['game']->id : $scenario['player']->id];
+
+        $this->postJson('/api/game-events', $payload)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors($field);
+
+        $this->assertDatabaseCount('game_events', 0);
+    }
+
+    public static function arrayFieldUpdateProvider(): array
+    {
+        return ['game_id' => ['game_id'], 'player_id' => ['player_id']];
+    }
+
+    #[DataProvider('arrayFieldUpdateProvider')]
+    public function test_update_with_field_sent_as_array_returns_422_instead_of_500(string $field): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        $event = GameEvent::factory()->create([
+            'game_id' => $scenario['game']->id,
+            'league_id' => $scenario['league']->id,
+            'team_id' => $scenario['homeTeam']->id,
+            'player_id' => $scenario['player']->id,
+        ]);
+        $value = $field === 'game_id' ? $scenario['game']->id : $scenario['teammate']->id;
+
+        $this->putJson("/api/game-events/{$event->id}", [$field => [$value]])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors($field);
+
+        $this->assertDatabaseHas('game_events', ['id' => $event->id, 'player_id' => $scenario['player']->id]);
+    }
 }

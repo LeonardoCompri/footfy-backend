@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Team;
 use App\Repositories\TeamRepository;
+use App\Services\Concerns\EnsuresLeagueAccess;
 use App\Services\Concerns\HandlesImageUpload;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
@@ -14,7 +15,7 @@ use Throwable;
 
 class TeamService
 {
-    use HandlesImageUpload;
+    use EnsuresLeagueAccess, HandlesImageUpload;
 
     public function __construct(private readonly TeamRepository $repository) {}
 
@@ -178,21 +179,5 @@ class TeamService
         }
 
         return $team;
-    }
-
-    private function ensureUserHasAccessToLeagues(array $leagueIds): void
-    {
-        $user = Auth::user();
-
-        if ($user->isMaster()) {
-            return;
-        }
-
-        $allowedLeagueIds = $user->leagueIds();
-        $unauthorizedLeagueIds = array_diff(array_map('intval', $leagueIds), $allowedLeagueIds);
-
-        if (! empty($unauthorizedLeagueIds)) {
-            throw ValidationException::withMessages(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
-        }
     }
 }
