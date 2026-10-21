@@ -47,6 +47,19 @@ class StadiumControllerTest extends TestCase
         return $user;
     }
 
+    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas. */
+    private function authenticateAs(string $role, array $leagueIds = []): User
+    {
+        $user = User::factory()->create();
+        $user->assignRole($role);
+        if (! empty($leagueIds)) {
+            $user->leagues()->sync($leagueIds);
+        }
+        Sanctum::actingAs($user);
+
+        return $user;
+    }
+
     // ── Auth ──────────────────────────────────────────────────────────────────
 
     public function test_guest_cannot_list_stadiums(): void
@@ -374,5 +387,81 @@ class StadiumControllerTest extends TestCase
         $this->authenticate();
 
         $this->getJson('/api/stadiums/1abc')->assertNotFound();
+    }
+
+    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
+
+    public function test_coach_cannot_create_stadium(): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAs('coach', [$league->id]);
+
+        $response = $this->postJson('/api/stadiums', [
+            'league_id' => $league->id,
+            'name' => 'Arena do Coach',
+            'city' => 'Recife',
+            'capacity' => 1000,
+        ]);
+
+        $response->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->assertDatabaseMissing('stadiums', ['name' => 'Arena do Coach']);
+    }
+
+    public static function rolesWithoutStadiumWriteProvider(): array
+    {
+        return ['coach' => ['coach'], 'player' => ['player']];
+    }
+
+    #[DataProvider('rolesWithoutStadiumWriteProvider')]
+    public function test_role_without_stadium_update_cannot_update_stadium(string $role): void
+    {
+        $league = League::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id, 'capacity' => 1000]);
+        $this->authenticateAs($role, [$league->id]);
+
+        $response = $this->putJson("/api/stadiums/{$stadium->id}", ['capacity' => 5000]);
+
+        $response->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->assertDatabaseHas('stadiums', ['id' => $stadium->id, 'capacity' => 1000]);
+    }
+
+    public function test_player_cannot_create_stadium(): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAs('player', [$league->id]);
+
+        $this->postJson('/api/stadiums', [
+            'league_id' => $league->id,
+            'name' => 'Arena do Player',
+            'city' => 'Recife',
+            'capacity' => 1000,
+        ])->assertForbidden()->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->assertDatabaseMissing('stadiums', ['name' => 'Arena do Player']);
+    }
+
+    public function test_coach_can_still_show_stadium_of_own_league(): void
+    {
+        $league = League::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $this->authenticateAs('coach', [$league->id]);
+
+        $this->getJson("/api/stadiums/{$stadium->id}")->assertOk();
+    }
+
+    public function test_admin_can_create_stadium_in_assigned_league(): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $response = $this->postJson('/api/stadiums', [
+            'league_id' => $league->id,
+            'name' => 'Arena do Admin',
+            'city' => 'Recife',
+            'capacity' => 1000,
+        ]);
+
+        $response->assertCreated()->assertJsonPath('data.league_id', $league->id);
     }
 }

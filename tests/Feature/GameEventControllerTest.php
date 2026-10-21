@@ -8,10 +8,11 @@ use App\Models\League;
 use App\Models\Player;
 use App\Models\Team;
 use App\Models\User;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
-use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class GameEventControllerTest extends TestCase
@@ -22,8 +23,8 @@ class GameEventControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        Role::create(['name' => 'master']);
-        Role::create(['name' => 'admin']);
+        // Papéis e permissões reais do RoleSeeder: as rotas de escrita exigem `permission:`.
+        $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
     private function authenticate(): User
@@ -39,6 +40,19 @@ class GameEventControllerTest extends TestCase
     {
         $user = User::factory()->create();
         $user->assignRole('admin');
+        if (! empty($leagueIds)) {
+            $user->leagues()->sync($leagueIds);
+        }
+        Sanctum::actingAs($user);
+
+        return $user;
+    }
+
+    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas. */
+    private function authenticateAs(string $role, array $leagueIds = []): User
+    {
+        $user = User::factory()->create();
+        $user->assignRole($role);
         if (! empty($leagueIds)) {
             $user->leagues()->sync($leagueIds);
         }
@@ -563,5 +577,68 @@ class GameEventControllerTest extends TestCase
         $this->authenticate();
 
         $this->getJson('/api/game-events/1abc')->assertNotFound();
+    }
+
+    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
+
+    public static function rolesWithoutGameEventPermissionsProvider(): array
+    {
+        return ['coach' => ['coach'], 'player' => ['player']];
+    }
+
+    #[DataProvider('rolesWithoutGameEventPermissionsProvider')]
+    public function test_role_without_game_event_permissions_cannot_write_events(string $role): void
+    {
+        $scenario = $this->buildGameScenario();
+        $event = GameEvent::factory()->create([
+            'game_id' => $scenario['game']->id,
+            'team_id' => $scenario['homeTeam']->id,
+            'player_id' => $scenario['player']->id,
+            'league_id' => $scenario['league']->id,
+            'minute' => 10,
+        ]);
+        $this->authenticateAs($role, [$scenario['league']->id]);
+
+        $this->postJson('/api/game-events', [
+            'game_id' => $scenario['game']->id,
+            'player_id' => $scenario['player']->id,
+            'team_id' => $scenario['homeTeam']->id,
+            'type' => 'goal',
+            'minute' => 50,
+        ])->assertForbidden()->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->putJson("/api/game-events/{$event->id}", ['minute' => 45])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->deleteJson("/api/game-events/{$event->id}")
+            ->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+
+        $this->assertDatabaseCount('game_events', 1);
+        $this->assertDatabaseHas('game_events', ['id' => $event->id, 'minute' => 10]);
+    }
+
+    public function test_admin_can_create_update_and_delete_game_event_in_assigned_league(): void
+    {
+        $payload = $this->eventPayload(['minute' => 23]);
+        $leagueId = Game::find($payload['game_id'])->league_id;
+        $this->authenticateAsAdmin([$leagueId]);
+
+        $id = $this->postJson('/api/game-events', $payload)->assertCreated()->json('data.id');
+        $this->putJson("/api/game-events/{$id}", ['minute' => 45])
+            ->assertOk()
+            ->assertJsonPath('data.minute', 45);
+        $this->deleteJson("/api/game-events/{$id}")->assertStatus(204);
+
+        $this->assertDatabaseMissing('game_events', ['id' => $id]);
+    }
+
+    public function test_admin_outside_league_is_blocked_by_resource_access_not_by_permission(): void
+    {
+        $event = GameEvent::factory()->create();
+        $this->authenticateAsAdmin([League::factory()->create()->id]);
+
+        $this->putJson("/api/game-events/{$event->id}", ['minute' => 45])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
     }
 }

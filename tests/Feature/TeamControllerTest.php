@@ -6,6 +6,8 @@ use App\Models\League;
 use App\Models\Team;
 use App\Models\User;
 use App\Repositories\TeamRepository;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -23,8 +25,8 @@ class TeamControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        Role::create(['name' => 'master']);
-        Role::create(['name' => 'admin']);
+        // Papéis e permissões reais do RoleSeeder: as rotas de escrita exigem `permission:`.
+        $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
     private function authenticate(): User
@@ -40,6 +42,19 @@ class TeamControllerTest extends TestCase
     {
         $user = User::factory()->create();
         $user->assignRole('admin');
+        if (! empty($leagueIds)) {
+            $user->leagues()->sync($leagueIds);
+        }
+        Sanctum::actingAs($user);
+
+        return $user;
+    }
+
+    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas. */
+    private function authenticateAs(string $role, array $leagueIds = []): User
+    {
+        $user = User::factory()->create();
+        $user->assignRole($role);
         if (! empty($leagueIds)) {
             $user->leagues()->sync($leagueIds);
         }
@@ -824,5 +839,129 @@ class TeamControllerTest extends TestCase
         $this->authenticate();
 
         $this->getJson('/api/teams/1abc')->assertNotFound();
+    }
+
+    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
+
+    public function test_player_cannot_update_team_of_own_league(): void
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create(['nickname' => 'OLD']);
+        $league->teams()->attach($team->id);
+        $this->authenticateAs('player', [$league->id]);
+
+        $response = $this->putJson("/api/teams/{$team->id}", ['nickname' => 'NEW']);
+
+        $response->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->assertDatabaseHas('teams', ['id' => $team->id, 'nickname' => 'OLD']);
+    }
+
+    public function test_player_can_show_team_of_own_league(): void
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
+        $this->authenticateAs('player', [$league->id]);
+
+        $this->getJson("/api/teams/{$team->id}")->assertOk();
+    }
+
+    public static function teamWriteRequestsProvider(): array
+    {
+        $routes = [
+            'store' => ['post', '/api/teams'],
+            'update' => ['put', '/api/teams/{id}'],
+            'destroy' => ['delete', '/api/teams/{id}'],
+            'leagues.sync' => ['post', '/api/teams/{id}/leagues'],
+            'leagues.remove' => ['delete', '/api/teams/{id}/leagues/{lid}'],
+        ];
+
+        $cases = [];
+        foreach (['coach', 'player'] as $role) {
+            foreach ($routes as $name => [$method, $uri]) {
+                $cases["{$role} {$name}"] = [$role, $method, $uri];
+            }
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('teamWriteRequestsProvider')]
+    public function test_role_without_team_permission_cannot_write_teams(string $role, string $method, string $uri): void
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create(['name' => 'Time Original']);
+        $league->teams()->attach($team->id);
+        $this->authenticateAs($role, [$league->id]);
+
+        $url = str_replace(['{id}', '{lid}'], [$team->id, $league->id], $uri);
+        $response = $this->json($method, $url, ['name' => 'Time Novo', 'league_ids' => [$league->id]]);
+
+        $response->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->assertDatabaseCount('teams', 1);
+        $this->assertDatabaseHas('teams', ['id' => $team->id, 'name' => 'Time Original']);
+        $this->assertDatabaseHas('league_team', ['team_id' => $team->id, 'league_id' => $league->id]);
+    }
+
+    public function test_admin_can_update_team_in_assigned_league(): void
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create(['nickname' => 'OLD']);
+        $league->teams()->attach($team->id);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $response = $this->putJson("/api/teams/{$team->id}", ['nickname' => 'NEW']);
+
+        $response->assertOk()->assertJsonPath('data.nickname', 'NEW');
+    }
+
+    public function test_admin_can_delete_team_in_assigned_league(): void
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->deleteJson("/api/teams/{$team->id}")->assertStatus(204);
+
+        $this->assertDatabaseMissing('teams', ['id' => $team->id]);
+    }
+
+    public function test_admin_can_remove_league_from_team_in_assigned_league(): void
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->deleteJson("/api/teams/{$team->id}/leagues/{$league->id}")->assertOk();
+
+        $this->assertDatabaseMissing('league_team', ['team_id' => $team->id, 'league_id' => $league->id]);
+    }
+
+    public function test_admin_outside_league_is_blocked_by_resource_access_not_by_permission(): void
+    {
+        $team = Team::factory()->create();
+        League::factory()->create()->teams()->attach($team->id);
+        $this->authenticateAsAdmin([League::factory()->create()->id]);
+
+        $response = $this->putJson("/api/teams/{$team->id}", ['nickname' => 'NEW']);
+
+        $response->assertForbidden()->assertJsonPath('message', 'Você não tem acesso a este recurso.');
+    }
+
+    public function test_master_without_permissions_is_allowed_by_gate_before(): void
+    {
+        Role::findByName('master')->syncPermissions([]);
+        $this->authenticate();
+        $team = Team::factory()->create(['nickname' => 'OLD']);
+
+        $this->putJson("/api/teams/{$team->id}", ['nickname' => 'NEW'])
+            ->assertOk()
+            ->assertJsonPath('data.nickname', 'NEW');
+        $this->postJson('/api/teams', ['name' => 'Novo Time'])->assertCreated();
+        $this->deleteJson("/api/teams/{$team->id}")->assertStatus(204);
     }
 }
