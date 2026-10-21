@@ -464,4 +464,64 @@ class StadiumControllerTest extends TestCase
 
         $response->assertCreated()->assertJsonPath('data.league_id', $league->id);
     }
+
+    // ── Liga de destino na escrita (FOOT-0044) ────────────────────────────────
+
+    public function test_admin_cannot_create_stadium_in_unassigned_league(): void
+    {
+        $this->authenticateAsAdmin([League::factory()->create()->id]);
+        $otherLeague = League::factory()->create();
+
+        $this->postJson('/api/stadiums', [
+            'league_id' => $otherLeague->id,
+            'name' => 'Arena Intrusa',
+            'city' => 'Recife',
+            'capacity' => 1000,
+        ])->assertStatus(422)->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+
+        $this->assertDatabaseMissing('stadiums', ['name' => 'Arena Intrusa']);
+    }
+
+    public function test_admin_cannot_move_stadium_to_unassigned_league(): void
+    {
+        $league = League::factory()->create();
+        $otherLeague = League::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->putJson("/api/stadiums/{$stadium->id}", ['league_id' => $otherLeague->id])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+
+        $this->assertDatabaseHas('stadiums', ['id' => $stadium->id, 'league_id' => $league->id]);
+    }
+
+    public function test_admin_can_update_stadium_keeping_its_league_id(): void
+    {
+        $league = League::factory()->create();
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->putJson("/api/stadiums/{$stadium->id}", ['league_id' => $league->id, 'capacity' => 3000])
+            ->assertOk()
+            ->assertJsonPath('data.capacity', 3000);
+    }
+
+    public function test_master_can_create_and_move_stadium_in_any_league(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $otherLeague = League::factory()->create();
+
+        $id = $this->postJson('/api/stadiums', [
+            'league_id' => $league->id,
+            'name' => 'Arena do Master',
+            'city' => 'Recife',
+            'capacity' => 1000,
+        ])->assertCreated()->json('data.id');
+
+        $this->putJson("/api/stadiums/{$id}", ['league_id' => $otherLeague->id])
+            ->assertOk()
+            ->assertJsonPath('data.league_id', $otherLeague->id);
+    }
 }

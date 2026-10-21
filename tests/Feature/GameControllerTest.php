@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Game;
+use App\Models\GameEvent;
 use App\Models\League;
+use App\Models\Player;
 use App\Models\Stadium;
 use App\Models\Team;
 use App\Models\User;
@@ -61,11 +63,16 @@ class GameControllerTest extends TestCase
         return $user;
     }
 
+    /**
+     * Mandante e visitante já vinculados (league_team) à liga da partida, que é a do override
+     * `league_id` quando informado: o request recusa times fora da liga.
+     */
     private function gamePayload(array $overrides = []): array
     {
-        $league = League::factory()->create();
+        $league = isset($overrides['league_id']) ? League::findOrFail($overrides['league_id']) : League::factory()->create();
         $home = Team::factory()->create();
         $away = Team::factory()->create();
+        $league->teams()->attach([$home->id, $away->id]);
 
         return array_merge([
             'league_id' => $league->id,
@@ -170,6 +177,7 @@ class GameControllerTest extends TestCase
         $this->authenticate();
         $league = League::factory()->create();
         $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
 
         $response = $this->postJson('/api/games', [
             'league_id' => $league->id,
@@ -178,7 +186,7 @@ class GameControllerTest extends TestCase
             'status' => 'scheduled',
         ]);
 
-        $response->assertStatus(422);
+        $response->assertStatus(422)->assertJsonValidationErrors('away_team_id');
     }
 
     public function test_store_fails_with_invalid_status(): void
@@ -984,5 +992,241 @@ class GameControllerTest extends TestCase
         $this->putJson("/api/games/{$game->id}", ['status' => 'finished'])
             ->assertForbidden()
             ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
+    }
+
+    // ── Liga e times na escrita (FOOT-0044) ───────────────────────────────────
+
+    /** Partida com mandante e visitante vinculados à própria liga. */
+    private function gameWithTeamsInLeague(League $league, array $attributes = []): Game
+    {
+        $home = Team::factory()->create();
+        $away = Team::factory()->create();
+        $league->teams()->attach([$home->id, $away->id]);
+
+        return Game::factory()->create(array_merge([
+            'league_id' => $league->id,
+            'home_team_id' => $home->id,
+            'away_team_id' => $away->id,
+            'round' => 1,
+        ], $attributes));
+    }
+
+    public function test_admin_cannot_create_game_in_unassigned_league(): void
+    {
+        $payload = $this->gamePayload(['round' => 1]);
+        $this->authenticateAsAdmin([League::factory()->create()->id]);
+
+        $this->postJson('/api/games', $payload)
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+
+        $this->assertDatabaseCount('games', 0);
+    }
+
+    public function test_admin_cannot_move_game_to_unassigned_league(): void
+    {
+        $league = League::factory()->create();
+        $otherLeague = League::factory()->create();
+        $game = $this->gameWithTeamsInLeague($league);
+        $otherLeague->teams()->attach([$game->home_team_id, $game->away_team_id]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->putJson("/api/games/{$game->id}", ['league_id' => $otherLeague->id])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+
+        $this->assertDatabaseHas('games', ['id' => $game->id, 'league_id' => $league->id]);
+    }
+
+    public function test_store_fails_when_teams_do_not_belong_to_league_even_for_master(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $home = Team::factory()->create();
+        $away = Team::factory()->create();
+        $league->teams()->attach($home->id);
+
+        $this->postJson('/api/games', [
+            'league_id' => $league->id,
+            'home_team_id' => $home->id,
+            'away_team_id' => $away->id,
+            'round' => 1,
+            'status' => 'scheduled',
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['away_team_id' => 'O time informado não pertence à liga desta partida.'])
+            ->assertJsonMissingValidationErrors('home_team_id');
+
+        $this->assertDatabaseCount('games', 0);
+    }
+
+    public function test_update_only_league_id_fails_when_new_league_does_not_have_the_teams(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $otherLeague = League::factory()->create();
+        $game = $this->gameWithTeamsInLeague($league);
+
+        $this->putJson("/api/games/{$game->id}", ['league_id' => $otherLeague->id])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['home_team_id', 'away_team_id']);
+
+        $this->assertDatabaseHas('games', ['id' => $game->id, 'league_id' => $league->id]);
+    }
+
+    public function test_update_only_home_team_id_fails_when_team_is_outside_the_league(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $game = $this->gameWithTeamsInLeague($league);
+        $outsider = Team::factory()->create();
+
+        $this->putJson("/api/games/{$game->id}", ['home_team_id' => $outsider->id])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['home_team_id' => 'O time informado não pertence à liga desta partida.'])
+            ->assertJsonMissingValidationErrors('away_team_id');
+
+        $this->assertDatabaseHas('games', ['id' => $game->id, 'home_team_id' => $game->home_team_id]);
+    }
+
+    public function test_update_only_away_team_id_equal_to_stored_home_team_fails(): void
+    {
+        $this->authenticate();
+        $game = $this->gameWithTeamsInLeague(League::factory()->create());
+
+        $this->putJson("/api/games/{$game->id}", ['away_team_id' => $game->home_team_id])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['away_team_id' => 'O time mandante e o visitante devem ser diferentes.']);
+
+        $this->assertDatabaseHas('games', ['id' => $game->id, 'away_team_id' => $game->away_team_id]);
+    }
+
+    public function test_update_only_score_does_not_check_teams(): void
+    {
+        $this->authenticateAsAdmin([($league = League::factory()->create())->id]);
+        // Times fora da liga (dado legado): editar só o placar não passa pela checagem de times.
+        $game = Game::factory()->create(['league_id' => $league->id, 'status' => 'scheduled']);
+
+        $this->putJson("/api/games/{$game->id}", ['home_score' => 2, 'away_score' => 1, 'status' => 'finished'])
+            ->assertOk()
+            ->assertJsonPath('data.home_score', 2);
+    }
+
+    public function test_master_can_create_and_move_game_when_teams_belong_to_the_league(): void
+    {
+        $this->authenticate();
+        $payload = $this->gamePayload(['round' => 1]);
+        $otherLeague = League::factory()->create();
+        $otherLeague->teams()->attach([$payload['home_team_id'], $payload['away_team_id']]);
+
+        $id = $this->postJson('/api/games', $payload)->assertCreated()->json('data.id');
+
+        $this->putJson("/api/games/{$id}", ['league_id' => $otherLeague->id])
+            ->assertOk()
+            ->assertJsonPath('data.league_id', $otherLeague->id);
+    }
+
+    public function test_update_swapping_to_another_team_of_the_same_league_is_accepted(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $game = $this->gameWithTeamsInLeague($league);
+        $newAway = Team::factory()->create();
+        $league->teams()->attach($newAway->id);
+
+        $this->putJson("/api/games/{$game->id}", ['away_team_id' => $newAway->id])
+            ->assertOk()
+            ->assertJsonPath('data.away_team_id', $newAway->id);
+    }
+
+    public static function arrayLeagueIdWriteProvider(): array
+    {
+        return ['store' => ['post'], 'update' => ['put']];
+    }
+
+    #[DataProvider('arrayLeagueIdWriteProvider')]
+    public function test_league_id_sent_as_array_returns_422_instead_of_500(string $method): void
+    {
+        $this->authenticate();
+        $game = $this->gameWithTeamsInLeague(League::factory()->create());
+        $url = $method === 'post' ? '/api/games' : "/api/games/{$game->id}";
+
+        $this->json($method, $url, [
+            'league_id' => [$game->league_id],
+            'home_team_id' => $game->home_team_id,
+            'away_team_id' => $game->away_team_id,
+            'status' => 'scheduled',
+        ])->assertStatus(422)->assertJsonValidationErrors('league_id');
+    }
+
+    // ── Troca de liga x game_events.league_id (denormalizado) ───────────────
+
+    /** Partida com dois gols do mandante e times vinculados também à $newLeague (destino da troca). */
+    private function gameWithEventsMovableTo(League $newLeague): array
+    {
+        $game = $this->gameWithTeamsInLeague(League::factory()->create(), [
+            'status' => 'finished',
+            'home_score' => 2,
+            'away_score' => 0,
+        ]);
+        $newLeague->teams()->attach([$game->home_team_id, $game->away_team_id]);
+        $scorer = Player::factory()->create(['team_id' => $game->home_team_id]);
+        GameEvent::factory()->count(2)->create([
+            'game_id' => $game->id,
+            'league_id' => $game->league_id,
+            'team_id' => $game->home_team_id,
+            'player_id' => $scorer->id,
+            'related_player_id' => null,
+            'type' => 'goal',
+        ]);
+
+        return [$game, $scorer];
+    }
+
+    public function test_update_changing_league_moves_game_events_to_the_new_league(): void
+    {
+        $this->authenticate();
+        $newLeague = League::factory()->create();
+        [$game] = $this->gameWithEventsMovableTo($newLeague);
+
+        $response = $this->putJson("/api/games/{$game->id}", ['league_id' => $newLeague->id])
+            ->assertOk()
+            ->assertJsonPath('data.league_id', $newLeague->id)
+            ->assertJsonCount(2, 'data.events');
+
+        foreach ($response->json('data.events') as $event) {
+            $this->assertSame($newLeague->id, $event['league_id']);
+        }
+        $this->assertSame(2, GameEvent::where('game_id', $game->id)->where('league_id', $newLeague->id)->count());
+        $this->assertSame(0, GameEvent::where('league_id', '!=', $newLeague->id)->count());
+    }
+
+    public function test_update_without_changing_league_keeps_game_events_untouched(): void
+    {
+        $this->authenticate();
+        [$game] = $this->gameWithEventsMovableTo(League::factory()->create());
+        $originalLeagueId = $game->league_id;
+
+        $this->putJson("/api/games/{$game->id}", ['league_id' => $originalLeagueId, 'home_score' => 3])
+            ->assertOk()
+            ->assertJsonPath('data.events.0.league_id', $originalLeagueId);
+
+        $this->assertSame(2, GameEvent::where('game_id', $game->id)->where('league_id', $originalLeagueId)->count());
+    }
+
+    public function test_after_changing_league_top_scorers_count_the_goal_only_in_the_new_league(): void
+    {
+        $this->authenticate();
+        $newLeague = League::factory()->create();
+        [$game, $scorer] = $this->gameWithEventsMovableTo($newLeague);
+        $oldLeagueId = $game->league_id;
+
+        $this->putJson("/api/games/{$game->id}", ['league_id' => $newLeague->id])->assertOk();
+
+        $newScorers = collect($this->getJson("/api/leagues/{$newLeague->id}/statistics")->assertOk()->json('data.top_scorers'));
+        $this->assertSame(2, $newScorers->firstWhere('player_id', $scorer->id)['goals'] ?? null);
+
+        $this->getJson("/api/leagues/{$oldLeagueId}/statistics")
+            ->assertOk()
+            ->assertJsonPath('data.top_scorers', []);
     }
 }

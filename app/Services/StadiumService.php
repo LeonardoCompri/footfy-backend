@@ -4,12 +4,15 @@ namespace App\Services;
 
 use App\Models\Stadium;
 use App\Repositories\StadiumRepository;
+use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class StadiumService
 {
+    use EnsuresLeagueAccess;
+
     public function __construct(private readonly StadiumRepository $repository) {}
 
     // Lista estádios do usuário, opcionalmente restrita a uma única liga (leagueId),
@@ -37,6 +40,8 @@ class StadiumService
 
     public function store(array $data): Stadium
     {
+        $this->ensureUserHasAccessToLeagues([$data['league_id']]);
+
         return $this->repository->store($data);
     }
 
@@ -54,6 +59,11 @@ class StadiumService
     public function update(array $data, string $id): Stadium
     {
         $stadium = $this->show($id);
+
+        if (array_key_exists('league_id', $data)) {
+            $this->ensureUserHasAccessToLeagues([$data['league_id']]);
+        }
+
         $stadium->fill($data);
 
         $this->repository->update($stadium);

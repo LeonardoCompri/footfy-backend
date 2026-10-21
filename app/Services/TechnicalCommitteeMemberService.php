@@ -5,12 +5,15 @@ namespace App\Services;
 use App\Models\TechnicalCommitteeMember;
 use App\Models\Team;
 use App\Repositories\TechnicalCommitteeMemberRepository;
+use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class TechnicalCommitteeMemberService
 {
+    use EnsuresLeagueAccess;
+
     public function __construct(private readonly TechnicalCommitteeMemberRepository $repository) {}
 
     public function index(): Collection
@@ -29,6 +32,8 @@ class TechnicalCommitteeMemberService
 
     public function store(array $data): TechnicalCommitteeMember
     {
+        $this->ensureUserHasAccessToTeam($data['team_id']);
+
         return $this->repository->store($data);
     }
 
@@ -52,6 +57,11 @@ class TechnicalCommitteeMemberService
     public function update(array $data, string $id): TechnicalCommitteeMember
     {
         $technicalCommitteeMember = $this->show($id);
+
+        if (array_key_exists('team_id', $data)) {
+            $this->ensureUserHasAccessToTeam($data['team_id']);
+        }
+
         $technicalCommitteeMember->fill($data);
 
         $this->repository->update($technicalCommitteeMember);

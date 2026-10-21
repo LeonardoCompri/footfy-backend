@@ -11,7 +11,7 @@ class PlayerStoreRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'team_id' => ['nullable', 'integer', 'exists:teams,id'],
+            'team_id' => ['required', 'integer', 'exists:teams,id'],
             'name' => ['required', 'string', 'max:255'],
             'position' => ['nullable', 'string', Rule::in(Player::positionValues())],
             'number' => ['nullable', 'integer'],

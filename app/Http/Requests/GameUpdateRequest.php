@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\ValidatesGameTeams;
 use App\Models\Game;
 use App\Models\League;
 use App\Models\Stadium;
@@ -10,6 +11,8 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class GameUpdateRequest extends FormRequest
 {
+    use ValidatesGameTeams;
+
     public function rules(): array
     {
         return [
@@ -44,9 +47,44 @@ class GameUpdateRequest extends FormRequest
                 }
             }
 
-            $this->validateRoundAndPhase($validator, $game, $leagueId ? League::find($leagueId) : null);
+            // league_id que já falhou nas regras (ex: enviado como array) não é resolvido:
+            // League::find(array) devolveria uma Collection.
+            $league = $leagueId && ! $validator->errors()->has('league_id') ? League::find($leagueId) : null;
+
+            $this->validateTeams($validator, $game, $league);
+            $this->validateRoundAndPhase($validator, $game, $league);
             $this->validateTieKey($validator, $game);
         });
+    }
+
+    // Só roda quando liga ou times mudam. Usa o valor gravado para o campo não enviado, então
+    // trocar só a liga confere os times atuais e trocar só um time confere a liga atual.
+    private function validateTeams(Validator $validator, ?Game $game, ?League $league): void
+    {
+        if (! $this->hasAny(['league_id', 'home_team_id', 'away_team_id'])) {
+            return;
+        }
+
+        $homeTeamId = $this->input('home_team_id', $game?->home_team_id);
+        $awayTeamId = $this->input('away_team_id', $game?->away_team_id);
+
+        // `different:home_team_id` só compara quando os dois vêm no payload; aqui a comparação
+        // usa os valores finais (payload + gravado).
+        $sameTeamField = $this->has('away_team_id') ? 'away_team_id' : 'home_team_id';
+        if (
+            $homeTeamId !== null && $awayTeamId !== null
+            && ! $validator->errors()->hasAny(['home_team_id', 'away_team_id'])
+            && (int) $homeTeamId === (int) $awayTeamId
+        ) {
+            $validator->errors()->add($sameTeamField, 'O time mandante e o visitante devem ser diferentes.');
+
+            return;
+        }
+
+        $this->validateTeamsBelongToLeague($validator, $league, [
+            'home_team_id' => $homeTeamId,
+            'away_team_id' => $awayTeamId,
+        ]);
     }
 
     // Partida de ida e volta (`leg` preenchido) precisa de `tie_key` para ser agrupada com a

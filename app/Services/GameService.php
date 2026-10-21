@@ -4,13 +4,17 @@ namespace App\Services;
 
 use App\Models\Game;
 use App\Repositories\GameRepository;
+use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class GameService
 {
+    use EnsuresLeagueAccess;
+
     public function __construct(private readonly GameRepository $repository) {}
 
     public function index(string $leagueId, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
@@ -25,6 +29,8 @@ class GameService
 
     public function store(array $data): Game
     {
+        $this->ensureUserHasAccessToLeagues([$data['league_id']]);
+
         return $this->repository->store($data);
     }
 
@@ -53,11 +59,25 @@ class GameService
     public function update(array $data, string $id): Game
     {
         $game = $this->show($id);
+
+        if (array_key_exists('league_id', $data)) {
+            $this->ensureUserHasAccessToLeagues([$data['league_id']]);
+        }
+
         $game->fill($data);
+        $leagueChanged = $game->isDirty('league_id');
 
-        $this->repository->update($game);
+        // game_events.league_id é denormalizado: ao trocar a liga da partida, os eventos acompanham.
+        DB::transaction(function () use ($game, $leagueChanged) {
+            $this->repository->update($game);
 
-        return $game;
+            if ($leagueChanged) {
+                $this->repository->syncEventsLeague($game);
+            }
+        });
+
+        // show() já carregou `events`; recarrega para a resposta não sair com o league_id antigo.
+        return $leagueChanged ? $game->load('events') : $game;
     }
 
     public function destroy(string $id): ?bool

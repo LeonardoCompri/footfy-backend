@@ -5,12 +5,15 @@ namespace App\Services;
 use App\Models\Game;
 use App\Models\GameEvent;
 use App\Repositories\GameEventRepository;
+use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class GameEventService
 {
+    use EnsuresLeagueAccess;
+
     public function __construct(private readonly GameEventRepository $repository) {}
 
     // Lista eventos do usuário, opcionalmente restrita a um único jogo (gameId),
@@ -40,11 +43,12 @@ class GameEventService
     /**
      * Preenche league_id automaticamente a partir do jogo informado — esse
      * campo não vem do payload do cliente, para não correr risco de
-     * divergência por entrada manual.
+     * divergência por entrada manual. A liga da partida precisa estar entre as do usuário.
      */
     public function store(array $data): GameEvent
     {
         $game = Game::find($data['game_id']);
+        $this->ensureUserHasAccessToLeagues([$game->league_id]);
         $data['league_id'] = $game->league_id;
 
         return $this->repository->store($data);
@@ -71,6 +75,7 @@ class GameEventService
 
         if (isset($data['game_id'])) {
             $game = Game::find($data['game_id']);
+            $this->ensureUserHasAccessToLeagues([$game->league_id]);
             $data['league_id'] = $game->league_id;
         }
 

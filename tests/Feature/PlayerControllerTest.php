@@ -159,6 +159,7 @@ class PlayerControllerTest extends TestCase
         $this->authenticate();
 
         $response = $this->postJson('/api/players', [
+            'team_id' => Team::factory()->create()->id,
             'name' => 'Jogador Teste',
             'document' => '123',
         ]);
@@ -172,6 +173,7 @@ class PlayerControllerTest extends TestCase
         Player::factory()->create(['document' => '11122233344']);
 
         $response = $this->postJson('/api/players', [
+            'team_id' => Team::factory()->create()->id,
             'name' => 'Outro Jogador',
             'document' => '11122233344',
         ]);
@@ -304,7 +306,7 @@ class PlayerControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/players', ['name' => 'Jogador', 'position' => 'XXX']);
+        $response = $this->postJson('/api/players', ['team_id' => Team::factory()->create()->id, 'name' => 'Jogador', 'position' => 'XXX']);
 
         $response->assertStatus(422)
             ->assertJsonValidationErrors(['position' => 'A posição informada é inválida.']);
@@ -315,7 +317,7 @@ class PlayerControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/players', ['name' => 'Jogador', 'position' => 'Atacante']);
+        $response = $this->postJson('/api/players', ['team_id' => Team::factory()->create()->id, 'name' => 'Jogador', 'position' => 'Atacante']);
 
         $response->assertStatus(422)->assertJsonValidationErrors('position');
     }
@@ -324,7 +326,7 @@ class PlayerControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/players', ['name' => 'Jogador', 'position' => null]);
+        $response = $this->postJson('/api/players', ['team_id' => Team::factory()->create()->id, 'name' => 'Jogador', 'position' => null]);
 
         $response->assertCreated()->assertJsonPath('data.position', null);
     }
@@ -502,5 +504,98 @@ class PlayerControllerTest extends TestCase
         $this->putJson("/api/players/{$player->id}", ['name' => 'Novo'])
             ->assertForbidden()
             ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
+    }
+
+    // ── Time de destino na escrita (FOOT-0044) ────────────────────────────────
+
+    /** @return array{0: League, 1: Team, 2: Team} liga do admin, time dela e time só de outra liga */
+    private function teamsInAndOutOfLeague(): array
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
+        $outsideTeam = Team::factory()->create();
+        League::factory()->create()->teams()->attach($outsideTeam->id);
+
+        return [$league, $team, $outsideTeam];
+    }
+
+    public function test_admin_cannot_create_in_team_of_unassigned_league(): void
+    {
+        [$league, , $outsideTeam] = $this->teamsInAndOutOfLeague();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->postJson('/api/players', array_merge(['name' => 'Jogador Novo'], ['team_id' => $outsideTeam->id]))
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+
+        $this->assertDatabaseCount('players', 0);
+    }
+
+    public function test_admin_cannot_move_to_team_of_unassigned_league(): void
+    {
+        [$league, $team, $outsideTeam] = $this->teamsInAndOutOfLeague();
+        $model = Player::factory()->create(['team_id' => $team->id]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->putJson("/api/players/{$model->id}", ['team_id' => $outsideTeam->id])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+
+        $this->assertDatabaseHas('players', ['id' => $model->id, 'team_id' => $team->id]);
+    }
+
+    public function test_admin_can_create_and_move_within_own_league(): void
+    {
+        [$league, $team] = $this->teamsInAndOutOfLeague();
+        $otherTeam = Team::factory()->create();
+        $league->teams()->attach($otherTeam->id);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $id = $this->postJson('/api/players', array_merge(['name' => 'Jogador Novo'], ['team_id' => $team->id]))
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->putJson("/api/players/{$id}", ['team_id' => $otherTeam->id])
+            ->assertOk()
+            ->assertJsonPath('data.team_id', $otherTeam->id);
+    }
+
+    public function test_master_can_create_and_move_to_any_team(): void
+    {
+        [, $team, $outsideTeam] = $this->teamsInAndOutOfLeague();
+        $this->authenticate();
+
+        $id = $this->postJson('/api/players', array_merge(['name' => 'Jogador Novo'], ['team_id' => $team->id]))
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->putJson("/api/players/{$id}", ['team_id' => $outsideTeam->id])
+            ->assertOk()
+            ->assertJsonPath('data.team_id', $outsideTeam->id);
+    }
+
+    public function test_store_without_team_id_fails_even_for_master(): void
+    {
+        $this->authenticate();
+
+        $this->postJson('/api/players', ['name' => 'Jogador Novo'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('team_id');
+
+        $this->assertDatabaseCount('players', 0);
+    }
+
+    public function test_update_with_null_team_id_fails(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        $model = Player::factory()->create(['team_id' => $team->id]);
+
+        $this->putJson("/api/players/{$model->id}", ['team_id' => null])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('team_id');
+
+        $this->assertDatabaseHas('players', ['id' => $model->id, 'team_id' => $team->id]);
     }
 }
