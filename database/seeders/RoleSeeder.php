@@ -10,17 +10,20 @@ class RoleSeeder extends Seeder
 {
     /**
      * Run the database seeds.
+     *
+     * Idempotente (firstOrCreate + syncPermissions): pode ser rodado de novo em
+     * ambientes existentes para realinhar as permissões de cada papel.
      */
     public function run(): void
     {
-        $master = Role::create(['name' => 'master']);
-        $admin = Role::create(['name' => 'admin']);
-        $coach = Role::create(['name' => 'coach']);
-        $player = Role::create(['name' => 'player']);
+        $master = Role::firstOrCreate(['name' => 'master']);
+        $admin = Role::firstOrCreate(['name' => 'admin']);
+        $coach = Role::firstOrCreate(['name' => 'coach']);
+        $player = Role::firstOrCreate(['name' => 'player']);
 
-        $master->givePermissionTo(Permission::all());
+        $master->syncPermissions(Permission::all());
 
-        $admin->givePermissionTo([
+        $admin->syncPermissions([
             'tournament:read',
             'tournament:update',
             'team:read',
@@ -49,20 +52,18 @@ class RoleSeeder extends Seeder
             'game_event:delete',
         ]);
 
-        $coach->givePermissionTo([
+        // Sem player:delete: sem soft delete a exclusão apagaria as estatísticas (FOOT-0047).
+        $coach->syncPermissions([
             'team:read',
-            'team:update',
             'stadium:read',
-            'stadium:create',
-            'stadium:update',
             'player:read',
             'player:create',
             'player:update',
         ]);
 
-        $player->givePermissionTo([
+        // player:update volta só para PUT /me/player (FOOT-0048).
+        $player->syncPermissions([
             'player:read',
-            'player:update',
         ]);
     }
 }

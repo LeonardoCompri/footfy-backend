@@ -79,8 +79,11 @@ class AuthControllerTest extends TestCase
         $response->assertOk();
         $names = $this->responsePermissionNames($response);
         $this->assertSame($this->rolePermissionNames('coach'), $names);
-        $this->assertContains('team:update', $names);
-        $this->assertContains('stadium:create', $names);
+        $this->assertContains('player:create', $names);
+        $this->assertContains('player:update', $names);
+        $this->assertNotContains('team:update', $names);
+        $this->assertNotContains('stadium:create', $names);
+        $this->assertNotContains('player:delete', $names);
         $this->assertNotContains('game:create', $names);
     }
 
@@ -91,7 +94,7 @@ class AuthControllerTest extends TestCase
         $response = $this->login();
 
         $response->assertOk();
-        $this->assertSame(['player:read', 'player:update'], $this->responsePermissionNames($response));
+        $this->assertSame(['player:read'], $this->responsePermissionNames($response));
     }
 
     public function test_login_returns_union_of_direct_and_role_permissions(): void
@@ -103,7 +106,7 @@ class AuthControllerTest extends TestCase
         $response = $this->login();
 
         $response->assertOk();
-        $this->assertSame(['game:read', 'player:read', 'player:update'], $this->responsePermissionNames($response));
+        $this->assertSame(['game:read', 'player:read'], $this->responsePermissionNames($response));
     }
 
     public function test_login_with_multiple_roles_does_not_duplicate_permissions(): void
@@ -117,7 +120,7 @@ class AuthControllerTest extends TestCase
         $names = $this->responsePermissionNames($response);
         $this->assertSame($names, array_values(array_unique($names)));
         $this->assertContains('player:read', $names);
-        $this->assertContains('team:update', $names);
+        $this->assertContains('player:create', $names);
     }
 
     public function test_login_without_role_returns_empty_permissions(): void
