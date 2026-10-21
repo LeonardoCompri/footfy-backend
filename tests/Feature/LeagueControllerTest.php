@@ -8,9 +8,11 @@ use App\Models\League;
 use App\Models\Stadium;
 use App\Models\Team;
 use App\Models\User;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
-use Spatie\Permission\Models\Role;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class LeagueControllerTest extends TestCase
@@ -21,8 +23,8 @@ class LeagueControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        Role::create(['name' => 'master']);
-        Role::create(['name' => 'admin']);
+        // Papéis e permissões reais do RoleSeeder: as rotas de escrita exigem `permission:`.
+        $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
     private function authenticate(): User
@@ -38,6 +40,19 @@ class LeagueControllerTest extends TestCase
     {
         $user = User::factory()->create();
         $user->assignRole('admin');
+        if (! empty($leagueIds)) {
+            $user->leagues()->sync($leagueIds);
+        }
+        Sanctum::actingAs($user);
+
+        return $user;
+    }
+
+    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas. */
+    private function authenticateAs(string $role, array $leagueIds = []): User
+    {
+        $user = User::factory()->create();
+        $user->assignRole($role);
         if (! empty($leagueIds)) {
             $user->leagues()->sync($leagueIds);
         }
@@ -378,5 +393,34 @@ class LeagueControllerTest extends TestCase
         $league = League::factory()->create();
 
         $this->getJson("/api/public/leagues/{$league->id}abc")->assertNotFound();
+    }
+
+    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
+
+    public static function rolesWithoutTournamentUpdateProvider(): array
+    {
+        return ['coach' => ['coach'], 'player' => ['player']];
+    }
+
+    #[DataProvider('rolesWithoutTournamentUpdateProvider')]
+    public function test_role_without_tournament_update_cannot_update_own_league(string $role): void
+    {
+        $league = League::factory()->create(['organizer' => 'Antigo']);
+        $this->authenticateAs($role, [$league->id]);
+
+        $response = $this->putJson("/api/leagues/{$league->id}", ['organizer' => 'Novo']);
+
+        $response->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->assertDatabaseHas('leagues', ['id' => $league->id, 'organizer' => 'Antigo']);
+    }
+
+    #[DataProvider('rolesWithoutTournamentUpdateProvider')]
+    public function test_role_without_tournament_update_can_still_show_own_league(string $role): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAs($role, [$league->id]);
+
+        $this->getJson("/api/leagues/{$league->id}")->assertOk();
     }
 }

@@ -6,9 +6,10 @@ use App\Models\League;
 use App\Models\Player;
 use App\Models\Team;
 use App\Models\User;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
-use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class PlayerControllerTest extends TestCase
@@ -19,8 +20,8 @@ class PlayerControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        Role::create(['name' => 'master']);
-        Role::create(['name' => 'admin']);
+        // Papéis e permissões reais do RoleSeeder: as rotas de escrita exigem `permission:`.
+        $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
     private function authenticate(): User
@@ -36,6 +37,19 @@ class PlayerControllerTest extends TestCase
     {
         $user = User::factory()->create();
         $user->assignRole('admin');
+        if (! empty($leagueIds)) {
+            $user->leagues()->sync($leagueIds);
+        }
+        Sanctum::actingAs($user);
+
+        return $user;
+    }
+
+    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas. */
+    private function authenticateAs(string $role, array $leagueIds = []): User
+    {
+        $user = User::factory()->create();
+        $user->assignRole($role);
         if (! empty($leagueIds)) {
             $user->leagues()->sync($leagueIds);
         }
@@ -367,5 +381,126 @@ class PlayerControllerTest extends TestCase
         $response = $this->getJson('/api/players/positions');
 
         $response->assertStatus(401);
+    }
+
+    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
+
+    /** Time vinculado a uma liga nova, para cenários de papel com acesso à liga. */
+    private function teamInLeague(): array
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
+
+        return [$league, $team];
+    }
+
+    public function test_coach_can_create_player_in_team_of_own_league(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        $this->authenticateAs('coach', [$league->id]);
+
+        $response = $this->postJson('/api/players', ['team_id' => $team->id, 'name' => 'Jogador do Coach']);
+
+        $response->assertCreated()->assertJsonPath('data.team_id', $team->id);
+        $this->assertDatabaseHas('players', ['name' => 'Jogador do Coach', 'team_id' => $team->id]);
+    }
+
+    public function test_coach_can_update_player_in_team_of_own_league(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        $player = Player::factory()->create(['team_id' => $team->id, 'name' => 'Antigo']);
+        $this->authenticateAs('coach', [$league->id]);
+
+        $response = $this->putJson("/api/players/{$player->id}", ['name' => 'Novo']);
+
+        $response->assertOk()->assertJsonPath('data.name', 'Novo');
+    }
+
+    public function test_coach_cannot_delete_player(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        $player = Player::factory()->create(['team_id' => $team->id]);
+        $this->authenticateAs('coach', [$league->id]);
+
+        $response = $this->deleteJson("/api/players/{$player->id}");
+
+        $response->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->assertDatabaseHas('players', ['id' => $player->id]);
+    }
+
+    public function test_player_cannot_update_player(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        $player = Player::factory()->create(['team_id' => $team->id, 'name' => 'Antigo']);
+        $this->authenticateAs('player', [$league->id]);
+
+        $response = $this->putJson("/api/players/{$player->id}", ['name' => 'Novo']);
+
+        $response->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->assertDatabaseHas('players', ['id' => $player->id, 'name' => 'Antigo']);
+    }
+
+    public function test_player_cannot_create_player(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        $this->authenticateAs('player', [$league->id]);
+
+        $response = $this->postJson('/api/players', ['team_id' => $team->id, 'name' => 'Intruso']);
+
+        $response->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->assertDatabaseMissing('players', ['name' => 'Intruso']);
+    }
+
+    public function test_player_cannot_delete_player(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        $player = Player::factory()->create(['team_id' => $team->id]);
+        $this->authenticateAs('player', [$league->id]);
+
+        $response = $this->deleteJson("/api/players/{$player->id}");
+
+        $response->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->assertDatabaseHas('players', ['id' => $player->id]);
+    }
+
+    public function test_player_can_list_players(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        Player::factory()->create(['team_id' => $team->id]);
+        $this->authenticateAs('player', [$league->id]);
+
+        $this->getJson('/api/players')->assertOk()->assertJsonCount(1, 'data');
+    }
+
+    public function test_admin_can_create_update_and_delete_player_in_assigned_league(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $id = $this->postJson('/api/players', ['team_id' => $team->id, 'name' => 'Do Admin'])
+            ->assertCreated()
+            ->json('data.id');
+        $this->putJson("/api/players/{$id}", ['name' => 'Editado'])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Editado');
+        $this->deleteJson("/api/players/{$id}")->assertStatus(204);
+
+        $this->assertDatabaseMissing('players', ['id' => $id]);
+    }
+
+    public function test_admin_outside_league_is_blocked_by_resource_access_not_by_permission(): void
+    {
+        [, $team] = $this->teamInLeague();
+        $player = Player::factory()->create(['team_id' => $team->id]);
+        $this->authenticateAsAdmin([League::factory()->create()->id]);
+
+        $this->putJson("/api/players/{$player->id}", ['name' => 'Novo'])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
     }
 }

@@ -6,9 +6,11 @@ use App\Models\League;
 use App\Models\Team;
 use App\Models\TechnicalCommitteeMember;
 use App\Models\User;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
-use Spatie\Permission\Models\Role;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class TechnicalCommitteeMemberControllerTest extends TestCase
@@ -19,8 +21,8 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        Role::create(['name' => 'master']);
-        Role::create(['name' => 'admin']);
+        // Papéis e permissões reais do RoleSeeder: as rotas de escrita exigem `permission:`.
+        $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
     private function authenticate(): User
@@ -36,6 +38,19 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
     {
         $user = User::factory()->create();
         $user->assignRole('admin');
+        if (! empty($leagueIds)) {
+            $user->leagues()->sync($leagueIds);
+        }
+        Sanctum::actingAs($user);
+
+        return $user;
+    }
+
+    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas. */
+    private function authenticateAs(string $role, array $leagueIds = []): User
+    {
+        $user = User::factory()->create();
+        $user->assignRole($role);
         if (! empty($leagueIds)) {
             $user->leagues()->sync($leagueIds);
         }
@@ -389,5 +404,67 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $response = $this->getJson('/api/technical-committee-members/roles');
 
         $response->assertStatus(401);
+    }
+
+    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
+
+    public static function rolesWithoutCommitteePermissionsProvider(): array
+    {
+        return ['coach' => ['coach'], 'player' => ['player']];
+    }
+
+    #[DataProvider('rolesWithoutCommitteePermissionsProvider')]
+    public function test_role_without_committee_permissions_cannot_write_members(string $role): void
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
+        $member = TechnicalCommitteeMember::factory()->create(['team_id' => $team->id, 'name' => 'Original']);
+        $this->authenticateAs($role, [$league->id]);
+
+        $this->postJson('/api/technical-committee-members', [
+            'team_id' => $team->id,
+            'name' => 'Intruso',
+            'role' => 'Treinador',
+        ])->assertForbidden()->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->putJson("/api/technical-committee-members/{$member->id}", ['name' => 'Novo'])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+        $this->deleteJson("/api/technical-committee-members/{$member->id}")
+            ->assertForbidden()
+            ->assertJsonPath('message', 'User does not have the right permissions.');
+
+        $this->assertDatabaseMissing('technical_committee_members', ['name' => 'Intruso']);
+        $this->assertDatabaseHas('technical_committee_members', ['id' => $member->id, 'name' => 'Original']);
+    }
+
+    public function test_admin_can_create_update_and_delete_member_in_assigned_league(): void
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $id = $this->postJson('/api/technical-committee-members', [
+            'team_id' => $team->id,
+            'name' => 'Do Admin',
+            'role' => 'Treinador',
+        ])->assertCreated()->json('data.id');
+        $this->putJson("/api/technical-committee-members/{$id}", ['name' => 'Editado'])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Editado');
+        $this->deleteJson("/api/technical-committee-members/{$id}")->assertStatus(204);
+
+        $this->assertDatabaseMissing('technical_committee_members', ['id' => $id]);
+    }
+
+    public function test_admin_outside_league_is_blocked_by_resource_access_not_by_permission(): void
+    {
+        $member = TechnicalCommitteeMember::factory()->create();
+        $this->authenticateAsAdmin([League::factory()->create()->id]);
+
+        $this->putJson("/api/technical-committee-members/{$member->id}", ['name' => 'Novo'])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
     }
 }
