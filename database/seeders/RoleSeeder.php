@@ -52,7 +52,8 @@ class RoleSeeder extends Seeder
             'game_event:delete',
         ]);
 
-        // Sem player:delete: sem soft delete a exclusão apagaria as estatísticas (FOOT-0047).
+        // Sem player:delete por enquanto: o soft delete de jogador entrou na FOOT-0046; a permissão
+        // de excluir jogador para o coach vem na FOOT-0047.
         $coach->syncPermissions([
             'team:read',
             'stadium:read',

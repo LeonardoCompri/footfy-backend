@@ -2,12 +2,15 @@
 
 namespace Tests\Feature;
 
+use App\Models\Game;
+use App\Models\GameEvent;
 use App\Models\League;
 use App\Models\Player;
 use App\Models\Team;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -128,7 +131,7 @@ class PlayerControllerTest extends TestCase
         $response = $this->deleteJson("/api/players/{$player->id}");
 
         $response->assertStatus(204);
-        $this->assertDatabaseMissing('players', ['id' => $player->id]);
+        $this->assertSoftDeleted('players', ['id' => $player->id]);
     }
 
     // ── Validações ────────────────────────────────────────────────────────────
@@ -297,7 +300,7 @@ class PlayerControllerTest extends TestCase
     {
         $response = $this->getJson('/api/public/players/999');
 
-        $response->assertStatus(422)->assertJson(['message' => 'Jogador não encontrado!']);
+        $response->assertNotFound()->assertJson(['message' => 'Jogador não encontrado!']);
     }
 
     // ── Validação de posição contra a lista oficial ──────────────────────────
@@ -492,7 +495,7 @@ class PlayerControllerTest extends TestCase
             ->assertJsonPath('data.name', 'Editado');
         $this->deleteJson("/api/players/{$id}")->assertStatus(204);
 
-        $this->assertDatabaseMissing('players', ['id' => $id]);
+        $this->assertSoftDeleted('players', ['id' => $id]);
     }
 
     public function test_admin_outside_league_is_blocked_by_resource_access_not_by_permission(): void
@@ -597,5 +600,219 @@ class PlayerControllerTest extends TestCase
             ->assertJsonValidationErrors('team_id');
 
         $this->assertDatabaseHas('players', ['id' => $model->id, 'team_id' => $team->id]);
+    }
+
+    // ── Soft delete (FOOT-0046) ───────────────────────────────────────────────
+
+    /** Partida da liga com o time como mandante e um gol do jogador (assistência opcional). */
+    private function goalOf(League $league, Team $team, Player $player, ?Player $assist = null): GameEvent
+    {
+        $game = Game::factory()->create([
+            'league_id' => $league->id,
+            'home_team_id' => $team->id,
+            'away_team_id' => Team::factory()->create()->id,
+        ]);
+
+        return GameEvent::create([
+            'game_id' => $game->id,
+            'team_id' => $team->id,
+            'player_id' => $player->id,
+            'related_player_id' => $assist?->id,
+            'league_id' => $league->id,
+            'type' => 'goal',
+            'minute' => 10,
+        ]);
+    }
+
+    public function test_destroy_keeps_game_events_of_removed_player(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        $scorer = Player::factory()->create(['team_id' => $team->id]);
+        $assist = Player::factory()->create(['team_id' => $team->id]);
+        $event = $this->goalOf($league, $team, $scorer, $assist);
+        $this->authenticate();
+
+        $this->deleteJson("/api/players/{$scorer->id}")->assertNoContent();
+        $this->deleteJson("/api/players/{$assist->id}")->assertNoContent();
+
+        $this->assertSoftDeleted('players', ['id' => $scorer->id]);
+        $this->assertSoftDeleted('players', ['id' => $assist->id]);
+        $this->assertDatabaseHas('game_events', [
+            'id' => $event->id,
+            'player_id' => $scorer->id,
+            'related_player_id' => $assist->id,
+        ]);
+    }
+
+    public function test_removed_player_is_hidden_from_index_for_master_and_admin(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        $active = Player::factory()->create(['team_id' => $team->id]);
+        Player::factory()->create(['team_id' => $team->id])->delete();
+
+        $this->authenticate();
+        $this->getJson('/api/players')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $active->id);
+
+        $this->authenticateAsAdmin([$league->id]);
+        $this->getJson('/api/players')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $active->id);
+    }
+
+    public function test_removed_player_is_hidden_from_team_squad_in_admin_and_public_routes(): void
+    {
+        [, $team] = $this->teamInLeague();
+        $active = Player::factory()->create(['team_id' => $team->id]);
+        Player::factory()->create(['team_id' => $team->id])->delete();
+
+        $this->getJson("/api/public/teams/{$team->id}")
+            ->assertOk()
+            ->assertJsonCount(1, 'data.players')
+            ->assertJsonPath('data.players.0.id', $active->id);
+
+        $this->authenticate();
+        $this->getJson("/api/teams/{$team->id}")
+            ->assertOk()
+            ->assertJsonCount(1, 'data.players')
+            ->assertJsonPath('data.players.0.id', $active->id);
+    }
+
+    public function test_public_show_of_removed_player_returns_404(): void
+    {
+        $player = Player::factory()->create();
+        $player->delete();
+
+        $this->getJson("/api/public/players/{$player->id}")
+            ->assertNotFound()
+            ->assertJson(['message' => 'Jogador não encontrado!']);
+    }
+
+    public function test_admin_show_of_removed_player_is_not_found_for_master_and_forbidden_for_admin(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        $player = Player::factory()->create(['team_id' => $team->id]);
+        $player->delete();
+
+        $this->authenticate();
+        $this->getJson("/api/players/{$player->id}")
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Jogador não encontrado!']);
+
+        // access:player não enxerga o removido (escopo do SoftDeletes), então o admin toma 403.
+        $this->authenticateAsAdmin([$league->id]);
+        $this->getJson("/api/players/{$player->id}")->assertForbidden();
+    }
+
+    public function test_store_with_document_of_removed_player_restores_same_record(): void
+    {
+        [, $oldTeam] = $this->teamInLeague();
+        [, $newTeam] = $this->teamInLeague();
+        $removed = Player::factory()->create([
+            'team_id' => $oldTeam->id,
+            'name' => 'Nome Antigo',
+            'position' => 'GOL',
+            'number' => 1,
+            'birth_date' => '1990-01-01',
+            'document' => '12312312312',
+        ]);
+        $removed->delete();
+        $this->authenticate();
+
+        $this->postJson('/api/players', [
+            'team_id' => $newTeam->id,
+            'name' => 'Nome Novo',
+            'position' => 'ATA',
+            'document' => '12312312312',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.id', $removed->id)
+            ->assertJsonPath('data.team_id', $newTeam->id)
+            ->assertJsonPath('data.name', 'Nome Novo')
+            ->assertJsonPath('data.position', 'ATA')
+            ->assertJsonPath('data.number', null)
+            ->assertJsonPath('data.birth_date', null);
+
+        $this->assertDatabaseCount('players', 1);
+        $this->assertDatabaseHas('players', [
+            'id' => $removed->id,
+            'team_id' => $newTeam->id,
+            'name' => 'Nome Novo',
+            'position' => 'ATA',
+            'number' => null,
+            'birth_date' => null,
+            'deleted_at' => null,
+        ]);
+    }
+
+    public function test_admin_cannot_restore_removed_player_into_team_outside_own_leagues(): void
+    {
+        [$league, , $outsideTeam] = $this->teamsInAndOutOfLeague();
+        $removed = Player::factory()->create(['team_id' => $outsideTeam->id, 'document' => '12312312312']);
+        $removed->delete();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->postJson('/api/players', ['team_id' => $outsideTeam->id, 'name' => 'Volta', 'document' => '12312312312'])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+
+        $this->assertSoftDeleted('players', ['id' => $removed->id]);
+    }
+
+    public function test_admin_restores_removed_player_from_other_league_into_own_team(): void
+    {
+        [$league, $team, $outsideTeam] = $this->teamsInAndOutOfLeague();
+        $removed = Player::factory()->create(['team_id' => $outsideTeam->id, 'document' => '12312312312']);
+        $removed->delete();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->postJson('/api/players', ['team_id' => $team->id, 'name' => 'Volta', 'document' => '12312312312'])
+            ->assertCreated()
+            ->assertJsonPath('data.id', $removed->id)
+            ->assertJsonPath('data.team_id', $team->id);
+
+        $this->assertDatabaseHas('players', ['id' => $removed->id, 'team_id' => $team->id, 'deleted_at' => null]);
+    }
+
+    public function test_store_without_document_creates_new_player_even_with_removed_one(): void
+    {
+        [, $team] = $this->teamInLeague();
+        $removed = Player::factory()->create(['team_id' => $team->id]);
+        $removed->delete();
+        $this->authenticate();
+
+        $id = $this->postJson('/api/players', ['team_id' => $team->id, 'name' => 'Sem CPF'])
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->assertNotSame($removed->id, $id);
+        $this->assertDatabaseCount('players', 2);
+        $this->assertSoftDeleted('players', ['id' => $removed->id]);
+    }
+
+    public function test_update_with_document_of_removed_player_fails(): void
+    {
+        $removed = Player::factory()->create(['document' => '12312312312']);
+        $removed->delete();
+        $player = Player::factory()->create(['document' => '45645645645']);
+        $this->authenticate();
+
+        $this->putJson("/api/players/{$player->id}", ['document' => '12312312312'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['document' => 'Este CPF já pertence a outro jogador (ativo ou removido).']);
+    }
+
+    public function test_force_delete_of_player_with_events_is_rejected_by_foreign_key(): void
+    {
+        [$league, $team] = $this->teamInLeague();
+        $player = Player::factory()->create(['team_id' => $team->id]);
+        $event = $this->goalOf($league, $team, $player);
+
+        try {
+            $player->forceDelete();
+            $this->fail('forceDelete deveria ser barrado pela FK restrict de game_events.player_id.');
+        } catch (QueryException) {
+            // esperado
+        }
+
+        $this->assertDatabaseHas('game_events', ['id' => $event->id, 'player_id' => $player->id]);
+        $this->assertDatabaseHas('players', ['id' => $player->id]);
     }
 }

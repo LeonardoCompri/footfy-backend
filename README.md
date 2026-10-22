@@ -118,10 +118,15 @@ Relacionamentos: `hasMany Player`, `hasOne Coach`, `belongsToMany Championship`,
 | position    | string, nullable      | ex: ATA, ZAG, LAT |
 | number      | integer, nullable     | camisa |
 | birth_date  | date, nullable        |             |
-| document    | string(11), nullable, único | CPF do jogador |
+| document    | string(11), nullable, único | CPF do jogador (único inclusive entre removidos) |
 | created_at / updated_at | timestamp |             |
+| deleted_at  | timestamp, nullable   | soft delete: jogador removido sai do elenco, de `GET /players` e das rotas públicas, mas continua na súmula e nas estatísticas |
 
 Relacionamentos: `belongsTo Team`, `hasMany Goal`.
+
+> ℹ️ `DELETE /api/players/{id}` faz soft delete. Recadastrar (`POST /api/players`) o CPF de um
+> jogador removido restaura o mesmo registro (mesmo `id`) com os dados novos.
+> `GET /api/public/players/{id}` responde `404` para jogador inexistente ou removido.
 
 ### `stadiums`
 
@@ -170,12 +175,18 @@ Relacionamentos: `belongsTo Championship`, `belongsTo Team` (home/away),
 | ----------- | -------------------- | ----------- |
 | id          | bigint (PK)           |             |
 | game_id     | bigint (FK games)      | cascade on delete |
-| player_id   | bigint (FK players)    | cascade on delete |
+| player_id   | bigint (FK players)    | restrict on delete (em `game_events`; o jogador usa soft delete) |
 | team_id     | bigint (FK teams)       | cascade on delete |
 | minute      | integer, nullable      |             |
 | created_at / updated_at | timestamp |             |
 
 Relacionamentos: `belongsTo Game`, `belongsTo Player`.
+
+> ℹ️ Na resposta dos eventos da súmula (`/api/game-events` e `events` de `GET /api/games/{id}`
+> e `GET /api/public/games/{id}`), além de `player_id`/`related_player_id`, vêm `player` e
+> `related_player` no formato `{ "id": 1, "name": "...", "removed": false }` (`related_player`
+> é `null` sem assistência). `removed: true` indica jogador removido (soft delete), que continua
+> na súmula. Novos eventos não aceitam jogador removido (`422`).
 
 ### `championship_team` (pivot)
 
@@ -537,9 +548,9 @@ As rotas admin e pública de `statistics` usam o mesmo cálculo e retornam o mes
 ```json
 {
   "data": {
-    "top_scorers":  [ { "player_id": 1, "player_name": "...", "team_id": 1, "team_name": "...", "team_nickname": "...", "goals": 7 } ],
-    "top_assists":  [ { "player_id": 2, "player_name": "...", "team_id": 1, "team_name": "...", "team_nickname": "...", "assists": 4 } ],
-    "top_cards":    [ { "player_id": 3, "player_name": "...", "team_id": 2, "team_name": "...", "team_nickname": "...", "yellow_cards": 2, "red_cards": 1, "total_cards": 3 } ],
+    "top_scorers":  [ { "player_id": 1, "player_name": "...", "player_removed": false, "team_id": 1, "team_name": "...", "team_nickname": "...", "goals": 7 } ],
+    "top_assists":  [ { "player_id": 2, "player_name": "...", "player_removed": false, "team_id": 1, "team_name": "...", "team_nickname": "...", "assists": 4 } ],
+    "top_cards":    [ { "player_id": 3, "player_name": "...", "player_removed": false, "team_id": 2, "team_name": "...", "team_nickname": "...", "yellow_cards": 2, "red_cards": 1, "total_cards": 3 } ],
     "goals_by_bucket": [ { "type": "round", "round": 1, "phase": null, "phase_order": null, "goals": 5 } ],
     "results_split": { "home_wins": 4, "draws": 2, "away_wins": 3 },
     "totals": { "goals": 23, "finished_games": 9, "goals_average": 2.56 },
@@ -554,7 +565,8 @@ As rotas admin e pública de `statistics` usam o mesmo cálculo e retornam o mes
 - `totals.goals_average`: `round(goals / finished_games, 2)`, sempre float (ex: `2.0`);
   `null` quando não há partidas finalizadas.
 - `top_scorers` / `top_assists` / `top_cards`: rankings limitados aos **10** primeiros jogadores,
-  calculados pelos eventos da súmula.
+  calculados pelos eventos da súmula. Jogador removido (soft delete) continua no ranking com
+  `player_removed: true`.
 - `cards_split`: total de cartões amarelos (`yellow`) e vermelhos (`red`) de **todos** os
   eventos da liga (grupos + mata-mata), **sem** o limite de 10 do `top_cards`. Sempre
   inteiros — liga sem eventos retorna `{ "yellow": 0, "red": 0 }`. Cartões de outras

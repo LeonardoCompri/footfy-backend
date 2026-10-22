@@ -30,9 +30,25 @@ class PlayerService
         return $this->repository->index($teamIds);
     }
 
+    /**
+     * O unique de `document` no banco é global (inclui removidos): recadastrar o CPF de um
+     * jogador removido (soft delete) restaura esse mesmo registro (mesmo id, súmula preservada)
+     * com os dados novos, em vez de criar outro. Os campos opcionais que não vierem no payload
+     * são zerados, para não herdar dados do cadastro antigo. Restaura mesmo que o removido fosse
+     * de time de outra liga: o acesso conferido é só ao time de destino.
+     */
     public function store(array $data): Player
     {
         $this->ensureUserHasAccessToTeam($data['team_id']);
+
+        $trashed = ! empty($data['document']) ? $this->repository->findTrashedByDocument($data['document']) : null;
+
+        if ($trashed) {
+            return $this->repository->restore($trashed, array_merge(
+                ['position' => null, 'number' => null, 'birth_date' => null],
+                $data,
+            ));
+        }
 
         return $this->repository->store($data);
     }
