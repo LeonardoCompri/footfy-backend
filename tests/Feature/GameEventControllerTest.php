@@ -750,4 +750,146 @@ class GameEventControllerTest extends TestCase
 
         $this->assertDatabaseHas('game_events', ['id' => $event->id, 'player_id' => $scenario['player']->id]);
     }
+
+    // ── Jogador removido (soft delete, FOOT-0046) ─────────────────────────────
+
+    /** Evento do cenário (gol do `player`, assistência opcional), gravado direto no banco. */
+    private function eventOf(array $scenario, ?Player $assist = null): GameEvent
+    {
+        return GameEvent::create([
+            'game_id' => $scenario['game']->id,
+            'league_id' => $scenario['league']->id,
+            'team_id' => $scenario['homeTeam']->id,
+            'player_id' => $scenario['player']->id,
+            'related_player_id' => $assist?->id,
+            'type' => 'goal',
+            'minute' => 10,
+        ]);
+    }
+
+    public static function playerFieldProvider(): array
+    {
+        return ['player_id' => ['player_id'], 'related_player_id' => ['related_player_id']];
+    }
+
+    #[DataProvider('playerFieldProvider')]
+    public function test_store_fails_with_removed_player(string $field): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        $removed = Player::factory()->create(['team_id' => $scenario['homeTeam']->id]);
+        $removed->delete();
+        $payload = [
+            'game_id' => $scenario['game']->id,
+            'player_id' => $scenario['player']->id,
+            'team_id' => $scenario['homeTeam']->id,
+            'type' => 'goal',
+            $field => $removed->id,
+        ];
+
+        $this->postJson('/api/game-events', $payload)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors([$field => 'O jogador informado foi removido ou não existe.']);
+
+        $this->assertDatabaseCount('game_events', 0);
+    }
+
+    public function test_store_response_includes_player_and_related_player(): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+
+        $this->postJson('/api/game-events', [
+            'game_id' => $scenario['game']->id,
+            'player_id' => $scenario['player']->id,
+            'related_player_id' => $scenario['teammate']->id,
+            'team_id' => $scenario['homeTeam']->id,
+            'type' => 'goal',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.player', [
+                'id' => $scenario['player']->id,
+                'name' => $scenario['player']->name,
+                'removed' => false,
+            ])
+            ->assertJsonPath('data.related_player', [
+                'id' => $scenario['teammate']->id,
+                'name' => $scenario['teammate']->name,
+                'removed' => false,
+            ]);
+    }
+
+    public function test_index_by_game_includes_removed_player_and_null_related_player(): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        $this->eventOf($scenario);
+        $scenario['player']->delete();
+
+        $this->getJson("/api/game-events?game_id={$scenario['game']->id}")
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.player', [
+                'id' => $scenario['player']->id,
+                'name' => $scenario['player']->name,
+                'removed' => true,
+            ])
+            ->assertJsonPath('data.0.related_player', null);
+    }
+
+    public function test_update_keeping_removed_player_already_recorded_succeeds(): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        $event = $this->eventOf($scenario, $scenario['teammate']);
+        $scenario['player']->delete();
+        $scenario['teammate']->delete();
+
+        $this->putJson("/api/game-events/{$event->id}", ['minute' => 55])
+            ->assertOk()
+            ->assertJsonPath('data.minute', 55)
+            ->assertJsonPath('data.player.removed', true)
+            ->assertJsonPath('data.related_player.removed', true);
+
+        // Reenviar os mesmos jogadores removidos também passa (o front costuma mandar o form inteiro).
+        $this->putJson("/api/game-events/{$event->id}", [
+            'player_id' => $scenario['player']->id,
+            'related_player_id' => $scenario['teammate']->id,
+            'minute' => 56,
+        ])->assertOk();
+    }
+
+    #[DataProvider('playerFieldProvider')]
+    public function test_update_to_another_removed_player_fails(string $field): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        $event = $this->eventOf($scenario, $scenario['teammate']);
+        $scenario[$field === 'player_id' ? 'player' : 'teammate']->delete();
+        $otherRemoved = Player::factory()->create(['team_id' => $scenario['homeTeam']->id]);
+        $otherRemoved->delete();
+
+        $this->putJson("/api/game-events/{$event->id}", [$field => $otherRemoved->id])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors([$field => 'O jogador informado foi removido ou não existe.']);
+
+        $this->assertDatabaseHas('game_events', [
+            'id' => $event->id,
+            'player_id' => $scenario['player']->id,
+            'related_player_id' => $scenario['teammate']->id,
+        ]);
+    }
+
+    public function test_update_changing_player_returns_new_player_in_response(): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        $event = $this->eventOf($scenario);
+        $newScorer = Player::factory()->create(['team_id' => $scenario['homeTeam']->id]);
+
+        $this->putJson("/api/game-events/{$event->id}", ['player_id' => $newScorer->id])
+            ->assertOk()
+            ->assertJsonPath('data.player.id', $newScorer->id)
+            ->assertJsonPath('data.player.name', $newScorer->name);
+    }
 }

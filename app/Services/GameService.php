@@ -15,6 +15,9 @@ class GameService
 {
     use EnsuresLeagueAccess;
 
+    // Relações da partida no show/publicShow; o jogador do evento vem mesmo se removido (soft delete).
+    private const SHOW_RELATIONS = ['homeTeam', 'awayTeam', 'stadium', 'events.player', 'events.relatedPlayer'];
+
     public function __construct(private readonly GameRepository $repository) {}
 
     public function index(string $leagueId, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
@@ -36,7 +39,7 @@ class GameService
 
     public function show(string $id): Game
     {
-        $game = $this->repository->show($id, ['homeTeam', 'awayTeam', 'stadium', 'events']);
+        $game = $this->repository->show($id, self::SHOW_RELATIONS);
 
         if (! $game) {
             throw ValidationException::withMessages(['message' => 'Partida não encontrada!']);
@@ -47,7 +50,7 @@ class GameService
 
     public function publicShow(string $id): Game
     {
-        $game = $this->repository->show($id, ['homeTeam', 'awayTeam', 'stadium', 'events']);
+        $game = $this->repository->show($id, self::SHOW_RELATIONS);
 
         if (! $game) {
             throw ValidationException::withMessages(['message' => 'Partida não encontrada!']);
@@ -77,7 +80,7 @@ class GameService
         });
 
         // show() já carregou `events`; recarrega para a resposta não sair com o league_id antigo.
-        return $leagueChanged ? $game->load('events') : $game;
+        return $leagueChanged ? $game->load(['events.player', 'events.relatedPlayer']) : $game;
     }
 
     public function destroy(string $id): ?bool

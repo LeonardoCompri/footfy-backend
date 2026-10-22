@@ -21,6 +21,22 @@ class PlayerRepository
         return Player::create($data);
     }
 
+    // Jogador removido (soft delete) com esse CPF, se houver.
+    public function findTrashedByDocument(string $document): ?Player
+    {
+        return Player::onlyTrashed()->where('document', $document)->first();
+    }
+
+    // Restaura o jogador removido já com os novos dados, num único save (sem transação).
+    public function restore(Player $player, array $data): Player
+    {
+        $player->fill($data);
+        $player->setAttribute($player->getDeletedAtColumn(), null);
+        $player->save();
+
+        return $player;
+    }
+
     public function show(string $id): ?Player
     {
         return Player::find($id);

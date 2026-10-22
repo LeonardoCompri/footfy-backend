@@ -692,4 +692,69 @@ class LeagueStatisticsControllerTest extends TestCase
 
         $this->assertSame($smallQueryCount, $largeQueryCount);
     }
+
+    // ── Jogador removido nos rankings (soft delete, FOOT-0046) ───────────────
+
+    /** Liga com artilheiro, assistente e cartoado removidos, e um artilheiro ativo. */
+    private function buildLeagueWithRemovedPlayers(): array
+    {
+        $league = League::factory()->create(['format' => 'round_robin']);
+        [$teamA, $teamB] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamA->id, $teamB->id]);
+
+        $removedScorer = Player::factory()->create(['team_id' => $teamA->id]);
+        $removedAssister = Player::factory()->create(['team_id' => $teamA->id]);
+        $removedCarded = Player::factory()->create(['team_id' => $teamB->id]);
+        $activeScorer = Player::factory()->create(['team_id' => $teamB->id]);
+
+        $game = $this->finishedGame($league, $teamA, $teamB, 2, 1);
+        $this->goal($league, $game, $teamA, $removedScorer, $removedAssister);
+        $this->goal($league, $game, $teamA, $removedScorer);
+        $this->goal($league, $game, $teamB, $activeScorer);
+        $this->card($league, $game, $teamB, $removedCarded, 'yellow_card');
+
+        $removedScorer->delete();
+        $removedAssister->delete();
+        $removedCarded->delete();
+
+        return [$league, $removedScorer, $removedAssister, $removedCarded, $activeScorer];
+    }
+
+    private function assertRemovedPlayersStayInRankings(array $data, array $scenario): void
+    {
+        [, $removedScorer, $removedAssister, $removedCarded, $activeScorer] = $scenario;
+        $scorers = collect($data['top_scorers']);
+        $assists = collect($data['top_assists']);
+        $cards = collect($data['top_cards']);
+
+        $this->assertSame(2, $scorers->firstWhere('player_id', $removedScorer->id)['goals']);
+        $this->assertTrue($scorers->firstWhere('player_id', $removedScorer->id)['player_removed']);
+        $this->assertSame($removedScorer->name, $scorers->firstWhere('player_id', $removedScorer->id)['player_name']);
+        $this->assertFalse($scorers->firstWhere('player_id', $activeScorer->id)['player_removed']);
+
+        $this->assertSame(1, $assists->firstWhere('player_id', $removedAssister->id)['assists']);
+        $this->assertTrue($assists->firstWhere('player_id', $removedAssister->id)['player_removed']);
+
+        $this->assertSame(1, $cards->firstWhere('player_id', $removedCarded->id)['total_cards']);
+        $this->assertTrue($cards->firstWhere('player_id', $removedCarded->id)['player_removed']);
+    }
+
+    public function test_removed_players_stay_in_rankings_flagged_as_removed(): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildLeagueWithRemovedPlayers();
+
+        $data = $this->getJson("/api/leagues/{$scenario[0]->id}/statistics")->assertOk()->json('data');
+
+        $this->assertRemovedPlayersStayInRankings($data, $scenario);
+    }
+
+    public function test_removed_players_stay_in_rankings_on_public_route(): void
+    {
+        $scenario = $this->buildLeagueWithRemovedPlayers();
+
+        $data = $this->getJson("/api/public/leagues/{$scenario[0]->id}/statistics")->assertOk()->json('data');
+
+        $this->assertRemovedPlayersStayInRankings($data, $scenario);
+    }
 }

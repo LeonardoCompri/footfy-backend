@@ -41,6 +41,7 @@ class StatisticsService
         return $rows->map(fn ($row) => [
             'player_id' => (int) $row->player_id,
             'player_name' => $row->player_name,
+            'player_removed' => $row->player_deleted_at !== null,
             'team_id' => $row->team_id !== null ? (int) $row->team_id : null,
             'team_name' => $row->team_name,
             'team_nickname' => $row->team_nickname,
@@ -53,6 +54,7 @@ class StatisticsService
         return $rows->map(fn ($row) => [
             'player_id' => (int) $row->player_id,
             'player_name' => $row->player_name,
+            'player_removed' => $row->player_deleted_at !== null,
             'team_id' => $row->team_id !== null ? (int) $row->team_id : null,
             'team_name' => $row->team_name,
             'team_nickname' => $row->team_nickname,

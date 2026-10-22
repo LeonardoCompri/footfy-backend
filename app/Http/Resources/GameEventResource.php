@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Player;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -15,11 +16,24 @@ class GameEventResource extends JsonResource
             'team_id' => $this->team_id,
             'player_id' => $this->player_id,
             'related_player_id' => $this->related_player_id,
+            'player' => $this->whenLoaded('player', fn (Player $player) => $this->playerSummary($player)),
+            'related_player' => $this->whenLoaded('relatedPlayer', fn (Player $player) => $this->playerSummary($player)),
             'league_id' => $this->league_id,
             'type' => $this->type,
             'minute' => $this->minute,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+        ];
+    }
+
+    // Resumo do jogador na súmula; `removed` sinaliza jogador excluído (soft delete).
+    // Com a relação carregada e vazia (ex: gol sem assistência), whenLoaded devolve null.
+    private function playerSummary(Player $player): array
+    {
+        return [
+            'id' => $player->id,
+            'name' => $player->name,
+            'removed' => $player->trashed(),
         ];
     }
 }

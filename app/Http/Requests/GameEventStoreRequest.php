@@ -6,6 +6,7 @@ use App\Models\Game;
 use App\Models\Player;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class GameEventStoreRequest extends FormRequest
 {
@@ -13,11 +14,19 @@ class GameEventStoreRequest extends FormRequest
     {
         return [
             'game_id' => ['required', 'integer', 'exists:games,id'],
-            'player_id' => ['required', 'integer', 'exists:players,id'],
+            'player_id' => ['required', 'integer', Rule::exists('players', 'id')->withoutTrashed()],
             'team_id' => ['required', 'integer', 'exists:teams,id'],
-            'related_player_id' => ['nullable', 'integer', 'exists:players,id'],
+            'related_player_id' => ['nullable', 'integer', Rule::exists('players', 'id')->withoutTrashed()],
             'type' => ['required', 'string', 'in:goal,yellow_card,red_card'],
             'minute' => ['nullable', 'integer', 'min:0'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'player_id.exists' => 'O jogador informado foi removido ou não existe.',
+            'related_player_id.exists' => 'O jogador informado foi removido ou não existe.',
         ];
     }
 
