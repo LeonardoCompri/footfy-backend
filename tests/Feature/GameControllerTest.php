@@ -1229,4 +1229,61 @@ class GameControllerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.top_scorers', []);
     }
+
+    // ── Jogador removido na súmula (soft delete, FOOT-0046) ──────────────────
+
+    /** Partida com um gol de jogador e assistência de companheiro, ambos removidos depois. */
+    private function gameWithRemovedScorerAndAssist(): array
+    {
+        $game = $this->gameWithTeamsInLeague(League::factory()->create());
+        $scorer = Player::factory()->create(['team_id' => $game->home_team_id]);
+        $assist = Player::factory()->create(['team_id' => $game->home_team_id]);
+        GameEvent::create([
+            'game_id' => $game->id,
+            'league_id' => $game->league_id,
+            'team_id' => $game->home_team_id,
+            'player_id' => $scorer->id,
+            'related_player_id' => $assist->id,
+            'type' => 'goal',
+            'minute' => 12,
+        ]);
+        $scorer->delete();
+        $assist->delete();
+
+        return [$game, $scorer, $assist];
+    }
+
+    public function test_show_includes_removed_player_and_assist_in_events(): void
+    {
+        $this->authenticate();
+        [$game, $scorer, $assist] = $this->gameWithRemovedScorerAndAssist();
+
+        $this->getJson("/api/games/{$game->id}")
+            ->assertOk()
+            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'removed' => true])
+            ->assertJsonPath('data.events.0.related_player', ['id' => $assist->id, 'name' => $assist->name, 'removed' => true]);
+    }
+
+    public function test_public_show_includes_removed_player_and_assist_in_events(): void
+    {
+        [$game, $scorer, $assist] = $this->gameWithRemovedScorerAndAssist();
+
+        $this->getJson("/api/public/games/{$game->id}")
+            ->assertOk()
+            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'removed' => true])
+            ->assertJsonPath('data.events.0.related_player', ['id' => $assist->id, 'name' => $assist->name, 'removed' => true]);
+    }
+
+    public function test_update_changing_league_returns_events_with_player(): void
+    {
+        $this->authenticate();
+        $newLeague = League::factory()->create();
+        [$game, $scorer] = $this->gameWithEventsMovableTo($newLeague);
+
+        $this->putJson("/api/games/{$game->id}", ['league_id' => $newLeague->id])
+            ->assertOk()
+            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'removed' => false])
+            ->assertJsonPath('data.events.1.player.id', $scorer->id)
+            ->assertJsonPath('data.events.0.related_player', null);
+    }
 }

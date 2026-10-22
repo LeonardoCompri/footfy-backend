@@ -7,19 +7,51 @@ use App\Models\GameEvent;
 use App\Models\Player;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 
 class GameEventUpdateRequest extends FormRequest
 {
+    private ?GameEvent $gameEvent = null;
+
     public function rules(): array
     {
+        $event = $this->event();
+
         return [
             'game_id' => ['sometimes', 'integer', 'exists:games,id'],
-            'player_id' => ['sometimes', 'integer', 'exists:players,id'],
+            'player_id' => ['sometimes', 'integer', $this->activePlayerOrCurrent($event?->player_id)],
             'team_id' => ['sometimes', 'integer', 'exists:teams,id'],
-            'related_player_id' => ['nullable', 'integer', 'exists:players,id'],
+            'related_player_id' => ['nullable', 'integer', $this->activePlayerOrCurrent($event?->related_player_id)],
             'type' => ['sometimes', 'string', 'in:goal,yellow_card,red_card'],
             'minute' => ['nullable', 'integer', 'min:0'],
         ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'player_id.exists' => 'O jogador informado foi removido ou não existe.',
+            'related_player_id.exists' => 'O jogador informado foi removido ou não existe.',
+        ];
+    }
+
+    // Evento da rota (null se não existir: o Service responde "Evento não encontrado!").
+    private function event(): ?GameEvent
+    {
+        return $this->gameEvent ??= ($this->route('id') ? GameEvent::find($this->route('id')) : null);
+    }
+
+    /**
+     * Jogador ativo, ou o já gravado no evento mesmo que removido (soft delete): permite
+     * editar outros campos do evento sem trocar o jogador removido, mas não escolher outro removido.
+     */
+    private function activePlayerOrCurrent(?int $currentPlayerId): Exists
+    {
+        return Rule::exists('players', 'id')->where(
+            fn ($query) => $query->whereNull('deleted_at')
+                ->when($currentPlayerId, fn ($query, $id) => $query->orWhere('id', $id))
+        );
     }
 
     public function withValidator(Validator $validator): void
@@ -30,7 +62,7 @@ class GameEventUpdateRequest extends FormRequest
                 return;
             }
 
-            $event = $this->route('id') ? GameEvent::find($this->route('id')) : null;
+            $event = $this->event();
 
             $gameId = $this->input('game_id', $event?->game_id);
             $playerId = $this->input('player_id', $event?->player_id);
@@ -48,7 +80,7 @@ class GameEventUpdateRequest extends FormRequest
                 return;
             }
 
-            $player = Player::find($playerId);
+            $player = Player::withTrashed()->find($playerId);
             if ($player && (int) $player->team_id !== (int) $teamId) {
                 $validator->errors()->add('player_id', 'O jogador informado não pertence ao time informado.');
             }
@@ -63,7 +95,7 @@ class GameEventUpdateRequest extends FormRequest
                 return;
             }
 
-            $relatedPlayer = Player::find($relatedPlayerId);
+            $relatedPlayer = Player::withTrashed()->find($relatedPlayerId);
             if ($relatedPlayer && (int) $relatedPlayer->team_id !== (int) $teamId) {
                 $validator->errors()->add('related_player_id', 'O jogador relacionado não pertence ao time informado.');
             }

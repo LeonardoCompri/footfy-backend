@@ -13,7 +13,10 @@ class StatisticsRepository
      * Artilheiros da liga inteira (grupos + mata-mata), agregados por jogador — soma eventos
      * `goal` de todos os times pelos quais o jogador atuou na liga (cobre transferência entre
      * times da mesma liga). `team_id`/`team_name` refletem o time atual do jogador
-     * (players.team_id), só para exibição, sem afetar a soma de gols.
+     * (players.team_id), só para exibição, sem afetar a soma de gols. O JOIN em players ignora
+     * o soft delete de propósito: jogador removido continua no ranking, com `player_deleted_at`
+     * preenchido (vira `player_removed` no StatisticsService). `players.deleted_at` entra no
+     * groupBy por causa do ONLY_FULL_GROUP_BY do MySQL.
      */
     public function topScorers(int $leagueId, int $limit = 10): Collection
     {
@@ -22,9 +25,10 @@ class StatisticsRepository
             ->leftJoin('teams', 'teams.id', '=', 'players.team_id')
             ->where('game_events.league_id', $leagueId)
             ->where('game_events.type', 'goal')
-            ->groupBy('game_events.player_id', 'players.name', 'players.team_id', 'teams.name', 'teams.nickname')
+            ->groupBy('game_events.player_id', 'players.name', 'players.team_id', 'players.deleted_at', 'teams.name', 'teams.nickname')
             ->selectRaw(
-                'game_events.player_id as player_id, players.name as player_name, players.team_id as team_id, '.
+                'game_events.player_id as player_id, players.name as player_name, players.deleted_at as player_deleted_at, '.
+                'players.team_id as team_id, '.
                 'teams.name as team_name, teams.nickname as team_nickname, COUNT(*) as goals'
             )
             ->orderByDesc('goals')
@@ -32,7 +36,8 @@ class StatisticsRepository
             ->get();
     }
 
-    // Mesma lógica de topScorers, mas para assistências (related_player_id de eventos `goal`).
+    // Mesma lógica de topScorers (inclusive jogador removido no ranking), mas para assistências
+    // (related_player_id de eventos `goal`).
     public function topAssists(int $leagueId, int $limit = 10): Collection
     {
         return GameEvent::query()
@@ -41,9 +46,10 @@ class StatisticsRepository
             ->where('game_events.league_id', $leagueId)
             ->where('game_events.type', 'goal')
             ->whereNotNull('game_events.related_player_id')
-            ->groupBy('game_events.related_player_id', 'players.name', 'players.team_id', 'teams.name', 'teams.nickname')
+            ->groupBy('game_events.related_player_id', 'players.name', 'players.team_id', 'players.deleted_at', 'teams.name', 'teams.nickname')
             ->selectRaw(
-                'game_events.related_player_id as player_id, players.name as player_name, players.team_id as team_id, '.
+                'game_events.related_player_id as player_id, players.name as player_name, players.deleted_at as player_deleted_at, '.
+                'players.team_id as team_id, '.
                 'teams.name as team_name, teams.nickname as team_nickname, COUNT(*) as assists'
             )
             ->orderByDesc('assists')
@@ -51,7 +57,8 @@ class StatisticsRepository
             ->get();
     }
 
-    // Ranking de cartões (amarelo+vermelho) por jogador, somando toda a competição.
+    // Ranking de cartões (amarelo+vermelho) por jogador, somando toda a competição; jogador
+    // removido continua no ranking, igual a topScorers.
     public function topCards(int $leagueId, int $limit = 10): Collection
     {
         return GameEvent::query()
@@ -59,9 +66,10 @@ class StatisticsRepository
             ->leftJoin('teams', 'teams.id', '=', 'players.team_id')
             ->where('game_events.league_id', $leagueId)
             ->whereIn('game_events.type', ['yellow_card', 'red_card'])
-            ->groupBy('game_events.player_id', 'players.name', 'players.team_id', 'teams.name', 'teams.nickname')
+            ->groupBy('game_events.player_id', 'players.name', 'players.team_id', 'players.deleted_at', 'teams.name', 'teams.nickname')
             ->selectRaw(
-                'game_events.player_id as player_id, players.name as player_name, players.team_id as team_id, '.
+                'game_events.player_id as player_id, players.name as player_name, players.deleted_at as player_deleted_at, '.
+                'players.team_id as team_id, '.
                 'teams.name as team_name, teams.nickname as team_nickname, '.
                 "SUM(CASE WHEN game_events.type = 'yellow_card' THEN 1 ELSE 0 END) as yellow_cards, ".
                 "SUM(CASE WHEN game_events.type = 'red_card' THEN 1 ELSE 0 END) as red_cards, ".
