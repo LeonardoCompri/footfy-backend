@@ -25,6 +25,11 @@ class GameEventUpdateRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator) {
+            // after() roda mesmo com regra falhando: com campo[]=1, find(array) devolveria Collection (500).
+            if ($validator->errors()->hasAny(['game_id', 'player_id', 'team_id', 'related_player_id'])) {
+                return;
+            }
+
             $event = $this->route('id') ? GameEvent::find($this->route('id')) : null;
 
             $gameId = $this->input('game_id', $event?->game_id);

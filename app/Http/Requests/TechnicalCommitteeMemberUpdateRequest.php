@@ -11,7 +11,7 @@ class TechnicalCommitteeMemberUpdateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'team_id'    => ['nullable', 'integer', 'exists:teams,id'],
+            'team_id'    => ['sometimes', 'required', 'integer', 'exists:teams,id'],
             'name'       => ['sometimes', 'string', 'max:255'],
             'role'       => ['sometimes', 'string', Rule::in($this->allowedRoles())],
             'birth_date' => ['nullable', 'date'],

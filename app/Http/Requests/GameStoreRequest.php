@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\ValidatesGameTeams;
 use App\Models\League;
 use App\Models\Stadium;
 use Illuminate\Contracts\Validation\Validator;
@@ -9,6 +10,8 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class GameStoreRequest extends FormRequest
 {
+    use ValidatesGameTeams;
+
     public function rules(): array
     {
         return [
@@ -48,7 +51,15 @@ class GameStoreRequest extends FormRequest
                 }
             }
 
-            $this->validateRoundAndPhase($validator, $leagueId ? League::find($leagueId) : null);
+            // league_id que já falhou nas regras (ex: enviado como array) não é resolvido:
+            // League::find(array) devolveria uma Collection.
+            $league = $leagueId && ! $validator->errors()->has('league_id') ? League::find($leagueId) : null;
+
+            $this->validateTeamsBelongToLeague($validator, $league, [
+                'home_team_id' => $this->input('home_team_id'),
+                'away_team_id' => $this->input('away_team_id'),
+            ]);
+            $this->validateRoundAndPhase($validator, $league);
         });
     }
 

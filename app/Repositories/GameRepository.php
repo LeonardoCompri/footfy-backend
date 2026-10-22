@@ -41,6 +41,12 @@ class GameRepository
         return $game->save();
     }
 
+    // Copia o league_id atual da partida para todos os seus eventos (campo denormalizado).
+    public function syncEventsLeague(Game $game): int
+    {
+        return $game->events()->update(['league_id' => $game->league_id]);
+    }
+
     public function destroy(Game $game): ?bool
     {
         return $game->delete();

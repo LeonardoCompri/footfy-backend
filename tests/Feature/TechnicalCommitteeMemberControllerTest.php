@@ -142,7 +142,7 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/technical-committee-members', ['role' => 'Treinador']);
+        $response = $this->postJson('/api/technical-committee-members', ['team_id' => Team::factory()->create()->id, 'role' => 'Treinador']);
 
         $response->assertStatus(422);
     }
@@ -151,7 +151,7 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/technical-committee-members', ['name' => 'Membro Teste']);
+        $response = $this->postJson('/api/technical-committee-members', ['team_id' => Team::factory()->create()->id, 'name' => 'Membro Teste']);
 
         $response->assertStatus(422);
     }
@@ -296,6 +296,7 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $this->authenticate();
 
         $response = $this->postJson('/api/technical-committee-members', [
+            'team_id' => Team::factory()->create()->id,
             'name' => 'Membro Teste',
             'role' => 'Astronauta',
         ]);
@@ -310,6 +311,7 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $this->authenticate();
 
         $response = $this->postJson('/api/technical-committee-members', [
+            'team_id' => Team::factory()->create()->id,
             'name' => 'Membro Teste',
             'role' => 'Preparador Físico',
         ]);
@@ -466,5 +468,98 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $this->putJson("/api/technical-committee-members/{$member->id}", ['name' => 'Novo'])
             ->assertForbidden()
             ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
+    }
+
+    // ── Time de destino na escrita (FOOT-0044) ────────────────────────────────
+
+    /** @return array{0: League, 1: Team, 2: Team} liga do admin, time dela e time só de outra liga */
+    private function teamsInAndOutOfLeague(): array
+    {
+        $league = League::factory()->create();
+        $team = Team::factory()->create();
+        $league->teams()->attach($team->id);
+        $outsideTeam = Team::factory()->create();
+        League::factory()->create()->teams()->attach($outsideTeam->id);
+
+        return [$league, $team, $outsideTeam];
+    }
+
+    public function test_admin_cannot_create_in_team_of_unassigned_league(): void
+    {
+        [$league, , $outsideTeam] = $this->teamsInAndOutOfLeague();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->postJson('/api/technical-committee-members', array_merge(['name' => 'Membro Novo', 'role' => 'Treinador'], ['team_id' => $outsideTeam->id]))
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+
+        $this->assertDatabaseCount('technical_committee_members', 0);
+    }
+
+    public function test_admin_cannot_move_to_team_of_unassigned_league(): void
+    {
+        [$league, $team, $outsideTeam] = $this->teamsInAndOutOfLeague();
+        $model = TechnicalCommitteeMember::factory()->create(['team_id' => $team->id]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->putJson("/api/technical-committee-members/{$model->id}", ['team_id' => $outsideTeam->id])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+
+        $this->assertDatabaseHas('technical_committee_members', ['id' => $model->id, 'team_id' => $team->id]);
+    }
+
+    public function test_admin_can_create_and_move_within_own_league(): void
+    {
+        [$league, $team] = $this->teamsInAndOutOfLeague();
+        $otherTeam = Team::factory()->create();
+        $league->teams()->attach($otherTeam->id);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $id = $this->postJson('/api/technical-committee-members', array_merge(['name' => 'Membro Novo', 'role' => 'Treinador'], ['team_id' => $team->id]))
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->putJson("/api/technical-committee-members/{$id}", ['team_id' => $otherTeam->id])
+            ->assertOk()
+            ->assertJsonPath('data.team_id', $otherTeam->id);
+    }
+
+    public function test_master_can_create_and_move_to_any_team(): void
+    {
+        [, $team, $outsideTeam] = $this->teamsInAndOutOfLeague();
+        $this->authenticate();
+
+        $id = $this->postJson('/api/technical-committee-members', array_merge(['name' => 'Membro Novo', 'role' => 'Treinador'], ['team_id' => $team->id]))
+            ->assertCreated()
+            ->json('data.id');
+
+        $this->putJson("/api/technical-committee-members/{$id}", ['team_id' => $outsideTeam->id])
+            ->assertOk()
+            ->assertJsonPath('data.team_id', $outsideTeam->id);
+    }
+
+    public function test_store_without_team_id_fails_even_for_master(): void
+    {
+        $this->authenticate();
+
+        $this->postJson('/api/technical-committee-members', ['name' => 'Membro Novo', 'role' => 'Treinador'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('team_id');
+
+        $this->assertDatabaseCount('technical_committee_members', 0);
+    }
+
+    public function test_update_with_null_team_id_fails(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        $model = TechnicalCommitteeMember::factory()->create(['team_id' => $team->id]);
+
+        $this->putJson("/api/technical-committee-members/{$model->id}", ['team_id' => null])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('team_id');
+
+        $this->assertDatabaseHas('technical_committee_members', ['id' => $model->id, 'team_id' => $team->id]);
     }
 }

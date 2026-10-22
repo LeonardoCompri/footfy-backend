@@ -5,12 +5,15 @@ namespace App\Services;
 use App\Models\Player;
 use App\Models\Team;
 use App\Repositories\PlayerRepository;
+use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class PlayerService
 {
+    use EnsuresLeagueAccess;
+
     public function __construct(private readonly PlayerRepository $repository) {}
 
     public function index(): Collection
@@ -29,6 +32,8 @@ class PlayerService
 
     public function store(array $data): Player
     {
+        $this->ensureUserHasAccessToTeam($data['team_id']);
+
         return $this->repository->store($data);
     }
 
@@ -52,6 +57,11 @@ class PlayerService
     public function update(array $data, string $id): Player
     {
         $player = $this->show($id);
+
+        if (array_key_exists('team_id', $data)) {
+            $this->ensureUserHasAccessToTeam($data['team_id']);
+        }
+
         $player->fill($data);
 
         $this->repository->update($player);

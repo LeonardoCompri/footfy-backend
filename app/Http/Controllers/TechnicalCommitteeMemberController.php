@@ -45,6 +45,8 @@ class TechnicalCommitteeMemberController extends Controller
             $response = $this->service->store($data);
 
             return response()->json(['data' => new TechnicalCommitteeMemberResource($response)], 201);
+        } catch (ValidationException $ex) {
+            return response()->json(["message" => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
                 "message" => "Houve um erro no servidor, tente novamente!"
