@@ -20,7 +20,7 @@ class UserService
         $user = Auth::user();
 
         if ($user->isMaster()) {
-            return $this->repository->index($leagueId ? [$leagueId] : null);
+            return $this->repository->index($leagueId !== null ? [$leagueId] : null);
         }
 
         $leagueIds = $user->leagueIds();

@@ -806,6 +806,20 @@ class GameControllerTest extends TestCase
         $this->assertGameIds([$mine->id], $response);
     }
 
+    // phase é texto livre: "0" é um valor válido e não pode ser tratado como filtro ausente.
+    public function test_index_filters_by_phase_zero(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $phaseZero = Game::factory()->create(['league_id' => $league->id, 'phase' => '0']);
+        Game::factory()->create(['league_id' => $league->id, 'phase' => 'Final']);
+
+        $response = $this->getJson("/api/games?league_id={$league->id}&phase=0");
+
+        $response->assertOk()->assertJsonPath('meta.total', 1);
+        $this->assertGameIds([$phaseZero->id], $response);
+    }
+
     public static function invalidIndexQueryProvider(): array
     {
         return [

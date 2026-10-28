@@ -54,19 +54,21 @@ class GameRepository
 
     private function applyFilters(Builder $query, array $filters = []): Builder
     {
-        $query->when($filters['round'] ?? null, function (Builder $q, $round) {
-            $q->where('round', $round);
+        // filled() em vez do valor cru: when() trata "0" como falso e ignoraria phase=0.
+        $query->when(filled($filters['round'] ?? null), function (Builder $q) use ($filters) {
+            $q->where('round', $filters['round']);
         });
 
-        $query->when($filters['phase'] ?? null, function (Builder $q, $phase) {
-            $q->where('phase', $phase);
+        $query->when(filled($filters['phase'] ?? null), function (Builder $q) use ($filters) {
+            $q->where('phase', $filters['phase']);
         });
 
-        $query->when($filters['status'] ?? null, function (Builder $q, $status) {
-            $q->where('status', $status);
+        $query->when(filled($filters['status'] ?? null), function (Builder $q) use ($filters) {
+            $q->where('status', $filters['status']);
         });
 
-        $query->when($filters['team_id'] ?? null, function (Builder $q, $teamId) {
+        $query->when(filled($filters['team_id'] ?? null), function (Builder $q) use ($filters) {
+            $teamId = $filters['team_id'];
             $q->where(fn (Builder $sub) => $sub->where('home_team_id', $teamId)->orWhere('away_team_id', $teamId));
         });
 
