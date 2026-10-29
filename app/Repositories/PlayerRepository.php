@@ -13,6 +13,7 @@ class PlayerRepository
         if ($teamIds !== null) {
             $query->whereIn('team_id', $teamIds);
         }
+
         return $query->get();
     }
 

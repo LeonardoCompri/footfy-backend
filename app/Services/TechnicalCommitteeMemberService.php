@@ -2,8 +2,8 @@
 
 namespace App\Services;
 
-use App\Models\TechnicalCommitteeMember;
 use App\Models\Team;
+use App\Models\TechnicalCommitteeMember;
 use App\Repositories\TechnicalCommitteeMemberRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Database\Eloquent\Collection;

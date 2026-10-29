@@ -23,10 +23,10 @@ class TeamController extends Controller
 
             return response()->json(['data' => TeamResource::collection($response)]);
         } catch (ValidationException $ex) {
-            return response()->json(["message" => $ex->getMessage()], 422);
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
-                "message" => "Houve um erro no servidor, tente novamente!"
+                'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
         }
     }
@@ -38,10 +38,10 @@ class TeamController extends Controller
 
             return response()->json(['data' => new TeamResource($response)]);
         } catch (ValidationException $ex) {
-            return response()->json(["message" => $ex->getMessage()], 422);
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
-                "message" => "Houve um erro no servidor, tente novamente!"
+                'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
         }
     }
@@ -54,10 +54,10 @@ class TeamController extends Controller
 
             return response()->json(['data' => new TeamResource($response)], 201);
         } catch (ValidationException $ex) {
-            return response()->json(["message" => $ex->getMessage()], 422);
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
-                "message" => "Houve um erro no servidor, tente novamente!"
+                'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
         }
     }
@@ -69,10 +69,10 @@ class TeamController extends Controller
 
             return response()->json(['data' => new TeamResource($response)]);
         } catch (ValidationException $ex) {
-            return response()->json(["message" => $ex->getMessage()], 422);
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
-                "message" => "Houve um erro no servidor, tente novamente!"
+                'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
         }
     }
@@ -85,10 +85,10 @@ class TeamController extends Controller
 
             return response()->json(['data' => new TeamResource($response)]);
         } catch (ValidationException $ex) {
-            return response()->json(["message" => $ex->getMessage()], 422);
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
-                "message" => "Houve um erro no servidor, tente novamente!"
+                'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
         }
     }
@@ -100,10 +100,10 @@ class TeamController extends Controller
 
             return response()->json([], 204);
         } catch (ValidationException $ex) {
-            return response()->json(["message" => $ex->getMessage()], 422);
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
-                "message" => "Houve um erro no servidor, tente novamente!"
+                'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
         }
     }
@@ -116,10 +116,10 @@ class TeamController extends Controller
 
             return response()->json(['data' => new TeamResource($response)]);
         } catch (ValidationException $ex) {
-            return response()->json(["message" => $ex->getMessage()], 422);
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
-                "message" => "Houve um erro no servidor, tente novamente!"
+                'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
         }
     }
@@ -131,10 +131,10 @@ class TeamController extends Controller
 
             return response()->json(['data' => new TeamResource($response)]);
         } catch (ValidationException $ex) {
-            return response()->json(["message" => $ex->getMessage()], 422);
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
-                "message" => "Houve um erro no servidor, tente novamente!"
+                'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
         }
     }

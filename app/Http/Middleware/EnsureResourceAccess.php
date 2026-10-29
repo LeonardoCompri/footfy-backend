@@ -77,7 +77,7 @@ class EnsureResourceAccess
             default => false,
         };
 
-        if (!$hasAccess) {
+        if (! $hasAccess) {
             return response()->json(['message' => 'Você não tem acesso a este recurso.'], 403);
         }
 

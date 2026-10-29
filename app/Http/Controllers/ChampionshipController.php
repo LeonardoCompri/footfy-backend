@@ -35,7 +35,7 @@ class ChampionshipController extends Controller
             return response()->json(['data' => ChampionshipResource::collection($response)]);
         } catch (Throwable $th) {
             return response()->json([
-                "message" => "Houve um erro no servidor, tente novamente!"
+                'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
         }
     }
@@ -47,10 +47,10 @@ class ChampionshipController extends Controller
 
             return response()->json(['data' => new ChampionshipResource($response)]);
         } catch (ValidationException $ex) {
-            return response()->json(["message" => $ex->getMessage()], 422);
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json([
-                "message" => "Houve um erro no servidor, tente novamente!"
+                'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
         }
     }

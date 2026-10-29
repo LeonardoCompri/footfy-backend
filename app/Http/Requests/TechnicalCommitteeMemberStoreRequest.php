@@ -11,9 +11,9 @@ class TechnicalCommitteeMemberStoreRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'team_id'    => ['required', 'integer', 'exists:teams,id'],
-            'name'       => ['required', 'string', 'max:255'],
-            'role'       => ['required', 'string', Rule::in(TechnicalCommitteeMember::roleValues())],
+            'team_id' => ['required', 'integer', 'exists:teams,id'],
+            'name' => ['required', 'string', 'max:255'],
+            'role' => ['required', 'string', Rule::in(TechnicalCommitteeMember::roleValues())],
             'birth_date' => ['nullable', 'date'],
         ];
     }
