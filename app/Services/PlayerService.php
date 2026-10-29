@@ -39,7 +39,7 @@ class PlayerService
      */
     public function store(array $data): Player
     {
-        $this->ensureUserHasAccessToTeam($data['team_id']);
+        $this->ensureUserCanWriteToTeam($data['team_id']);
 
         $trashed = ! empty($data['document']) ? $this->repository->findTrashedByDocument($data['document']) : null;
 
@@ -75,7 +75,12 @@ class PlayerService
         $player = $this->show($id);
 
         if (array_key_exists('team_id', $data)) {
-            $this->ensureUserHasAccessToTeam($data['team_id']);
+            // Coach não transfere jogador: o time só pode continuar o mesmo.
+            if (Auth::user()->isCoach() && (int) $data['team_id'] !== (int) $player->team_id) {
+                throw ValidationException::withMessages(['message' => 'Você não pode transferir o jogador para outro time.']);
+            }
+
+            $this->ensureUserCanWriteToTeam($data['team_id']);
         }
 
         $player->fill($data);
@@ -90,5 +95,21 @@ class PlayerService
         $player = $this->show($id);
 
         return $this->repository->destroy($player);
+    }
+
+    // Coach só escreve no próprio time (users.team_id); demais papéis pela liga do time.
+    private function ensureUserCanWriteToTeam(int|string $teamId): void
+    {
+        $user = Auth::user();
+
+        if ($user->isCoach()) {
+            if ($user->team_id === null || (int) $teamId !== (int) $user->team_id) {
+                throw ValidationException::withMessages(['message' => 'Você só pode gerenciar jogadores do seu time.']);
+            }
+
+            return;
+        }
+
+        $this->ensureUserHasAccessToTeam($teamId);
     }
 }

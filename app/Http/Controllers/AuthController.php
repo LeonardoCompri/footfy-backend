@@ -36,9 +36,19 @@ class AuthController extends Controller
         $user->roles->each->makeHidden('permissions');
         $user->setRelation('permissions', $permissions);
 
+        // Time do coach (users.team_id) ou do jogador vinculado ao player, no mesmo formato do
+        // UserResource. Relações soltas antes de serializar para não expor o path cru do logo.
+        $team = $user->linkedTeam();
+        $player = $user->player;
+        $user->unsetRelation('team')->unsetRelation('player');
+
         return response()->json([
             'token' => $token,
-            'user' => $user
+            'user' => [
+                ...$user->toArray(),
+                'team' => $team ? ['id' => $team->id, 'name' => $team->name, 'logo' => $team->logoUrl()] : null,
+                'player' => $player ? ['id' => $player->id, 'name' => $player->name, 'team_id' => $player->team_id] : null,
+            ],
         ]);
     }
 

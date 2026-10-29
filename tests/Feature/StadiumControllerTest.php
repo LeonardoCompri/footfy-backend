@@ -11,11 +11,12 @@ use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Concerns\LinksUsersToLeagues;
 use Tests\TestCase;
 
 class StadiumControllerTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, LinksUsersToLeagues;
 
     protected function setUp(): void
     {
@@ -47,13 +48,13 @@ class StadiumControllerTest extends TestCase
         return $user;
     }
 
-    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas. */
+    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas (coach/player via time). */
     private function authenticateAs(string $role, array $leagueIds = []): User
     {
         $user = User::factory()->create();
         $user->assignRole($role);
         if (! empty($leagueIds)) {
-            $user->leagues()->sync($leagueIds);
+            $this->linkUserToLeagues($user, $leagueIds);
         }
         Sanctum::actingAs($user);
 
@@ -323,7 +324,7 @@ class StadiumControllerTest extends TestCase
         $stadium = Stadium::factory()->create(['league_id' => $league->id]);
         $coach = User::factory()->create();
         $coach->assignRole('coach');
-        $coach->leagues()->sync([$league->id]);
+        $this->linkUserToLeagues($coach, [$league->id]);
         Sanctum::actingAs($coach);
 
         $response = $this->deleteJson("/api/stadiums/{$stadium->id}");
