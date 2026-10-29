@@ -6,6 +6,7 @@ use App\Http\Controllers\GameController;
 use App\Http\Controllers\GameEventController;
 use App\Http\Controllers\LeagueController;
 use App\Http\Controllers\PlayerController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\StadiumController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TechnicalCommitteeMemberController;
@@ -15,6 +16,14 @@ Route::post('/login', [AuthController::class, 'login'])->name('auth.login');
 
 Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('auth.logout');
+
+    // Conta do próprio usuário, para qualquer papel (sem access:*: o alvo é sempre o autenticado).
+    Route::prefix('/me')->name('profile.')->group(function () {
+        Route::get('/', [ProfileController::class, 'show'])->name('show');
+        Route::put('/', [ProfileController::class, 'update'])->name('update');
+        // Jogador vinculado (players.user_id): sem vínculo 404, removido do elenco 422.
+        Route::put('/player', [ProfileController::class, 'updatePlayer'])->name('player.update')->middleware('permission:player:update');
+    });
 
     Route::middleware(['role:master|admin'])->prefix('/users')->name('users.')->group(function () {
         Route::get('/', [UserController::class, 'index'])->name('index');
