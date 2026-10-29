@@ -48,18 +48,32 @@ class EnsureResourceAccess
             'game_event' => GameEvent::whereKey($id)
                 ->whereIn('league_id', $leagueIds)
                 ->exists(),
-            // Leitura de usuário: o próprio usuário, ou um não-master que compartilhe liga.
+            // Escrita de jogador: admin pela liga (como 'player'); coach só no jogador do
+            // próprio time (users.team_id); player e demais papéis negados.
+            'player_write' => match (true) {
+                $user->hasRole('admin') => Player::whereKey($id)
+                    ->whereHas('team.leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
+                    ->exists(),
+                $user->isCoach() => $user->team_id !== null
+                    && Player::whereKey($id)->where('team_id', $user->team_id)->exists(),
+                default => false,
+            },
+            // Leitura de usuário: o próprio usuário, ou um não-master que compartilhe liga
+            // (ligas de coach/player derivadas do time, ver User::scopeInLeagues).
             'user' => (int) $id === $user->id || User::whereKey($id)
                 ->whereDoesntHave('roles', fn ($q) => $q->where('name', 'master'))
-                ->whereHas('leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
+                ->inLeagues($leagueIds)
                 ->exists(),
             // Edição de usuário: o próprio usuário, ou um coach/player que compartilhe liga
             // (admin não edita master nem outro admin, mesmo da mesma liga).
             'user_write' => (int) $id === $user->id || User::whereKey($id)
-                ->whereHas('roles', fn ($q) => $q->whereIn('name', ['coach', 'player']))
-                ->whereDoesntHave('roles', fn ($q) => $q->whereIn('name', ['master', 'admin']))
-                ->whereHas('leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
+                ->whereHas('roles', fn ($q) => $q->whereIn('name', User::TEAM_SCOPED_ROLES))
+                ->whereDoesntHave('roles', fn ($q) => $q->whereIn('name', User::LEAGUE_SCOPED_ROLES))
+                ->inLeagues($leagueIds)
                 ->exists(),
+            // Criação de usuário (POST /users, sem {id}): quem não é master só cria coach e
+            // player. Papel ausente/inválido segue para a validação do UserStoreRequest (422).
+            'user_create' => ! in_array($request->input('role'), User::LEAGUE_SCOPED_ROLES, true),
             default => false,
         };
 

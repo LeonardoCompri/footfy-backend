@@ -15,11 +15,12 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\LinksUsersToLeagues;
 use Tests\TestCase;
 
 class TeamControllerTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, LinksUsersToLeagues;
 
     protected function setUp(): void
     {
@@ -50,13 +51,13 @@ class TeamControllerTest extends TestCase
         return $user;
     }
 
-    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas. */
+    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas (coach/player via time). */
     private function authenticateAs(string $role, array $leagueIds = []): User
     {
         $user = User::factory()->create();
         $user->assignRole($role);
         if (! empty($leagueIds)) {
-            $user->leagues()->sync($leagueIds);
+            $this->linkUserToLeagues($user, $leagueIds);
         }
         Sanctum::actingAs($user);
 
@@ -894,13 +895,15 @@ class TeamControllerTest extends TestCase
         $team = Team::factory()->create(['name' => 'Time Original']);
         $league->teams()->attach($team->id);
         $this->authenticateAs($role, [$league->id]);
+        // Inclui o time criado pelo helper para vincular o coach/player à liga.
+        $teamCount = Team::count();
 
         $url = str_replace(['{id}', '{lid}'], [$team->id, $league->id], $uri);
         $response = $this->json($method, $url, ['name' => 'Time Novo', 'league_ids' => [$league->id]]);
 
         $response->assertForbidden()
             ->assertJsonPath('message', 'User does not have the right permissions.');
-        $this->assertDatabaseCount('teams', 1);
+        $this->assertDatabaseCount('teams', $teamCount);
         $this->assertDatabaseHas('teams', ['id' => $team->id, 'name' => 'Time Original']);
         $this->assertDatabaseHas('league_team', ['team_id' => $team->id, 'league_id' => $league->id]);
     }

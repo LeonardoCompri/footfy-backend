@@ -35,6 +35,8 @@ class UserController extends Controller
             $response = $this->service->store($request->validated());
 
             return response()->json(['data' => new UserResource($response)], 201);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             return response()->json(['message' => 'Houve um erro no servidor, tente novamente!'], 500);
         }

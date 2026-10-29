@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\Player;
+use App\Models\Team;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -81,9 +83,9 @@ class AuthControllerTest extends TestCase
         $this->assertSame($this->rolePermissionNames('coach'), $names);
         $this->assertContains('player:create', $names);
         $this->assertContains('player:update', $names);
+        $this->assertContains('player:delete', $names);
         $this->assertNotContains('team:update', $names);
         $this->assertNotContains('stadium:create', $names);
-        $this->assertNotContains('player:delete', $names);
         $this->assertNotContains('game:create', $names);
     }
 
@@ -163,6 +165,42 @@ class AuthControllerTest extends TestCase
             'name' => 'game_event:create',
             'guard_name' => $permission->guard_name,
         ], $item);
+    }
+
+    // ── Vínculo com time/jogador (FOOT-0047) ─────────────────────────────────
+
+    public function test_coach_login_returns_linked_team(): void
+    {
+        $team = Team::factory()->create();
+        $this->createUser('coach')->update(['team_id' => $team->id]);
+
+        $this->login()
+            ->assertOk()
+            ->assertJsonPath('user.team', ['id' => $team->id, 'name' => $team->name, 'logo' => null])
+            ->assertJsonPath('user.player', null);
+    }
+
+    public function test_player_login_returns_linked_player_and_its_team(): void
+    {
+        $team = Team::factory()->create(['logo' => 'teams/escudo.png']);
+        $user = $this->createUser('player');
+        $player = Player::factory()->create(['team_id' => $team->id, 'user_id' => $user->id]);
+
+        $this->login()
+            ->assertOk()
+            ->assertJsonPath('user.team.id', $team->id)
+            ->assertJsonPath('user.team.logo', $team->logoUrl())
+            ->assertJsonPath('user.player', ['id' => $player->id, 'name' => $player->name, 'team_id' => $team->id]);
+    }
+
+    public function test_admin_login_returns_null_team(): void
+    {
+        $this->createUser('admin');
+
+        $this->login()
+            ->assertOk()
+            ->assertJsonPath('user.team', null)
+            ->assertJsonPath('user.player', null);
     }
 
     // ── Credenciais inválidas ─────────────────────────────────────────────────
