@@ -75,11 +75,13 @@ class GameRepository
         return $query;
     }
 
+    // Rodadas primeiro e mata-mata (round NULL) depois, por phase_order. `X IS NULL` vem
+    // antes porque MySQL e SQLite ordenam NULL primeiro em ASC.
     private function orderedForListing(Builder $query): Builder
     {
         return $query
-            ->orderBy('round')
-            ->orderBy('phase_order')
+            ->orderByRaw('round IS NULL, round')
+            ->orderByRaw('phase_order IS NULL, phase_order')
             ->orderBy('match_date')
             ->orderBy('id');
     }
