@@ -18,7 +18,7 @@ use Tests\TestCase;
 
 class LeagueControllerTest extends TestCase
 {
-    use RefreshDatabase, LinksUsersToLeagues;
+    use LinksUsersToLeagues, RefreshDatabase;
 
     protected function setUp(): void
     {

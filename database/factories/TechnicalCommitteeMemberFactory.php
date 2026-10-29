@@ -13,9 +13,9 @@ class TechnicalCommitteeMemberFactory extends Factory
     public function definition(): array
     {
         return [
-            'team_id'    => null,
-            'name'       => fake()->name(),
-            'role'       => fake()->randomElement(TechnicalCommitteeMember::roleValues()),
+            'team_id' => null,
+            'name' => fake()->name(),
+            'role' => fake()->randomElement(TechnicalCommitteeMember::roleValues()),
             'birth_date' => fake()->date(),
         ];
     }

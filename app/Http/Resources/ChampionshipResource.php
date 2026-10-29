@@ -10,7 +10,7 @@ class ChampionshipResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $response =  [
+        $response = [
             'id' => $this->id,
             'name' => $this->name,
             'image' => $this->image ? Storage::disk('public')->url($this->image) : null,

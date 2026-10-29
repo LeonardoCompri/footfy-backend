@@ -48,8 +48,8 @@ class ChampionshipService
     {
         $championship = $this->repository->show($id, ['leagues']);
 
-        if (!$championship) {
-            throw ValidationException::withMessages(["message" => "Campeonato não encontrado!"]);
+        if (! $championship) {
+            throw ValidationException::withMessages(['message' => 'Campeonato não encontrado!']);
         }
 
         return $championship;

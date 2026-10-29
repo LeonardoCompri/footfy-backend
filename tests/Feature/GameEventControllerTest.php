@@ -18,7 +18,7 @@ use Tests\TestCase;
 
 class GameEventControllerTest extends TestCase
 {
-    use RefreshDatabase, LinksUsersToLeagues;
+    use LinksUsersToLeagues, RefreshDatabase;
 
     protected function setUp(): void
     {
