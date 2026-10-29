@@ -42,6 +42,12 @@ class PlayerRepository
         return Player::find($id);
     }
 
+    // Jogador vinculado ao usuário (players.user_id), inclusive se removido (soft delete).
+    public function findByUserIdWithTrashed(int $userId): ?Player
+    {
+        return Player::withTrashed()->where('user_id', $userId)->first();
+    }
+
     public function update(Player $player): bool
     {
         return $player->save();

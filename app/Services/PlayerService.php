@@ -7,6 +7,7 @@ use App\Models\Team;
 use App\Repositories\PlayerRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
@@ -81,6 +82,30 @@ class PlayerService
             }
 
             $this->ensureUserCanWriteToTeam($data['team_id']);
+        }
+
+        $player->fill($data);
+
+        $this->repository->update($player);
+
+        return $player;
+    }
+
+    /**
+     * PUT /me/player: o usuário edita o jogador vinculado à própria conta (players.user_id).
+     * Sem vínculo lança ModelNotFoundException (404 no controller); jogador removido do elenco
+     * (soft delete) é recusado com 422. $data só traz os campos liberados (nome e nascimento).
+     */
+    public function updateOwnPlayer(array $data): Player
+    {
+        $player = $this->repository->findByUserIdWithTrashed(Auth::id());
+
+        if (! $player) {
+            throw new ModelNotFoundException('Nenhum jogador vinculado à sua conta.');
+        }
+
+        if ($player->trashed()) {
+            throw ValidationException::withMessages(['message' => 'Você foi removido do elenco.']);
         }
 
         $player->fill($data);
