@@ -52,14 +52,14 @@ class RoleSeeder extends Seeder
             'game_event:delete',
         ]);
 
-        // Sem player:delete por enquanto: o soft delete de jogador entrou na FOOT-0046; a permissão
-        // de excluir jogador para o coach vem na FOOT-0047.
+        // Escrita de jogador só no próprio time (users.team_id): access:player_write e PlayerService.
         $coach->syncPermissions([
             'team:read',
             'stadium:read',
             'player:read',
             'player:create',
             'player:update',
+            'player:delete',
         ]);
 
         // player:update volta só para PUT /me/player (FOOT-0048).

@@ -29,7 +29,8 @@ trait EnsuresLeagueAccess
     }
 
     // O time precisa estar vinculado (pivot league_team) a pelo menos uma liga do usuário.
-    protected function ensureUserHasAccessToTeam(int|string $teamId): void
+    // Sem time (null) só master passa.
+    protected function ensureUserHasAccessToTeam(int|string|null $teamId): void
     {
         $user = Auth::user();
 
@@ -38,7 +39,7 @@ trait EnsuresLeagueAccess
         }
 
         $leagueIds = $user->leagueIds();
-        $hasAccess = Team::whereKey($teamId)
+        $hasAccess = $teamId !== null && Team::whereKey($teamId)
             ->whereHas('leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
             ->exists();
 

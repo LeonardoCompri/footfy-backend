@@ -18,12 +18,13 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
 
     Route::middleware(['role:master|admin'])->prefix('/users')->name('users.')->group(function () {
         Route::get('/', [UserController::class, 'index'])->name('index');
+        // Admin só cria coach e player (access:user_create); time/jogador nas suas ligas (UserService).
+        Route::post('/', [UserController::class, 'store'])->name('store')->middleware('access:user_create');
         Route::get('/{id}', [UserController::class, 'show'])->name('show')->middleware('access:user');
         Route::put('/{id}', [UserController::class, 'update'])->name('update')->middleware('access:user_write');
     });
 
     Route::middleware(['role:master'])->prefix('/users')->name('users.')->group(function () {
-        Route::post('/', [UserController::class, 'store'])->name('store');
         Route::delete('/{id}', [UserController::class, 'destroy'])->name('destroy');
         Route::post('/{id}/leagues', [UserController::class, 'syncLeagues'])->name('leagues.sync');
         Route::delete('/{id}/leagues/{lid}', [UserController::class, 'removeLeague'])->name('leagues.remove');
@@ -63,8 +64,8 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::get('/positions', [PlayerController::class, 'positions'])->name('positions');
         Route::get('/{id}', [PlayerController::class, 'show'])->name('show')->middleware('access:player');
         Route::post('/', [PlayerController::class, 'store'])->name('store')->middleware('permission:player:create');
-        Route::put('/{id}', [PlayerController::class, 'update'])->name('update')->middleware(['permission:player:update', 'access:player']);
-        Route::delete('/{id}', [PlayerController::class, 'destroy'])->name('destroy')->middleware(['permission:player:delete', 'access:player']);
+        Route::put('/{id}', [PlayerController::class, 'update'])->name('update')->middleware(['permission:player:update', 'access:player_write']);
+        Route::delete('/{id}', [PlayerController::class, 'destroy'])->name('destroy')->middleware(['permission:player:delete', 'access:player_write']);
     });
 
     Route::prefix('/stadiums')->name('stadiums.')->group(function () {

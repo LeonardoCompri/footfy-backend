@@ -11,11 +11,12 @@ use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Concerns\LinksUsersToLeagues;
 use Tests\TestCase;
 
 class TechnicalCommitteeMemberControllerTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, LinksUsersToLeagues;
 
     protected function setUp(): void
     {
@@ -46,13 +47,13 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         return $user;
     }
 
-    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas. */
+    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas (coach/player via time). */
     private function authenticateAs(string $role, array $leagueIds = []): User
     {
         $user = User::factory()->create();
         $user->assignRole($role);
         if (! empty($leagueIds)) {
-            $user->leagues()->sync($leagueIds);
+            $this->linkUserToLeagues($user, $leagueIds);
         }
         Sanctum::actingAs($user);
 

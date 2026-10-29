@@ -21,6 +21,9 @@ class UpdateCoachAndPlayerPermissionsMigrationTest extends TestCase
 
     private const NEW_COACH = ['player:create', 'player:read', 'player:update', 'stadium:read', 'team:read'];
 
+    /** Lista atual do RoleSeeder: a FOOT-0047 deu player:delete ao coach (migration própria). */
+    private const SEEDER_COACH = ['player:create', 'player:delete', 'player:read', 'player:update', 'stadium:read', 'team:read'];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -86,6 +89,7 @@ class UpdateCoachAndPlayerPermissionsMigrationTest extends TestCase
     {
         $this->seedLegacyRoles();
         $this->migration()->up();
+        (require database_path('migrations/2026_10_28_000002_add_player_delete_permission_to_coach.php'))->up();
         $migrated = ['coach' => $this->permissionNames('coach'), 'player' => $this->permissionNames('player')];
 
         $this->seed(RoleSeeder::class);
@@ -106,7 +110,7 @@ class UpdateCoachAndPlayerPermissionsMigrationTest extends TestCase
         $this->assertSame(4, Role::count());
         $this->assertSame($pivotRows, DB::table('role_has_permissions')->count());
         $this->assertSame($permissions, Role::findByName('master')->permissions()->count());
-        $this->assertSame(self::NEW_COACH, $this->permissionNames('coach'));
+        $this->assertSame(self::SEEDER_COACH, $this->permissionNames('coach'));
         $this->assertSame(['player:read'], $this->permissionNames('player'));
     }
 }

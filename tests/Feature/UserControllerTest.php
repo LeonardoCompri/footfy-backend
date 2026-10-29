@@ -3,16 +3,19 @@
 namespace Tests\Feature;
 
 use App\Models\League;
+use App\Models\Player;
+use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\LinksUsersToLeagues;
 use Tests\TestCase;
 
 class UserControllerTest extends TestCase
 {
-    use RefreshDatabase;
+    use RefreshDatabase, LinksUsersToLeagues;
 
     protected function setUp(): void
     {
@@ -42,12 +45,13 @@ class UserControllerTest extends TestCase
         return $user;
     }
 
+    /** Usuário com o papel nas ligas informadas (coach/player via time, ver LinksUsersToLeagues). */
     private function createUserWithRole(string $role, array $leagueIds = []): User
     {
         $user = User::factory()->create();
         $user->assignRole($role);
         if ($leagueIds) {
-            $user->leagues()->attach($leagueIds);
+            $this->linkUserToLeagues($user, $leagueIds);
         }
 
         return $user;
@@ -440,7 +444,7 @@ class UserControllerTest extends TestCase
     {
         $this->authenticate();
         $league = League::factory()->create();
-        $target = $this->createUserWithRole('coach', [$league->id]);
+        $target = $this->createUserWithRole('admin', [$league->id]);
 
         $this->deleteJson("/api/users/{$target->id}/leagues/{$league->id}abc")->assertNotFound();
         $this->assertTrue($target->fresh()->leagues->contains($league->id));
@@ -463,7 +467,7 @@ class UserControllerTest extends TestCase
         $admin = $this->authenticateAsAdmin();
         $league = League::factory()->create();
         $admin->leagues()->attach($league->id);
-        $target = $this->createUserWithRole('coach', [$league->id]);
+        $target = $this->createUserWithRole('admin', [$league->id]);
 
         $this->deleteJson("/api/users/{$target->id}/leagues/{$league->id}")->assertForbidden();
         $this->assertDatabaseHas('user_leagues', ['user_id' => $target->id, 'league_id' => $league->id]);
@@ -490,13 +494,14 @@ class UserControllerTest extends TestCase
             ->assertJsonPath('data.name', 'Outro Master');
     }
 
-    public function test_admin_cannot_create_user(): void
+    public function test_admin_cannot_create_admin_user(): void
     {
         $this->authenticateAsAdmin();
 
         $response = $this->postJson('/api/users', $this->validUserPayload());
 
         $response->assertForbidden();
+        $this->assertDatabaseMissing('users', ['document' => '98765432100']);
     }
 
     // ── Master: CRUD de usuários ──────────────────────────────────────────────
@@ -726,5 +731,390 @@ class UserControllerTest extends TestCase
 
         $response->assertForbidden();
         $this->assertDatabaseHas('users', ['id' => $target->id]);
+    }
+
+    // ── Vínculo coach → time e player → jogador (FOOT-0047) ──────────────────
+
+    /** Time vinculado às ligas informadas. */
+    private function teamInLeagues(array $leagueIds): Team
+    {
+        $team = Team::factory()->create();
+        $team->leagues()->attach($leagueIds);
+
+        return $team;
+    }
+
+    /** Admin autenticado numa liga nova; devolve [admin, liga]. */
+    private function adminWithLeague(): array
+    {
+        $admin = $this->authenticateAsAdmin();
+        $league = League::factory()->create();
+        $admin->leagues()->attach($league->id);
+
+        return [$admin, $league];
+    }
+
+    public function test_admin_can_create_coach_with_team_of_own_league(): void
+    {
+        [, $league] = $this->adminWithLeague();
+        $team = $this->teamInLeagues([$league->id]);
+
+        $response = $this->postJson('/api/users', $this->validUserPayload(['role' => 'coach', 'team_id' => $team->id]));
+
+        $response->assertCreated()
+            ->assertJsonPath('data.roles.0', 'coach')
+            ->assertJsonPath('data.team.id', $team->id)
+            ->assertJsonPath('data.player', null);
+        $coach = User::where('document', '98765432100')->first();
+        $this->assertSame($team->id, $coach->team_id);
+        $this->assertSame([$league->id], $coach->leagueIds());
+
+        // E passa a aparecer na listagem do admin (liga derivada do time).
+        $ids = collect($this->getJson('/api/users')->assertOk()->json('data'))->pluck('id');
+        $this->assertContains($coach->id, $ids);
+    }
+
+    public function test_admin_can_create_player_linked_to_player_of_own_league(): void
+    {
+        [, $league] = $this->adminWithLeague();
+        $team = $this->teamInLeagues([$league->id]);
+        $player = Player::factory()->create(['team_id' => $team->id]);
+
+        $response = $this->postJson('/api/users', $this->validUserPayload(['role' => 'player', 'player_id' => $player->id]));
+
+        $response->assertCreated()
+            ->assertJsonPath('data.player.id', $player->id)
+            ->assertJsonPath('data.team.id', $team->id);
+        $user = User::where('document', '98765432100')->first();
+        $this->assertSame($user->id, $player->fresh()->user_id);
+        $this->assertSame([$league->id], $user->leagueIds());
+    }
+
+    public function test_admin_cannot_create_coach_with_team_of_other_league(): void
+    {
+        $this->adminWithLeague();
+        $team = $this->teamInLeagues([League::factory()->create()->id]);
+
+        $this->postJson('/api/users', $this->validUserPayload(['role' => 'coach', 'team_id' => $team->id]))
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+        $this->assertDatabaseMissing('users', ['document' => '98765432100']);
+    }
+
+    public function test_admin_cannot_create_player_linked_to_player_of_other_league_or_without_team(): void
+    {
+        $this->adminWithLeague();
+        $outside = Player::factory()->create(['team_id' => $this->teamInLeagues([League::factory()->create()->id])->id]);
+        $withoutTeam = Player::factory()->create(['team_id' => null]);
+
+        foreach ([$outside, $withoutTeam] as $player) {
+            $this->postJson('/api/users', $this->validUserPayload(['role' => 'player', 'player_id' => $player->id]))
+                ->assertStatus(422)
+                ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+        }
+        $this->assertDatabaseMissing('users', ['document' => '98765432100']);
+    }
+
+    public static function privilegedRolesProvider(): array
+    {
+        return ['admin' => ['admin'], 'master' => ['master']];
+    }
+
+    #[DataProvider('privilegedRolesProvider')]
+    public function test_admin_cannot_create_admin_or_master(string $role): void
+    {
+        $this->adminWithLeague();
+
+        $this->postJson('/api/users', $this->validUserPayload(['role' => $role]))
+            ->assertForbidden()
+            ->assertJson(['message' => 'Você não tem acesso a este recurso.']);
+        $this->assertDatabaseMissing('users', ['document' => '98765432100']);
+    }
+
+    public function test_admin_must_link_team_or_player_when_creating_coach_or_player(): void
+    {
+        $this->adminWithLeague();
+
+        $this->postJson('/api/users', $this->validUserPayload(['role' => 'coach']))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['team_id' => 'Informe o time do coach.']);
+        $this->postJson('/api/users', $this->validUserPayload(['role' => 'player']))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['player_id' => 'Informe o jogador vinculado ao usuário.']);
+    }
+
+    public function test_master_can_create_coach_without_team(): void
+    {
+        $this->authenticate();
+
+        $this->postJson('/api/users', $this->validUserPayload(['role' => 'coach']))
+            ->assertCreated()
+            ->assertJsonPath('data.team', null);
+    }
+
+    public function test_master_can_create_coach_with_team_of_any_league(): void
+    {
+        $this->authenticate();
+        $team = $this->teamInLeagues([League::factory()->create()->id]);
+
+        $this->postJson('/api/users', $this->validUserPayload(['role' => 'coach', 'team_id' => $team->id]))
+            ->assertCreated()
+            ->assertJsonPath('data.team.id', $team->id);
+    }
+
+    public static function linkNotAllowedForRoleProvider(): array
+    {
+        return [
+            'time em admin' => ['admin', 'team_id'],
+            'time em master' => ['master', 'team_id'],
+            'time em player' => ['player', 'team_id'],
+            'jogador em admin' => ['admin', 'player_id'],
+            'jogador em coach' => ['coach', 'player_id'],
+        ];
+    }
+
+    #[DataProvider('linkNotAllowedForRoleProvider')]
+    public function test_store_rejects_link_that_does_not_match_role(string $role, string $field): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        $value = $field === 'team_id' ? $team->id : Player::factory()->create(['team_id' => $team->id])->id;
+
+        $this->postJson('/api/users', $this->validUserPayload(['role' => $role, $field => $value]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors($field);
+        $this->assertDatabaseMissing('users', ['document' => '98765432100']);
+    }
+
+    public function test_admin_cannot_link_team_to_himself(): void
+    {
+        [$admin, $league] = $this->adminWithLeague();
+        $team = $this->teamInLeagues([$league->id]);
+
+        $this->putJson("/api/users/{$admin->id}", ['team_id' => $team->id])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['team_id' => 'Só usuários com papel coach podem ser vinculados a um time.']);
+        $this->assertNull($admin->fresh()->team_id);
+    }
+
+    public function test_team_cannot_be_linked_to_two_coaches(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        User::factory()->create(['team_id' => $team->id])->assignRole('coach');
+
+        $this->postJson('/api/users', $this->validUserPayload(['role' => 'coach', 'team_id' => $team->id]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['team_id' => 'Este time já está vinculado a outro coach.']);
+    }
+
+    public function test_player_cannot_be_linked_to_two_users(): void
+    {
+        $this->authenticate();
+        $other = $this->createUserWithRole('player');
+        $player = Player::factory()->create(['team_id' => Team::factory()->create()->id, 'user_id' => $other->id]);
+
+        $this->postJson('/api/users', $this->validUserPayload(['role' => 'player', 'player_id' => $player->id]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['player_id' => 'Este jogador já está vinculado a outro usuário.']);
+        $this->assertSame($other->id, $player->fresh()->user_id);
+    }
+
+    public function test_removed_player_cannot_be_linked(): void
+    {
+        $this->authenticate();
+        $player = Player::factory()->create(['team_id' => Team::factory()->create()->id]);
+        $player->delete();
+
+        $this->postJson('/api/users', $this->validUserPayload(['role' => 'player', 'player_id' => $player->id]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['player_id' => 'O jogador informado foi removido ou não existe.']);
+    }
+
+    public function test_link_fields_sent_as_array_return_422(): void
+    {
+        $this->authenticate();
+        $player = Player::factory()->create(['team_id' => Team::factory()->create()->id]);
+
+        $this->postJson('/api/users', $this->validUserPayload(['role' => 'player', 'player_id' => [$player->id]]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('player_id');
+        $this->postJson('/api/users', $this->validUserPayload(['role' => ['coach'], 'team_id' => 1]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('role');
+    }
+
+    public function test_admin_can_change_team_of_coach_within_own_leagues_only(): void
+    {
+        [, $league] = $this->adminWithLeague();
+        $coach = $this->createUserWithRole('coach', [$league->id]);
+        $newTeam = $this->teamInLeagues([$league->id]);
+        $outsideTeam = $this->teamInLeagues([League::factory()->create()->id]);
+
+        $this->putJson("/api/users/{$coach->id}", ['team_id' => $outsideTeam->id])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+        $this->putJson("/api/users/{$coach->id}", ['team_id' => null])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('team_id');
+
+        $this->putJson("/api/users/{$coach->id}", ['team_id' => $newTeam->id])
+            ->assertOk()
+            ->assertJsonPath('data.team.id', $newTeam->id);
+        $this->assertSame($newTeam->id, $coach->fresh()->team_id);
+    }
+
+    public function test_master_can_switch_linked_player_and_unlink(): void
+    {
+        $this->authenticate();
+        $user = $this->createUserWithRole('player', [League::factory()->create()->id]);
+        $old = $user->player;
+        $new = Player::factory()->create(['team_id' => Team::factory()->create()->id]);
+
+        $this->putJson("/api/users/{$user->id}", ['player_id' => $new->id])
+            ->assertOk()
+            ->assertJsonPath('data.player.id', $new->id);
+        $this->assertNull($old->fresh()->user_id);
+        $this->assertSame($user->id, $new->fresh()->user_id);
+
+        $this->putJson("/api/users/{$user->id}", ['player_id' => null])
+            ->assertOk()
+            ->assertJsonPath('data.player', null)
+            ->assertJsonPath('data.team', null);
+        $this->assertNull($new->fresh()->user_id);
+    }
+
+    public function test_changing_role_clears_previous_link(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $coach = $this->createUserWithRole('coach', [$league->id]);
+        $player = $this->createUserWithRole('player', [$league->id]);
+        $linkedPlayer = $player->player;
+
+        $this->putJson("/api/users/{$coach->id}", ['role' => 'admin'])
+            ->assertOk()
+            ->assertJsonPath('data.team', null);
+        $this->assertNull($coach->fresh()->team_id);
+
+        $team = Team::factory()->create();
+        $this->putJson("/api/users/{$player->id}", ['role' => 'coach', 'team_id' => $team->id])
+            ->assertOk()
+            ->assertJsonPath('data.team.id', $team->id)
+            ->assertJsonPath('data.player', null);
+        $this->assertNull($linkedPlayer->fresh()->user_id);
+    }
+
+    public function test_changing_role_to_coach_drops_manual_leagues(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $admin = $this->createUserWithRole('admin', [$league->id]);
+        $team = $this->teamInLeagues([$teamLeague = League::factory()->create()->id]);
+
+        $this->putJson("/api/users/{$admin->id}", ['role' => 'coach', 'team_id' => $team->id])
+            ->assertOk()
+            ->assertJsonPath('data.leagues', []);
+
+        $this->assertDatabaseMissing('user_leagues', ['user_id' => $admin->id]);
+        $this->assertSame([$teamLeague], $admin->fresh()->leagueIds());
+    }
+
+    public function test_show_returns_team_and_player_links(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $coach = $this->createUserWithRole('coach', [$league->id]);
+        $player = $this->createUserWithRole('player', [$league->id]);
+
+        $this->getJson("/api/users/{$coach->id}")
+            ->assertOk()
+            ->assertJsonPath('data.team.id', $coach->team_id)
+            ->assertJsonPath('data.team.logo', null)
+            ->assertJsonPath('data.player', null);
+        $this->getJson("/api/users/{$player->id}")
+            ->assertOk()
+            ->assertJsonPath('data.player.id', $player->player->id)
+            ->assertJsonPath('data.team.id', $player->player->team_id);
+        $this->getJson('/api/users')
+            ->assertOk()
+            ->assertJsonStructure(['data' => [['id', 'team', 'player', 'leagues']]]);
+    }
+
+    public function test_master_cannot_sync_leagues_of_coach_or_player(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+
+        foreach (['coach', 'player'] as $role) {
+            $target = $this->createUserWithRole($role);
+
+            $this->postJson("/api/users/{$target->id}/leagues", ['league_ids' => [$league->id]])
+                ->assertStatus(422)
+                ->assertJson(['message' => 'As ligas de coach e player vêm do time vinculado; não é possível vincular ligas manualmente.']);
+            $this->assertDatabaseMissing('user_leagues', ['user_id' => $target->id]);
+        }
+    }
+
+    public function test_master_can_remove_legacy_manual_league_of_coach(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $coach = $this->createUserWithRole('coach');
+        $coach->leagues()->attach($league->id);
+
+        $this->deleteJson("/api/users/{$coach->id}/leagues/{$league->id}")->assertOk();
+
+        $this->assertDatabaseMissing('user_leagues', ['user_id' => $coach->id]);
+    }
+
+    // Ligas de coach/player vêm só do time: vínculo antigo em user_leagues não conta.
+    public function test_admin_does_not_see_coach_linked_only_by_legacy_user_leagues(): void
+    {
+        [, $league] = $this->adminWithLeague();
+        $legacy = $this->createUserWithRole('coach');
+        $legacy->leagues()->attach($league->id);
+
+        $this->getJson("/api/users/{$legacy->id}")->assertForbidden();
+        $this->putJson("/api/users/{$legacy->id}", ['name' => 'Hack'])->assertForbidden();
+        $ids = collect($this->getJson('/api/users')->assertOk()->json('data'))->pluck('id');
+        $this->assertNotContains($legacy->id, $ids);
+    }
+
+    public function test_league_ids_of_coach_and_player_come_from_team(): void
+    {
+        $league1 = League::factory()->create();
+        $league2 = League::factory()->create();
+        $team = $this->teamInLeagues([$league1->id, $league2->id]);
+        $coach = User::factory()->create(['team_id' => $team->id]);
+        $coach->assignRole('coach');
+        $playerUser = $this->createUserWithRole('player');
+        $player = Player::factory()->create(['team_id' => $team->id, 'user_id' => $playerUser->id]);
+        $unlinked = $this->createUserWithRole('coach');
+
+        $this->assertEqualsCanonicalizing([$league1->id, $league2->id], $coach->leagueIds());
+        $this->assertEqualsCanonicalizing([$league1->id, $league2->id], $playerUser->leagueIds());
+        $this->assertTrue($playerUser->hasLeagueId($league2->id));
+        $this->assertSame([], $unlinked->leagueIds());
+
+        // Jogador removido (soft delete): o usuário player fica sem ligas.
+        $player->delete();
+        $this->assertSame([], $playerUser->fresh()->leagueIds());
+        $this->assertFalse($playerUser->fresh()->hasLeagueId($league1->id));
+    }
+
+    public function test_deleting_team_or_user_keeps_the_other_side_without_link(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $coach = $this->createUserWithRole('coach', [$league->id]);
+        $playerUser = $this->createUserWithRole('player', [$league->id]);
+        $player = $playerUser->player;
+
+        Team::find($coach->team_id)->delete();
+        $this->deleteJson("/api/users/{$playerUser->id}")->assertStatus(204);
+
+        $this->assertNull($coach->fresh()->team_id);
+        $this->assertNull($player->fresh()->user_id);
     }
 }
