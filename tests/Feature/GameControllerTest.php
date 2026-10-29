@@ -891,6 +891,56 @@ class GameControllerTest extends TestCase
         $this->assertSame($expectedIds, array_column($items, 'id'));
     }
 
+    /** Percorre todas as páginas de GET /games e devolve os ids na ordem recebida. */
+    private function listGameIdsAcrossPages(int $leagueId, int $perPage, int $lastPage): array
+    {
+        $ids = [];
+        for ($page = 1; $page <= $lastPage; $page++) {
+            $response = $this->getJson("/api/games?league_id={$leagueId}&page={$page}&per_page={$perPage}");
+            $response->assertOk()->assertJsonPath('meta.last_page', $lastPage);
+            $ids = array_merge($ids, array_column($response->json('data'), 'id'));
+        }
+
+        return $ids;
+    }
+
+    public function test_index_orders_hybrid_league_rounds_before_knockout_phases_across_pages(): void
+    {
+        $league = League::factory()->create(['format' => 'hybrid']);
+        $at = fn (int $days) => now()->startOfDay()->addDays($days)->format('Y-m-d H:i:s');
+        // Criados fora da ordem esperada e com o mata-mata em datas anteriores às rodadas,
+        // para que só a ordenação "rodadas antes, mata-mata depois" reproduza a sequência.
+        $final = Game::factory()->create(['league_id' => $league->id, 'round' => null, 'phase' => 'Final', 'phase_order' => 2, 'match_date' => $at(1)]);
+        $round2 = Game::factory()->create(['league_id' => $league->id, 'round' => 2, 'match_date' => $at(20)]);
+        $semiB = Game::factory()->create(['league_id' => $league->id, 'round' => null, 'phase' => 'Semifinal', 'phase_order' => 1, 'match_date' => $at(3)]);
+        $round1B = Game::factory()->create(['league_id' => $league->id, 'round' => 1, 'match_date' => $at(11)]);
+        $semiA = Game::factory()->create(['league_id' => $league->id, 'round' => null, 'phase' => 'Semifinal', 'phase_order' => 1, 'match_date' => $at(2)]);
+        $round1A = Game::factory()->create(['league_id' => $league->id, 'round' => 1, 'match_date' => $at(10)]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $ids = $this->listGameIdsAcrossPages($league->id, 2, 3);
+
+        $this->assertSame(
+            [$round1A->id, $round1B->id, $round2->id, $semiA->id, $semiB->id, $final->id],
+            $ids
+        );
+    }
+
+    public function test_index_orders_knockout_league_by_phase_order_with_null_phase_order_last(): void
+    {
+        $league = League::factory()->create(['format' => 'knockout']);
+        $at = fn (int $days) => now()->startOfDay()->addDays($days)->format('Y-m-d H:i:s');
+        $noOrder = Game::factory()->create(['league_id' => $league->id, 'round' => null, 'phase' => 'Amistoso', 'phase_order' => null, 'match_date' => $at(1)]);
+        $final = Game::factory()->create(['league_id' => $league->id, 'round' => null, 'phase' => 'Final', 'phase_order' => 2, 'match_date' => $at(2)]);
+        $semiB = Game::factory()->create(['league_id' => $league->id, 'round' => null, 'phase' => 'Semifinal', 'phase_order' => 1, 'match_date' => $at(5)]);
+        $semiA = Game::factory()->create(['league_id' => $league->id, 'round' => null, 'phase' => 'Semifinal', 'phase_order' => 1, 'match_date' => $at(4)]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $ids = $this->listGameIdsAcrossPages($league->id, 3, 2);
+
+        $this->assertSame([$semiA->id, $semiB->id, $final->id, $noOrder->id], $ids);
+    }
+
     public function test_paginated_index_runs_constant_number_of_queries(): void
     {
         $this->authenticate();
