@@ -12,14 +12,14 @@ class GameRepository
     public function index(string $leagueId, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
         $query = Game::query()->with(['homeTeam', 'awayTeam', 'stadium'])->where('league_id', $leagueId);
-        
+
         $query = $this->applyFilters($query, $filters);
         $query = $this->orderedForListing($query);
 
-        if($paginate) {
+        if ($paginate) {
             $page = $filters['page'] ?? 1;
             $per_page = $filters['per_page'] ?? 20;
-    
+
             return $query->paginate(perPage: (int) $per_page, page: (int) $page);
         }
 

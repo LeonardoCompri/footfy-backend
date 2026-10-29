@@ -15,12 +15,12 @@ class UserStoreRequest extends FormRequest
         $role = is_string($this->input('role')) ? $this->input('role') : null;
 
         return [
-            'name'     => ['required', 'string', 'max:255'],
-            'email'    => ['nullable', 'email', 'unique:users,email'],
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['nullable', 'email', 'unique:users,email'],
             'document' => ['required', 'string', 'size:11', 'unique:users,document'],
             'password' => ['required', 'string', 'min:6'],
             // Quem não é master só cria coach e player: barrado antes, com 403, por access:user_create.
-            'role'     => ['required', 'string', 'in:master,admin,coach,player'],
+            'role' => ['required', 'string', 'in:master,admin,coach,player'],
             ...$this->userLinkRules($role, null, false),
         ];
     }

@@ -20,7 +20,7 @@ use Tests\TestCase;
 
 class GameControllerTest extends TestCase
 {
-    use RefreshDatabase, LinksUsersToLeagues;
+    use LinksUsersToLeagues, RefreshDatabase;
 
     protected function setUp(): void
     {
@@ -771,14 +771,14 @@ class GameControllerTest extends TestCase
         $prefix = "league_id={$s['league']->id}";
 
         $cases = [
-            "" => [$s['homeR1'], $s['awayR1'], $s['otherR1'], $s['awayR2'], $s['otherR2']],
-            "&round=1" => [$s['homeR1'], $s['awayR1'], $s['otherR1']],
-            "&phase=Final" => [$s['awayR2'], $s['otherR2']],
-            "&status=finished" => [$s['homeR1'], $s['otherR1'], $s['awayR2']],
+            '' => [$s['homeR1'], $s['awayR1'], $s['otherR1'], $s['awayR2'], $s['otherR2']],
+            '&round=1' => [$s['homeR1'], $s['awayR1'], $s['otherR1']],
+            '&phase=Final' => [$s['awayR2'], $s['otherR2']],
+            '&status=finished' => [$s['homeR1'], $s['otherR1'], $s['awayR2']],
             "&team_id={$s['team']->id}" => [$s['homeR1'], $s['awayR1'], $s['awayR2']],
             "&team_id={$s['team']->id}&round=1" => [$s['homeR1'], $s['awayR1']],
             "&team_id={$s['team']->id}&status=finished" => [$s['homeR1'], $s['awayR2']],
-            "&round=2&phase=Final&status=cancelled" => [$s['otherR2']],
+            '&round=2&phase=Final&status=cancelled' => [$s['otherR2']],
             "&team_id={$s['team']->id}&phase=Grupos&status=scheduled" => [$s['awayR1']],
         ];
 

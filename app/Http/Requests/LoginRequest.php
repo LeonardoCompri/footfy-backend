@@ -10,7 +10,7 @@ class LoginRequest extends FormRequest
     {
         return [
             'document' => ['required', 'string', 'regex:/^\d{3}\.?\d{3}\.?\d{3}\-?\d{2}$/'],
-            'password' => ['required', 'string']
+            'password' => ['required', 'string'],
         ];
     }
 }

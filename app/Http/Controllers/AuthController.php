@@ -17,9 +17,9 @@ class AuthController extends Controller
         $cpf = preg_replace('/\D/', '', $data['document']);
         $user = User::where('document', $cpf)->first();
 
-        if (!$user || !Hash::check($data['password'], $user->password)) {
+        if (! $user || ! Hash::check($data['password'], $user->password)) {
             return response()->json([
-                'message' => 'CPF ou senha inválidos'
+                'message' => 'CPF ou senha inválidos',
             ], 401);
         }
 
@@ -57,7 +57,7 @@ class AuthController extends Controller
         $request->user()->tokens()->delete();
 
         return response()->json([
-            'message' => 'Logout realizado'
+            'message' => 'Logout realizado',
         ]);
     }
 }

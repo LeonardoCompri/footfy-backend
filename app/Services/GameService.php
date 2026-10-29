@@ -23,7 +23,7 @@ class GameService
     public function index(string $leagueId, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
         $user = Auth::user();
-        if(!$user->isMaster() && !$user->hasLeagueId($leagueId)) {            
+        if (! $user->isMaster() && ! $user->hasLeagueId($leagueId)) {
             throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa liga.']);
         }
 

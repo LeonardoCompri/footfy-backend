@@ -28,6 +28,9 @@ jobs:
       - name: Instalar dependencias
         run: composer install --no-interaction --prefer-dist --no-progress
 
+      - name: Pint
+        run: vendor/bin/pint --test
+
       - name: Preparar ambiente
         run: |
           cp .env.example .env

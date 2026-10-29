@@ -49,8 +49,8 @@ class StadiumService
     {
         $stadium = $this->repository->show($id);
 
-        if (!$stadium) {
-            throw ValidationException::withMessages(["message" => "Estádio não encontrado!"]);
+        if (! $stadium) {
+            throw ValidationException::withMessages(['message' => 'Estádio não encontrado!']);
         }
 
         return $stadium;
