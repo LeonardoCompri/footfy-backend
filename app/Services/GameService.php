@@ -79,8 +79,9 @@ class GameService
             }
         });
 
-        // show() já carregou `events`; recarrega para a resposta não sair com o league_id antigo.
-        return $leagueChanged ? $game->load(['events.player', 'events.relatedPlayer']) : $game;
+        // show() carregou as relações antes do fill: recarrega para a resposta não sair com times,
+        // estádio ou league_id dos eventos antigos (refresh() não recarregaria events.player).
+        return $game->load(self::SHOW_RELATIONS);
     }
 
     public function destroy(string $id): ?bool

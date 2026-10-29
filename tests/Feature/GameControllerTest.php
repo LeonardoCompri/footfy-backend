@@ -1351,4 +1351,62 @@ class GameControllerTest extends TestCase
             ->assertJsonPath('data.events.1.player.id', $scorer->id)
             ->assertJsonPath('data.events.0.related_player', null);
     }
+
+    // ── Relações na resposta do update (FOOT-0050) ──────────────────────────
+
+    public function test_update_away_team_returns_new_away_team(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $game = $this->gameWithTeamsInLeague($league);
+        $newAway = Team::factory()->create();
+        $league->teams()->attach($newAway->id);
+
+        $this->putJson("/api/games/{$game->id}", ['away_team_id' => $newAway->id])
+            ->assertOk()
+            ->assertJsonPath('data.away_team_id', $newAway->id)
+            ->assertJsonPath('data.awayTeam.id', $newAway->id)
+            ->assertJsonPath('data.homeTeam.id', $game->home_team_id);
+    }
+
+    public function test_update_home_team_returns_new_home_team(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $game = $this->gameWithTeamsInLeague($league);
+        $newHome = Team::factory()->create();
+        $league->teams()->attach($newHome->id);
+
+        $this->putJson("/api/games/{$game->id}", ['home_team_id' => $newHome->id])
+            ->assertOk()
+            ->assertJsonPath('data.home_team_id', $newHome->id)
+            ->assertJsonPath('data.homeTeam.id', $newHome->id)
+            ->assertJsonPath('data.awayTeam.id', $game->away_team_id);
+    }
+
+    public function test_update_stadium_returns_new_stadium(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $oldStadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $newStadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $game = $this->gameWithTeamsInLeague($league, ['stadium_id' => $oldStadium->id]);
+
+        $this->putJson("/api/games/{$game->id}", ['stadium_id' => $newStadium->id])
+            ->assertOk()
+            ->assertJsonPath('data.stadium_id', $newStadium->id)
+            ->assertJsonPath('data.stadium.id', $newStadium->id);
+    }
+
+    public function test_update_without_changing_league_returns_events_with_player(): void
+    {
+        $this->authenticate();
+        [$game, $scorer] = $this->gameWithEventsMovableTo(League::factory()->create());
+
+        $this->putJson("/api/games/{$game->id}", ['home_score' => 3])
+            ->assertOk()
+            ->assertJsonCount(2, 'data.events')
+            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'removed' => false])
+            ->assertJsonPath('data.events.0.related_player', null);
+    }
 }
