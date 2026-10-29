@@ -75,6 +75,22 @@ class UserService
         return DB::transaction(fn () => $this->repository->update($user, $data));
     }
 
+    // Conta do usuário autenticado (GET /me), com as mesmas relações do show().
+    public function showProfile(): User
+    {
+        return $this->show((string) Auth::id());
+    }
+
+    /**
+     * PUT /me: o usuário edita a própria conta. $data só traz nome, e-mail e senha
+     * (ProfileUpdateRequest); papel, time, jogador e ligas não mudam por aqui.
+     */
+    public function updateProfile(array $data): User
+    {
+        // Defesa extra: o UserRepository::update reage a role/player_id/team_id se vierem.
+        return $this->repository->update($this->showProfile(), Arr::only($data, ['name', 'email', 'password']));
+    }
+
     public function destroy(string $id): ?bool
     {
         $user = $this->show($id);

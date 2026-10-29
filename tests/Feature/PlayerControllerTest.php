@@ -549,6 +549,7 @@ class PlayerControllerTest extends TestCase
         $this->getJson("/api/leagues/{$league->id}")->assertForbidden();
     }
 
+    // Player tem player:update (só para PUT /me/player, FOOT-0048): aqui quem barra é o access:player_write.
     public function test_player_cannot_update_player(): void
     {
         [$league, $team] = $this->teamInLeague();
@@ -558,7 +559,7 @@ class PlayerControllerTest extends TestCase
         $response = $this->putJson("/api/players/{$player->id}", ['name' => 'Novo']);
 
         $response->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
         $this->assertDatabaseHas('players', ['id' => $player->id, 'name' => 'Antigo']);
     }
 

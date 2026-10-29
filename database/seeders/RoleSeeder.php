@@ -62,9 +62,11 @@ class RoleSeeder extends Seeder
             'player:delete',
         ]);
 
-        // player:update volta só para PUT /me/player (FOOT-0048).
+        // player:update só vale em PUT /me/player (FOOT-0048): em PUT /players/{id} o
+        // access:player_write nega o papel player.
         $player->syncPermissions([
             'player:read',
+            'player:update',
         ]);
     }
 }

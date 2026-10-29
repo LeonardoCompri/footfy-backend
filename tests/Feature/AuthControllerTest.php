@@ -96,7 +96,8 @@ class AuthControllerTest extends TestCase
         $response = $this->login();
 
         $response->assertOk();
-        $this->assertSame(['player:read'], $this->responsePermissionNames($response));
+        // player:update só vale em PUT /me/player (FOOT-0048).
+        $this->assertSame(['player:read', 'player:update'], $this->responsePermissionNames($response));
     }
 
     public function test_login_returns_union_of_direct_and_role_permissions(): void
@@ -108,7 +109,7 @@ class AuthControllerTest extends TestCase
         $response = $this->login();
 
         $response->assertOk();
-        $this->assertSame(['game:read', 'player:read'], $this->responsePermissionNames($response));
+        $this->assertSame(['game:read', 'player:read', 'player:update'], $this->responsePermissionNames($response));
     }
 
     public function test_login_with_multiple_roles_does_not_duplicate_permissions(): void
