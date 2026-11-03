@@ -571,7 +571,7 @@ class PlayerControllerTest extends TestCase
         $response = $this->postJson('/api/players', ['team_id' => $team->id, 'name' => 'Intruso']);
 
         $response->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->assertDatabaseMissing('players', ['name' => 'Intruso']);
     }
 
@@ -584,7 +584,7 @@ class PlayerControllerTest extends TestCase
         $response = $this->deleteJson("/api/players/{$player->id}");
 
         $response->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->assertDatabaseHas('players', ['id' => $player->id]);
     }
 

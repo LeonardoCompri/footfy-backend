@@ -1,0 +1,12 @@
+{
+    "The given data was invalid.": "Os dados informados são inválidos.",
+    "(and :count more error)": "(e mais :count erro)",
+    "(and :count more errors)": "(e mais :count erros)",
+    "User does not have the right permissions.": "Você não tem permissão para realizar esta ação.",
+    "Necessary permissions are :permissions": "Permissões necessárias: :permissions",
+    "User does not have the right roles.": "Você não tem o papel necessário para realizar esta ação.",
+    "Necessary roles are :roles": "Papéis necessários: :roles",
+    "User does not have any of the necessary access rights.": "Você não tem nenhum dos acessos necessários para realizar esta ação.",
+    "Necessary roles or permissions are :values": "Papéis ou permissões necessários: :values",
+    "User is not logged in.": "Usuário não autenticado."
+}

@@ -606,13 +606,13 @@ class GameEventControllerTest extends TestCase
             'team_id' => $scenario['homeTeam']->id,
             'type' => 'goal',
             'minute' => 50,
-        ])->assertForbidden()->assertJsonPath('message', 'User does not have the right permissions.');
+        ])->assertForbidden()->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->putJson("/api/game-events/{$event->id}", ['minute' => 45])
             ->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->deleteJson("/api/game-events/{$event->id}")
             ->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
 
         $this->assertDatabaseCount('game_events', 1);
         $this->assertDatabaseHas('game_events', ['id' => $event->id, 'minute' => 10]);

@@ -429,13 +429,13 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
             'team_id' => $team->id,
             'name' => 'Intruso',
             'role' => 'Treinador',
-        ])->assertForbidden()->assertJsonPath('message', 'User does not have the right permissions.');
+        ])->assertForbidden()->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->putJson("/api/technical-committee-members/{$member->id}", ['name' => 'Novo'])
             ->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->deleteJson("/api/technical-committee-members/{$member->id}")
             ->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
 
         $this->assertDatabaseMissing('technical_committee_members', ['name' => 'Intruso']);
         $this->assertDatabaseHas('technical_committee_members', ['id' => $member->id, 'name' => 'Original']);

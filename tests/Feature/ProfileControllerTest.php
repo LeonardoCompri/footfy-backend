@@ -372,7 +372,7 @@ class ProfileControllerTest extends TestCase
 
         $this->putJson('/api/me/player', ['name' => 'Nome Novo'])
             ->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->assertSame('Nome Antigo', $player->fresh()->name);
     }
 

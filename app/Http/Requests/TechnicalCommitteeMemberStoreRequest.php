@@ -24,4 +24,12 @@ class TechnicalCommitteeMemberStoreRequest extends FormRequest
             'role.in' => 'A função informada é inválida.',
         ];
     }
+
+    // Aqui role é a função na comissão técnica, não o papel do usuário (validation.attributes.role).
+    public function attributes(): array
+    {
+        return [
+            'role' => 'função',
+        ];
+    }
 }
