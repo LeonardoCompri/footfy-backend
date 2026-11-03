@@ -412,7 +412,7 @@ class LeagueControllerTest extends TestCase
         $response = $this->putJson("/api/leagues/{$league->id}", ['organizer' => 'Novo']);
 
         $response->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->assertDatabaseHas('leagues', ['id' => $league->id, 'organizer' => 'Antigo']);
     }
 

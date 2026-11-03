@@ -1023,13 +1023,13 @@ class GameControllerTest extends TestCase
 
         $this->postJson('/api/games', $payload)
             ->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->putJson("/api/games/{$game->id}", ['status' => 'finished'])
             ->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->deleteJson("/api/games/{$game->id}")
             ->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
 
         $this->assertDatabaseCount('games', 1);
         $this->assertDatabaseHas('games', ['id' => $game->id, 'status' => 'scheduled']);

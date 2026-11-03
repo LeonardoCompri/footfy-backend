@@ -330,7 +330,7 @@ class StadiumControllerTest extends TestCase
         $response = $this->deleteJson("/api/stadiums/{$stadium->id}");
 
         $response->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->assertDatabaseHas('stadiums', ['id' => $stadium->id]);
     }
 
@@ -405,7 +405,7 @@ class StadiumControllerTest extends TestCase
         ]);
 
         $response->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->assertDatabaseMissing('stadiums', ['name' => 'Arena do Coach']);
     }
 
@@ -424,7 +424,7 @@ class StadiumControllerTest extends TestCase
         $response = $this->putJson("/api/stadiums/{$stadium->id}", ['capacity' => 5000]);
 
         $response->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->assertDatabaseHas('stadiums', ['id' => $stadium->id, 'capacity' => 1000]);
     }
 
@@ -438,7 +438,7 @@ class StadiumControllerTest extends TestCase
             'name' => 'Arena do Player',
             'city' => 'Recife',
             'capacity' => 1000,
-        ])->assertForbidden()->assertJsonPath('message', 'User does not have the right permissions.');
+        ])->assertForbidden()->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->assertDatabaseMissing('stadiums', ['name' => 'Arena do Player']);
     }
 

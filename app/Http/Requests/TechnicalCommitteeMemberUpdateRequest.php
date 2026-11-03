@@ -25,6 +25,14 @@ class TechnicalCommitteeMemberUpdateRequest extends FormRequest
         ];
     }
 
+    // Aqui role é a função na comissão técnica, não o papel do usuário (validation.attributes.role).
+    public function attributes(): array
+    {
+        return [
+            'role' => 'função',
+        ];
+    }
+
     /**
      * Lista oficial + o role já gravado no registro editado: um membro legado
      * (role fora da lista) pode ser editado em outros campos reenviando o mesmo
