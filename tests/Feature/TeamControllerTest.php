@@ -854,7 +854,7 @@ class TeamControllerTest extends TestCase
         $response = $this->putJson("/api/teams/{$team->id}", ['nickname' => 'NEW']);
 
         $response->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->assertDatabaseHas('teams', ['id' => $team->id, 'nickname' => 'OLD']);
     }
 
@@ -902,7 +902,7 @@ class TeamControllerTest extends TestCase
         $response = $this->json($method, $url, ['name' => 'Time Novo', 'league_ids' => [$league->id]]);
 
         $response->assertForbidden()
-            ->assertJsonPath('message', 'User does not have the right permissions.');
+            ->assertJsonPath('message', 'Você não tem permissão para realizar esta ação.');
         $this->assertDatabaseCount('teams', $teamCount);
         $this->assertDatabaseHas('teams', ['id' => $team->id, 'name' => 'Time Original']);
         $this->assertDatabaseHas('league_team', ['team_id' => $team->id, 'league_id' => $league->id]);
