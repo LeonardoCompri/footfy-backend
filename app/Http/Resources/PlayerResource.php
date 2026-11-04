@@ -16,7 +16,7 @@ class PlayerResource extends JsonResource
             'position' => $this->position,
             'number' => $this->number,
             'birth_date' => $this->birth_date,
-            'document' => $this->document,
+            'document' => $this->when(! $request->routeIs('public.*'), $this->document),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

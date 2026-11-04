@@ -299,6 +299,27 @@ class PlayerControllerTest extends TestCase
         $response->assertOk()->assertJsonPath('data.id', $player->id);
     }
 
+    public function test_public_show_hides_player_document_but_keeps_birth_date(): void
+    {
+        $player = Player::factory()->create(['birth_date' => '2000-05-10']);
+
+        $this->getJson("/api/public/players/{$player->id}")
+            ->assertOk()
+            ->assertJsonMissingPath('data.document')
+            ->assertJsonPath('data.name', $player->name)
+            ->assertJsonPath('data.birth_date', '2000-05-10');
+    }
+
+    public function test_authenticated_show_still_returns_player_document(): void
+    {
+        $this->authenticate();
+        $player = Player::factory()->create();
+
+        $this->getJson("/api/players/{$player->id}")
+            ->assertOk()
+            ->assertJsonPath('data.document', $player->document);
+    }
+
     public function test_guest_show_via_public_route_returns_error_when_not_found(): void
     {
         $response = $this->getJson('/api/public/players/999');
