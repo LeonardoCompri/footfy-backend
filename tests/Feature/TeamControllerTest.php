@@ -700,6 +700,28 @@ class TeamControllerTest extends TestCase
             ->assertJsonPath('data.technicalCommitteeMembers.0.id', $member->id);
     }
 
+    public function test_public_show_hides_players_document(): void
+    {
+        $team = Team::factory()->create();
+        $player = \App\Models\Player::factory()->create(['team_id' => $team->id]);
+
+        $this->getJson("/api/public/teams/{$team->id}")
+            ->assertOk()
+            ->assertJsonPath('data.players.0.id', $player->id)
+            ->assertJsonMissingPath('data.players.0.document');
+    }
+
+    public function test_authenticated_show_still_returns_players_document(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        $player = \App\Models\Player::factory()->create(['team_id' => $team->id]);
+
+        $this->getJson("/api/teams/{$team->id}")
+            ->assertOk()
+            ->assertJsonPath('data.players.0.document', $player->document);
+    }
+
     public function test_guest_show_via_public_route_returns_error_when_not_found(): void
     {
         $response = $this->getJson('/api/public/teams/999');
