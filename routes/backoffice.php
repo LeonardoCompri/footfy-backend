@@ -56,7 +56,8 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::get('/{id}', [ChampionshipController::class, 'show'])->name('show');
         Route::post('/', [ChampionshipController::class, 'store'])->name('store')->middleware('role:master');
         Route::put('/{id}', [ChampionshipController::class, 'update'])->name('update')->middleware('role:master');
-        Route::delete('/{id}', [ChampionshipController::class, 'destroy'])->name('destroy')->middleware('role:master');
+        // Exige a senha no corpo (ChampionshipDestroyRequest); throttle limita tentativas de senha.
+        Route::delete('/{id}', [ChampionshipController::class, 'destroy'])->name('destroy')->middleware(['role:master', 'throttle:5,1']);
     });
 
     Route::prefix('/teams')->name('teams.')->group(function () {

@@ -102,7 +102,8 @@ class ChampionshipService
         return $this->repository->loadLeagues($championship);
     }
 
-    // A imagem só é removida do disco depois que o registro foi apagado.
+    // Apaga em cascata as ligas (e partidas, eventos, estádios e vínculos delas); times,
+    // jogadores e usuários ficam. A imagem só sai do disco depois que o registro foi apagado.
     public function destroy(string $id): ?bool
     {
         $championship = $this->find($id);
