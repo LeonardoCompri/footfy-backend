@@ -668,6 +668,35 @@ class TeamControllerTest extends TestCase
         $this->assertDatabaseHas('teams', ['id' => $team->id]);
     }
 
+    public function test_delete_team_removes_only_its_logo(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $path = UploadedFile::fake()->image('logo.jpg')->store('teams', 'public');
+        $otherPath = UploadedFile::fake()->image('other.jpg')->store('teams', 'public');
+        $team = Team::factory()->create(['logo' => $path]);
+        $other = Team::factory()->create(['logo' => $otherPath]);
+
+        $this->deleteJson("/api/teams/{$team->id}")->assertStatus(204);
+
+        Storage::disk('public')->assertMissing($path);
+        Storage::disk('public')->assertExists($otherPath);
+        $this->assertDatabaseHas('teams', ['id' => $other->id, 'logo' => $otherPath]);
+    }
+
+    public function test_delete_team_with_games_keeps_logo(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $path = UploadedFile::fake()->image('logo.jpg')->store('teams', 'public');
+        $team = Team::factory()->create(['logo' => $path]);
+        \App\Models\Game::factory()->create(['home_team_id' => $team->id]);
+
+        $this->deleteJson("/api/teams/{$team->id}")->assertStatus(422);
+
+        Storage::disk('public')->assertExists($path);
+    }
+
     // ── TeamResource: elenco e comissão técnica ─────────────────────────────────
 
     public function test_show_returns_players_and_technical_committee_members(): void
