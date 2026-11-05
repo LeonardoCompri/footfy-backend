@@ -17,17 +17,14 @@ Route::post('/login', [AuthController::class, 'login'])->name('auth.login');
 Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('auth.logout');
 
-    // Conta do próprio usuário, para qualquer papel (sem access:*: o alvo é sempre o autenticado).
     Route::prefix('/me')->name('profile.')->group(function () {
         Route::get('/', [ProfileController::class, 'show'])->name('show');
         Route::put('/', [ProfileController::class, 'update'])->name('update');
-        // Jogador vinculado (players.user_id): sem vínculo 404, removido do elenco 422.
         Route::put('/player', [ProfileController::class, 'updatePlayer'])->name('player.update')->middleware('permission:player:update');
     });
 
     Route::middleware(['role:master|admin'])->prefix('/users')->name('users.')->group(function () {
         Route::get('/', [UserController::class, 'index'])->name('index');
-        // Admin só cria coach e player (access:user_create); time/jogador nas suas ligas (UserService).
         Route::post('/', [UserController::class, 'store'])->name('store')->middleware('access:user_create');
         Route::get('/{id}', [UserController::class, 'show'])->name('show')->middleware('access:user');
         Route::put('/{id}', [UserController::class, 'update'])->name('update')->middleware('access:user_write');
@@ -47,7 +44,6 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::get('/{id}/dashboard', [LeagueController::class, 'dashboard'])->name('dashboard')->middleware('access:league');
         Route::post('/', [LeagueController::class, 'store'])->name('store')->middleware('role:master');
         Route::put('/{id}', [LeagueController::class, 'update'])->name('update')->middleware(['permission:tournament:update', 'access:league']);
-        // Exige a senha no corpo (LeagueDestroyRequest); throttle limita tentativas de senha.
         Route::delete('/{id}', [LeagueController::class, 'destroy'])->name('destroy')->middleware(['role:master', 'throttle:5,1']);
     });
 
@@ -56,7 +52,6 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::get('/{id}', [ChampionshipController::class, 'show'])->name('show');
         Route::post('/', [ChampionshipController::class, 'store'])->name('store')->middleware('role:master');
         Route::put('/{id}', [ChampionshipController::class, 'update'])->name('update')->middleware('role:master');
-        // Exige a senha no corpo (ChampionshipDestroyRequest); throttle limita tentativas de senha.
         Route::delete('/{id}', [ChampionshipController::class, 'destroy'])->name('destroy')->middleware(['role:master', 'throttle:5,1']);
     });
 
