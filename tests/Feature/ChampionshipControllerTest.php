@@ -329,6 +329,41 @@ class ChampionshipControllerTest extends TestCase
         Storage::disk('public')->assertExists($path);
     }
 
+    public function test_update_championship_with_empty_image_removes_it(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $path = UploadedFile::fake()->image('logo.jpg')->store('championships', 'public');
+        $championship = Championship::factory()->create(['image' => $path]);
+
+        $response = $this->post("/api/championships/{$championship->id}", [
+            '_method' => 'PUT',
+            'name' => 'Novo Nome',
+            'image' => '',
+        ], ['Accept' => 'application/json']);
+
+        $response->assertOk()->assertJsonPath('data.image', null);
+        $this->assertDatabaseHas('championships', ['id' => $championship->id, 'name' => 'Novo Nome', 'image' => null]);
+        Storage::disk('public')->assertMissing($path);
+    }
+
+    public function test_update_championship_via_multipart_without_image_keeps_it(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $path = UploadedFile::fake()->image('logo.jpg')->store('championships', 'public');
+        $championship = Championship::factory()->create(['image' => $path]);
+
+        $response = $this->post("/api/championships/{$championship->id}", [
+            '_method' => 'PUT',
+            'name' => 'Novo Nome',
+        ], ['Accept' => 'application/json']);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('championships', ['id' => $championship->id, 'image' => $path]);
+        Storage::disk('public')->assertExists($path);
+    }
+
     // ── Validações ────────────────────────────────────────────────────────────
 
     public function test_store_fails_validation_without_name(): void
