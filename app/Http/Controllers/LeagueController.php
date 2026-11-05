@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\LeagueDestroyRequest;
 use App\Http\Requests\LeagueStoreRequest;
 use App\Http\Requests\LeagueUpdateRequest;
 use App\Http\Resources\LeagueResource;
@@ -195,7 +196,8 @@ class LeagueController extends Controller
         }
     }
 
-    public function destroy(string $id): JsonResponse
+    // A senha do master é conferida no LeagueDestroyRequest (422 em errors.password).
+    public function destroy(LeagueDestroyRequest $request, string $id): JsonResponse
     {
         try {
             $this->service->destroy($id);

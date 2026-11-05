@@ -431,7 +431,7 @@ class GameControllerTest extends TestCase
         $league = League::factory()->create();
         $game = Game::factory()->create(['league_id' => $league->id]);
 
-        $this->deleteJson("/api/leagues/{$league->id}")->assertStatus(204);
+        $this->deleteJson("/api/leagues/{$league->id}", ['password' => 'password'])->assertStatus(204);
 
         $this->assertDatabaseMissing('games', ['id' => $game->id]);
     }
