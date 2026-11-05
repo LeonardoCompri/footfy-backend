@@ -26,8 +26,6 @@ class GameEventResource extends JsonResource
         ];
     }
 
-    // Resumo do jogador na súmula; `removed` sinaliza jogador excluído (soft delete).
-    // Com a relação carregada e vazia (ex: gol sem assistência), whenLoaded devolve null.
     private function playerSummary(Player $player): array
     {
         return [
