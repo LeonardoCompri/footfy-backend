@@ -27,6 +27,11 @@ class ChampionshipRepository
         return Championship::with($with)->find($id);
     }
 
+    public function loadLeagues(Championship $championship): Championship
+    {
+        return $championship->load('leagues');
+    }
+
     public function update(Championship $championship): bool
     {
         return $championship->save();

@@ -4,9 +4,12 @@ namespace Tests\Feature;
 
 use App\Models\Championship;
 use App\Models\Game;
+use App\Models\GameEvent;
 use App\Models\League;
+use App\Models\Player;
 use App\Models\Stadium;
 use App\Models\Team;
+use App\Models\TechnicalCommitteeMember;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -124,10 +127,109 @@ class LeagueControllerTest extends TestCase
         $this->authenticate();
         $league = League::factory()->create();
 
-        $response = $this->deleteJson("/api/leagues/{$league->id}");
+        $response = $this->deleteJson("/api/leagues/{$league->id}", ['password' => 'password']);
 
         $response->assertStatus(204);
         $this->assertDatabaseMissing('leagues', ['id' => $league->id]);
+    }
+
+    // ── Destroy: senha do master ──────────────────────────────────────────────
+
+    public function test_destroy_without_password_returns_422_and_keeps_league(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+
+        $response = $this->deleteJson("/api/leagues/{$league->id}");
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['password']);
+        $this->assertDatabaseHas('leagues', ['id' => $league->id]);
+    }
+
+    public function test_destroy_with_wrong_password_returns_422_and_keeps_league(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+
+        $response = $this->deleteJson("/api/leagues/{$league->id}", ['password' => 'errada']);
+
+        $response->assertStatus(422)->assertJsonPath('errors.password.0', 'Senha incorreta.');
+        $this->assertDatabaseHas('leagues', ['id' => $league->id]);
+    }
+
+    public function test_destroy_with_correct_password_cascades_and_preserves_teams_and_users(): void
+    {
+        $this->authenticate();
+        $championship = Championship::factory()->create();
+        $league = League::factory()->create(['championship_id' => $championship->id]);
+        $other = League::factory()->create(['championship_id' => $championship->id]);
+        $home = Team::factory()->create();
+        $away = Team::factory()->create();
+        $home->leagues()->attach([$league->id, $other->id]);
+        $away->leagues()->attach($league->id);
+        $player = Player::factory()->create(['team_id' => $home->id]);
+        $member = TechnicalCommitteeMember::factory()->create(['team_id' => $home->id]);
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $game = Game::factory()->create([
+            'league_id' => $league->id,
+            'home_team_id' => $home->id,
+            'away_team_id' => $away->id,
+            'stadium_id' => $stadium->id,
+        ]);
+        $event = GameEvent::factory()->create([
+            'game_id' => $game->id,
+            'league_id' => $league->id,
+            'team_id' => $home->id,
+            'player_id' => $player->id,
+        ]);
+        $admin = User::factory()->create();
+        $admin->assignRole('admin');
+        $admin->leagues()->attach([$league->id, $other->id]);
+
+        $response = $this->deleteJson("/api/leagues/{$league->id}", ['password' => 'password']);
+
+        $response->assertStatus(204);
+        $this->assertDatabaseMissing('leagues', ['id' => $league->id]);
+        $this->assertDatabaseMissing('games', ['id' => $game->id]);
+        $this->assertDatabaseMissing('game_events', ['id' => $event->id]);
+        $this->assertDatabaseMissing('stadiums', ['id' => $stadium->id]);
+        $this->assertDatabaseMissing('league_team', ['league_id' => $league->id]);
+        $this->assertDatabaseMissing('user_leagues', ['league_id' => $league->id]);
+        // Preservados: campeonato, outra liga e seus vínculos, times, elenco, comissão e usuários.
+        $this->assertDatabaseHas('championships', ['id' => $championship->id]);
+        $this->assertDatabaseHas('leagues', ['id' => $other->id]);
+        $this->assertDatabaseHas('league_team', ['league_id' => $other->id, 'team_id' => $home->id]);
+        $this->assertDatabaseHas('user_leagues', ['league_id' => $other->id, 'user_id' => $admin->id]);
+        $this->assertDatabaseHas('teams', ['id' => $home->id]);
+        $this->assertDatabaseHas('teams', ['id' => $away->id]);
+        $this->assertDatabaseHas('players', ['id' => $player->id, 'team_id' => $home->id, 'deleted_at' => null]);
+        $this->assertDatabaseHas('technical_committee_members', ['id' => $member->id, 'team_id' => $home->id]);
+        $this->assertDatabaseHas('users', ['id' => $admin->id]);
+    }
+
+    public function test_master_can_delete_the_last_league_of_a_championship(): void
+    {
+        $this->authenticate();
+        $championship = Championship::factory()->create();
+        $league = League::factory()->create(['championship_id' => $championship->id]);
+
+        $this->deleteJson("/api/leagues/{$league->id}", ['password' => 'password'])->assertStatus(204);
+
+        $this->assertDatabaseHas('championships', ['id' => $championship->id]);
+        $this->getJson("/api/championships/{$championship->id}")->assertOk()->assertJsonPath('data.leagues', []);
+    }
+
+    public function test_destroy_is_throttled_after_five_attempts(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->deleteJson("/api/leagues/{$league->id}", ['password' => 'errada'])->assertStatus(422);
+        }
+
+        $this->deleteJson("/api/leagues/{$league->id}", ['password' => 'password'])->assertStatus(429);
+        $this->assertDatabaseHas('leagues', ['id' => $league->id]);
     }
 
     public function test_show_returns_error_when_not_found(): void
@@ -233,9 +335,21 @@ class LeagueControllerTest extends TestCase
         $league = League::factory()->create();
         $this->authenticateAsAdmin([$league->id]);
 
-        $response = $this->deleteJson("/api/leagues/{$league->id}");
+        $response = $this->deleteJson("/api/leagues/{$league->id}", ['password' => 'password']);
 
         $response->assertForbidden();
+        $this->assertDatabaseHas('leagues', ['id' => $league->id]);
+    }
+
+    public function test_coach_cannot_delete_league(): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAs('coach', [$league->id]);
+
+        $response = $this->deleteJson("/api/leagues/{$league->id}", ['password' => 'password']);
+
+        $response->assertForbidden();
+        $this->assertDatabaseHas('leagues', ['id' => $league->id]);
     }
 
     public function test_admin_with_no_leagues_sees_empty_list(): void
