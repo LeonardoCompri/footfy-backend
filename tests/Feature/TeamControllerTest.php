@@ -214,6 +214,62 @@ class TeamControllerTest extends TestCase
         Storage::disk('public')->assertExists($path);
     }
 
+    public function test_update_team_with_empty_logo_removes_it(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $path = UploadedFile::fake()->image('logo.jpg')->store('teams', 'public');
+        $team = Team::factory()->create(['logo' => $path]);
+
+        $response = $this->post("/api/teams/{$team->id}", [
+            '_method' => 'PUT',
+            'name' => 'Novo Nome',
+            'logo' => '',
+        ], ['Accept' => 'application/json']);
+
+        $response->assertOk()->assertJsonPath('data.logo', null);
+        $this->assertDatabaseHas('teams', ['id' => $team->id, 'name' => 'Novo Nome', 'logo' => null]);
+        Storage::disk('public')->assertMissing($path);
+    }
+
+    public function test_update_team_via_multipart_without_logo_keeps_it(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $path = UploadedFile::fake()->image('logo.jpg')->store('teams', 'public');
+        $team = Team::factory()->create(['logo' => $path]);
+
+        $response = $this->post("/api/teams/{$team->id}", [
+            '_method' => 'PUT',
+            'name' => 'Novo Nome',
+        ], ['Accept' => 'application/json']);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('teams', ['id' => $team->id, 'logo' => $path]);
+        Storage::disk('public')->assertExists($path);
+    }
+
+    public function test_update_keeps_old_logo_and_removes_new_upload_when_save_fails(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $oldPath = UploadedFile::fake()->image('old.jpg')->store('teams', 'public');
+        $team = Team::factory()->create(['name' => 'Antigo', 'logo' => $oldPath]);
+        $this->partialMock(TeamRepository::class, function ($mock) {
+            $mock->shouldReceive('update')->andThrow(new \RuntimeException('falha simulada'));
+        });
+
+        $response = $this->post("/api/teams/{$team->id}", [
+            '_method' => 'PUT',
+            'name' => 'Novo',
+            'logo' => UploadedFile::fake()->image('new.jpg'),
+        ], ['Accept' => 'application/json']);
+
+        $response->assertStatus(500);
+        $this->assertDatabaseHas('teams', ['id' => $team->id, 'name' => 'Antigo', 'logo' => $oldPath]);
+        $this->assertSame([$oldPath], Storage::disk('public')->allFiles());
+    }
+
     public function test_store_fails_validation_with_invalid_logo_format(): void
     {
         Storage::fake('public');

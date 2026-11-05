@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\ChampionshipDestroyRequest;
 use App\Http\Requests\ChampionshipStoreRequest;
 use App\Http\Requests\ChampionshipUpdateRequest;
 use App\Http\Resources\ChampionshipResource;
@@ -100,7 +101,7 @@ class ChampionshipController extends Controller
         }
     }
 
-    public function destroy(string $id): JsonResponse
+    public function destroy(ChampionshipDestroyRequest $request, string $id): JsonResponse
     {
         try {
             $this->service->destroy($id);

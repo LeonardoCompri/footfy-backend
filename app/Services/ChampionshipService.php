@@ -72,7 +72,8 @@ class ChampionshipService
     /**
      * Atualiza o campeonato e grava `leagues` na mesma transação: liga com id é atualizada,
      * sem id é criada e a que não veio no payload fica intacta (nada é apagado aqui).
-     * A imagem antiga só é removida depois do commit.
+     * `image` ausente mantém a imagem; enviada (arquivo novo ou null) troca ou remove, e a
+     * antiga só sai do disco depois do commit.
      */
     public function update(array $data, string $id): Championship
     {
@@ -80,9 +81,12 @@ class ChampionshipService
         $leagues = Arr::pull($data, 'leagues') ?? [];
         $oldImage = null;
 
-        if (isset($data['image'])) {
+        if (array_key_exists('image', $data)) {
             $oldImage = $championship->image;
-            $data['image'] = $this->storeImage($data['image'], 'championships');
+
+            if ($data['image'] !== null) {
+                $data['image'] = $this->storeImage($data['image'], 'championships');
+            }
         }
 
         try {
@@ -102,7 +106,8 @@ class ChampionshipService
         return $this->repository->loadLeagues($championship);
     }
 
-    // A imagem só é removida do disco depois que o registro foi apagado.
+    // Apaga em cascata as ligas (e partidas, eventos, estádios e vínculos delas); times,
+    // jogadores e usuários ficam. A imagem só sai do disco depois que o registro foi apagado.
     public function destroy(string $id): ?bool
     {
         $championship = $this->find($id);

@@ -117,18 +117,34 @@ class TeamService
         return $team;
     }
 
+    /**
+     * `logo` ausente mantém o escudo; enviado (arquivo novo ou null) troca ou remove, e o
+     * antigo só sai do disco depois de salvar. Se o save falhar, o upload novo é removido.
+     */
     public function update(array $data, string $id): Team
     {
         $team = $this->show($id);
+        $oldLogo = null;
 
-        if (isset($data['logo'])) {
-            $this->deleteImage($team->logo);
-            $data['logo'] = $this->storeImage($data['logo'], 'teams');
+        if (array_key_exists('logo', $data)) {
+            $oldLogo = $team->logo;
+
+            if ($data['logo'] !== null) {
+                $data['logo'] = $this->storeImage($data['logo'], 'teams');
+            }
         }
 
         $team->fill($data);
 
-        $this->repository->update($team);
+        try {
+            $this->repository->update($team);
+        } catch (Throwable $th) {
+            $this->deleteImage($data['logo'] ?? null);
+
+            throw $th;
+        }
+
+        $this->deleteImage($oldLogo);
 
         return $team;
     }
