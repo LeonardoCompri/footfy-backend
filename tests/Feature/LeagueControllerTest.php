@@ -90,7 +90,10 @@ class LeagueControllerTest extends TestCase
     {
         $this->authenticate();
 
+        $championship = Championship::factory()->create();
+
         $response = $this->postJson('/api/leagues', [
+            'championship_id' => $championship->id,
             'name' => 'Campeonato Teste',
             'start_date' => '2026-01-01',
             'end_date' => '2026-06-01',
@@ -250,6 +253,16 @@ class LeagueControllerTest extends TestCase
         $response = $this->postJson('/api/leagues', []);
 
         $response->assertStatus(422);
+    }
+
+    public function test_store_fails_validation_without_championship(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/leagues', ['name' => 'Liga Sem Campeonato']);
+
+        $response->assertStatus(422)->assertJsonValidationErrors(['championship_id']);
+        $this->assertDatabaseCount('leagues', 0);
     }
 
     public function test_store_fails_when_end_date_is_before_start_date(): void
@@ -420,7 +433,7 @@ class LeagueControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/leagues', ['name' => 'Liga RR', 'format' => 'round_robin']);
+        $response = $this->postJson('/api/leagues', ['championship_id' => Championship::factory()->create()->id, 'name' => 'Liga RR', 'format' => 'round_robin']);
 
         $response->assertCreated()->assertJsonPath('data.format', 'round_robin');
         $this->assertDatabaseHas('leagues', ['name' => 'Liga RR', 'format' => 'round_robin']);
@@ -430,7 +443,7 @@ class LeagueControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/leagues', ['name' => 'Liga Mata-Mata', 'format' => 'knockout']);
+        $response = $this->postJson('/api/leagues', ['championship_id' => Championship::factory()->create()->id, 'name' => 'Liga Mata-Mata', 'format' => 'knockout']);
 
         $response->assertCreated()->assertJsonPath('data.format', 'knockout');
         $this->assertDatabaseHas('leagues', ['name' => 'Liga Mata-Mata', 'format' => 'knockout']);
@@ -440,7 +453,7 @@ class LeagueControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/leagues', ['name' => 'Liga Híbrida', 'format' => 'hybrid']);
+        $response = $this->postJson('/api/leagues', ['championship_id' => Championship::factory()->create()->id, 'name' => 'Liga Híbrida', 'format' => 'hybrid']);
 
         $response->assertCreated()->assertJsonPath('data.format', 'hybrid');
         $this->assertDatabaseHas('leagues', ['name' => 'Liga Híbrida', 'format' => 'hybrid']);
@@ -450,7 +463,7 @@ class LeagueControllerTest extends TestCase
     {
         $this->authenticate();
 
-        $response = $this->postJson('/api/leagues', ['name' => 'Liga Padrão']);
+        $response = $this->postJson('/api/leagues', ['championship_id' => Championship::factory()->create()->id, 'name' => 'Liga Padrão']);
 
         $response->assertCreated()->assertJsonPath('data.format', 'round_robin');
     }

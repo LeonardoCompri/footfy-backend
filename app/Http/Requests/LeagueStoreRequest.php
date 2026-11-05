@@ -15,7 +15,7 @@ class LeagueStoreRequest extends FormRequest
             'end_date' => ['nullable', 'date', 'after:start_date'],
             'organizer' => ['nullable', 'string', 'max:255'],
             'season' => ['nullable', 'string', 'max:255'],
-            'championship_id' => ['nullable', 'integer', 'exists:championships,id'],
+            'championship_id' => ['required', 'integer', 'exists:championships,id'],
             'format' => ['sometimes', 'string', 'in:'.implode(',', League::FORMATS)],
         ];
     }
