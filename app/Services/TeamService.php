@@ -133,15 +133,22 @@ class TeamService
         return $team;
     }
 
+    // O logo só é removido do disco depois que o registro foi apagado (time com partidas mantém o arquivo).
     public function destroy(string $id): ?bool
     {
         $team = $this->show($id);
 
         try {
-            return $this->repository->destroy($team);
+            $deleted = $this->repository->destroy($team);
         } catch (QueryException $ex) {
             throw ValidationException::withMessages(['message' => 'Não é possível remover o time pois existem partidas vinculadas a ele.']);
         }
+
+        if ($deleted) {
+            $this->deleteImage($team->logo);
+        }
+
+        return $deleted;
     }
 
     /**

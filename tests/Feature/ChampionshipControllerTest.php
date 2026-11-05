@@ -127,6 +127,22 @@ class ChampionshipControllerTest extends TestCase
         $this->assertDatabaseMissing('championships', ['id' => $championship->id]);
     }
 
+    public function test_delete_championship_removes_only_its_image(): void
+    {
+        Storage::fake('public');
+        $this->authenticate();
+        $path = UploadedFile::fake()->image('logo.jpg')->store('championships', 'public');
+        $otherPath = UploadedFile::fake()->image('other.jpg')->store('championships', 'public');
+        $championship = Championship::factory()->create(['image' => $path]);
+        $other = Championship::factory()->create(['image' => $otherPath]);
+
+        $this->deleteJson("/api/championships/{$championship->id}")->assertStatus(204);
+
+        Storage::disk('public')->assertMissing($path);
+        Storage::disk('public')->assertExists($otherPath);
+        $this->assertDatabaseHas('championships', ['id' => $other->id, 'image' => $otherPath]);
+    }
+
     // ── Upload de imagem ─────────────────────────────────────────────────────
 
     public function test_master_can_create_championship_with_image(): void

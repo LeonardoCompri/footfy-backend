@@ -102,11 +102,17 @@ class ChampionshipService
         return $this->repository->loadLeagues($championship);
     }
 
+    // A imagem só é removida do disco depois que o registro foi apagado.
     public function destroy(string $id): ?bool
     {
         $championship = $this->find($id);
+        $deleted = $this->repository->destroy($championship);
 
-        return $this->repository->destroy($championship);
+        if ($deleted) {
+            $this->deleteImage($championship->image);
+        }
+
+        return $deleted;
     }
 
     private function find(string $id, array $with = []): Championship
