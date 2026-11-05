@@ -10,16 +10,12 @@ class ChampionshipResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $response = [
+        return [
             'id' => $this->id,
             'name' => $this->name,
             'image' => $this->image ? Storage::disk('public')->url($this->image) : null,
+            // Só no show/store/update (admin e público), que carregam as ligas; vazio se não houver.
+            'leagues' => LeagueResource::collection($this->whenLoaded('leagues')),
         ];
-
-        if ($request->route()->getName() == 'public.championships.show') {
-            $response['leagues'] = LeagueResource::collection($this->whenLoaded('leagues'));
-        }
-
-        return $response;
     }
 }
