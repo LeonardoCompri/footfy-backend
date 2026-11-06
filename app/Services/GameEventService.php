@@ -8,16 +8,18 @@ use App\Repositories\GameEventRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class GameEventService
 {
     use EnsuresLeagueAccess;
 
-    public function __construct(private readonly GameEventRepository $repository) {}
+    public function __construct(
+        private readonly GameEventRepository $repository,
+        private readonly GameService $gameService,
+    ) {}
 
-    // Lista eventos do usuário, opcionalmente restrita a um único jogo (gameId),
-    // sempre validando que esse jogo está entre as ligas que o usuário tem acesso.
     public function index(?string $type = null, ?string $gameId = null): Collection
     {
         $user = Auth::user();
@@ -40,18 +42,18 @@ class GameEventService
         return $this->repository->index($gameIds, $type);
     }
 
-    /**
-     * Preenche league_id automaticamente a partir do jogo informado — esse
-     * campo não vem do payload do cliente, para não correr risco de
-     * divergência por entrada manual. A liga da partida precisa estar entre as do usuário.
-     */
     public function store(array $data): GameEvent
     {
         $game = Game::find($data['game_id']);
         $this->ensureUserHasAccessToLeagues([$game->league_id]);
         $data['league_id'] = $game->league_id;
 
-        return $this->repository->store($data);
+        return DB::transaction(function () use ($data, $game) {
+            $event = $this->repository->store($data);
+            $this->gameService->refreshScore($game->id);
+
+            return $event;
+        });
     }
 
     public function show(string $id): GameEvent
@@ -65,10 +67,6 @@ class GameEventService
         return $event;
     }
 
-    /**
-     * Se game_id mudar, league_id é recalculado a partir do novo jogo, pelo
-     * mesmo motivo do store: nunca aceitar league_id vindo do cliente.
-     */
     public function update(array $data, string $id): GameEvent
     {
         $event = $this->show($id);
@@ -79,9 +77,13 @@ class GameEventService
             $data['league_id'] = $game->league_id;
         }
 
+        $previousGameId = $event->game_id;
         $event->fill($data);
 
-        $this->repository->update($event);
+        DB::transaction(function () use ($event, $previousGameId) {
+            $this->repository->update($event);
+            $this->refreshScores([$previousGameId, $event->game_id]);
+        });
 
         return $event;
     }
@@ -90,6 +92,21 @@ class GameEventService
     {
         $event = $this->show($id);
 
-        return $this->repository->destroy($event);
+        return DB::transaction(function () use ($event) {
+            $deleted = $this->repository->destroy($event);
+            $this->gameService->refreshScore($event->game_id);
+
+            return $deleted;
+        });
+    }
+
+    private function refreshScores(array $gameIds): void
+    {
+        $gameIds = array_unique(array_map('intval', $gameIds));
+        sort($gameIds);
+
+        foreach ($gameIds as $gameId) {
+            $this->gameService->refreshScore($gameId);
+        }
     }
 }

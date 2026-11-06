@@ -6,9 +6,6 @@ use App\Models\League;
 use App\Models\Team;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-/**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\Game>
- */
 class GameFactory extends Factory
 {
     public function definition(): array

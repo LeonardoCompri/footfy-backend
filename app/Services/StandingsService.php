@@ -12,12 +12,6 @@ class StandingsService
 {
     public function __construct(private readonly StandingsRepository $repository) {}
 
-    /**
-     * Monta a Tabela da Liga conforme `league->format`: `standings` (round_robin/hybrid),
-     * `phases` (knockout/hybrid) ou os dois juntos (hybrid). Reaproveitado tanto pela rota
-     * admin quanto pela pública — as duas chamam este mesmo método, diferindo apenas na
-     * autorização aplicada antes de chegar aqui.
-     */
     public function build(League $league): array
     {
         $result = [];
@@ -33,8 +27,6 @@ class StandingsService
         return $result;
     }
 
-    // Classificação da fase de pontos corridos (jogos com `round` preenchido). Em liga
-    // híbrida, jogos com `phase` preenchida (mata-mata) nunca entram aqui.
     private function standings(int $leagueId): array
     {
         $teams = $this->repository->leagueTeams($leagueId);
@@ -67,12 +59,6 @@ class StandingsService
         return $this->sortStandings($rows, $leagueId);
     }
 
-    /**
-     * Critério de desempate estilo CBF, nesta ordem: pontos, vitórias, saldo de gols,
-     * gols pró, confronto direto (só quando restam exatamente 2 times empatados nos
-     * critérios anteriores), cartões (menor nº) e, por fim, sorteio — aqui representado
-     * de forma determinística pelo id do time, para a resposta ser estável entre chamadas.
-     */
     private function sortStandings(array $rows, int $leagueId): array
     {
         usort($rows, fn ($a, $b) => $this->comparePrimaryCriteria($b, $a));
@@ -112,9 +98,6 @@ class StandingsService
             <=> [$b['points'], $b['wins'], $b['goal_difference'], $b['goals_for']];
     }
 
-    // Confronto direto: só decide entre exatamente 2 times, pelos pontos que fizeram um
-    // contra o outro (regulamento CBF). Se não houver jogo direto ou o saldo entre eles
-    // também empatar, devolve o bucket sem alterar a ordem (cartões decide em seguida).
     private function breakTieByHeadToHead(array $bucket, int $leagueId): array
     {
         [$teamA, $teamB] = $bucket;
@@ -126,7 +109,6 @@ class StandingsService
 
         $points = [$teamA['team_id'] => 0, $teamB['team_id'] => 0];
 
-        /** @var Game $game */
         foreach ($games as $game) {
             if ($game->home_score === $game->away_score) {
                 $points[$game->home_team_id] += 1;
@@ -153,17 +135,15 @@ class StandingsService
             $cardsB = $cardCounts[$b['team_id']] ?? 0;
 
             if ($cardsA !== $cardsB) {
-                return $cardsA <=> $cardsB; // menos cartões = melhor posição
+                return $cardsA <=> $cardsB;
             }
 
-            return $a['team_id'] <=> $b['team_id']; // sorteio: ordem determinística
+            return $a['team_id'] <=> $b['team_id'];
         });
 
         return $bucket;
     }
 
-    // Fases do mata-mata (jogos com `phase` preenchida), ordenadas por `phase_order`, cada
-    // uma com seus confrontos agrupados por `tie_key`.
     private function phases(int $leagueId): array
     {
         $games = $this->repository->knockoutGames($leagueId);
@@ -191,13 +171,6 @@ class StandingsService
             ->all();
     }
 
-    // Um confronto (ida/volta ou jogo único): placar agregado por time somando as pernas já
-    // finalizadas, e vencedor calculado a partir do agregado. Ida e volta (alguma perna com
-    // `leg`) só fica `decided = true` quando a Ida (leg=1) e a Volta (leg=2) existem e ambas
-    // foram finalizadas — com só uma perna cadastrada o confronto segue em aberto, exibindo o
-    // agregado parcial. Isso também cobre jogos legados com `leg` e sem `tie_key` (grupo
-    // `game-{id}` isolado, que nunca terá as duas pernas). Jogo único (nenhuma perna com `leg`)
-    // é decidido assim que finalizado.
     private function buildTie(Collection $tieGames): array
     {
         $legs = $tieGames->sortBy('leg')->values();
@@ -232,9 +205,6 @@ class StandingsService
         $winnerId = null;
         if ($decided && $teamIds->count() === 2) {
             [$teamAId, $teamBId] = $teamIds->all();
-            // Agregado empatado: o domínio atual não modela critério de desempate de
-            // mata-mata (gol fora de casa, pênaltis etc.), então o confronto fica decidido
-            // mas sem vencedor definido — limitação documentada no PR desta task.
             if ($aggregate[$teamAId] !== $aggregate[$teamBId]) {
                 $winnerId = $aggregate[$teamAId] > $aggregate[$teamBId] ? $teamAId : $teamBId;
             }

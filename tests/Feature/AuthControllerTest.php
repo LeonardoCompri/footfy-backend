@@ -43,7 +43,6 @@ class AuthControllerTest extends TestCase
         ]);
     }
 
-    /** Nomes das permissões de um papel, como definidos no RoleSeeder. */
     private function rolePermissionNames(string $role): array
     {
         return Role::findByName($role)->permissions->pluck('name')->sort()->values()->all();
@@ -53,8 +52,6 @@ class AuthControllerTest extends TestCase
     {
         return collect($response->json('user.permissions'))->pluck('name')->sort()->values()->all();
     }
-
-    // ── Permissões efetivas ───────────────────────────────────────────────────
 
     public function test_admin_login_returns_permissions_derived_from_role(): void
     {
@@ -96,14 +93,12 @@ class AuthControllerTest extends TestCase
         $response = $this->login();
 
         $response->assertOk();
-        // player:update só vale em PUT /me/player (FOOT-0048).
         $this->assertSame(['player:read', 'player:update'], $this->responsePermissionNames($response));
     }
 
     public function test_login_returns_union_of_direct_and_role_permissions(): void
     {
         $user = $this->createUser('player');
-        // player:read já vem do papel — não pode duplicar
         $user->givePermissionTo(['game:read', 'player:read']);
 
         $response = $this->login();
@@ -137,8 +132,6 @@ class AuthControllerTest extends TestCase
             ->assertJsonPath('user.permissions', []);
     }
 
-    // ── Formato da resposta ───────────────────────────────────────────────────
-
     public function test_login_response_keeps_expected_shape(): void
     {
         $user = $this->createUser('admin');
@@ -167,8 +160,6 @@ class AuthControllerTest extends TestCase
             'guard_name' => $permission->guard_name,
         ], $item);
     }
-
-    // ── Vínculo com time/jogador (FOOT-0047) ─────────────────────────────────
 
     public function test_coach_login_returns_linked_team(): void
     {
@@ -204,8 +195,6 @@ class AuthControllerTest extends TestCase
             ->assertJsonPath('user.player', null);
     }
 
-    // ── Credenciais inválidas ─────────────────────────────────────────────────
-
     public function test_login_with_invalid_password_returns_401(): void
     {
         $this->createUser('admin');
@@ -223,8 +212,6 @@ class AuthControllerTest extends TestCase
         $response->assertStatus(401)
             ->assertExactJson(['message' => 'CPF ou senha inválidos']);
     }
-
-    // ── Performance ──────────────────────────────────────────────────────────
 
     public function test_login_query_count_is_small_and_constant_regardless_of_roles(): void
     {

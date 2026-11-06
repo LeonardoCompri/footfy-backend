@@ -4,6 +4,7 @@ namespace App\Http\Requests;
 
 use App\Models\Game;
 use App\Models\GameEvent;
+use App\Models\GameEventType;
 use App\Models\Player;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -23,7 +24,7 @@ class GameEventUpdateRequest extends FormRequest
             'player_id' => ['sometimes', 'integer', $this->activePlayerOrCurrent($event?->player_id)],
             'team_id' => ['sometimes', 'integer', 'exists:teams,id'],
             'related_player_id' => ['nullable', 'integer', $this->activePlayerOrCurrent($event?->related_player_id)],
-            'type' => ['sometimes', 'string', 'in:goal,yellow_card,red_card'],
+            'type' => ['sometimes', 'string', $this->activeTypeOrCurrent($event?->type)],
             'minute' => ['nullable', 'integer', 'min:0'],
         ];
     }
@@ -33,19 +34,15 @@ class GameEventUpdateRequest extends FormRequest
         return [
             'player_id.exists' => 'O jogador informado foi removido ou não existe.',
             'related_player_id.exists' => 'O jogador informado foi removido ou não existe.',
+            'type.exists' => 'O tipo de evento informado não existe ou está inativo.',
         ];
     }
 
-    // Evento da rota (null se não existir: o Service responde "Evento não encontrado!").
     private function event(): ?GameEvent
     {
         return $this->gameEvent ??= ($this->route('id') ? GameEvent::find($this->route('id')) : null);
     }
 
-    /**
-     * Jogador ativo, ou o já gravado no evento mesmo que removido (soft delete): permite
-     * editar outros campos do evento sem trocar o jogador removido, mas não escolher outro removido.
-     */
     private function activePlayerOrCurrent(?int $currentPlayerId): Exists
     {
         return Rule::exists('players', 'id')->where(
@@ -54,10 +51,22 @@ class GameEventUpdateRequest extends FormRequest
         );
     }
 
+    private function activeTypeOrCurrent(?string $currentType): Exists
+    {
+        return Rule::exists('game_event_types', 'slug')->where(
+            fn ($query) => $query->where('active', true)
+                ->when($currentType, fn ($query, $slug) => $query->orWhere('slug', $slug))
+        );
+    }
+
+    private function typeAllowsAssist(?string $slug): bool
+    {
+        return (bool) GameEventType::where('slug', $slug)->value('allows_assist');
+    }
+
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator) {
-            // after() roda mesmo com regra falhando: com campo[]=1, find(array) devolveria Collection (500).
             if ($validator->errors()->hasAny(['game_id', 'player_id', 'team_id', 'related_player_id'])) {
                 return;
             }
@@ -68,6 +77,13 @@ class GameEventUpdateRequest extends FormRequest
             $playerId = $this->input('player_id', $event?->player_id);
             $teamId = $this->input('team_id', $event?->team_id);
             $relatedPlayerId = $this->input('related_player_id', $event?->related_player_id);
+            $type = $this->input('type', $event?->type);
+
+            if ($relatedPlayerId && $type && ! $validator->errors()->has('type') && ! $this->typeAllowsAssist($type)) {
+                $validator->errors()->add('related_player_id', 'O tipo de evento informado não permite assistência.');
+
+                return;
+            }
 
             if (! $gameId || ! $playerId || ! $teamId) {
                 return;

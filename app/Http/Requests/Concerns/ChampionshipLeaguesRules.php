@@ -4,10 +4,6 @@ namespace App\Http\Requests\Concerns;
 
 use App\Models\League;
 
-/**
- * Regras das ligas enviadas junto com o campeonato (`leagues[0][name]` etc.), espelhando
- * LeagueStoreRequest. `championship_id` não é aceito aqui: o servidor sempre o define.
- */
 trait ChampionshipLeaguesRules
 {
     protected function championshipLeaguesRules(): array

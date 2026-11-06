@@ -22,8 +22,6 @@ class StadiumControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        // Papéis e permissões reais do RoleSeeder: a exclusão de estádio é autorizada por
-        // `permission:stadium:delete` (admin e master têm; coach não).
         $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
@@ -48,7 +46,6 @@ class StadiumControllerTest extends TestCase
         return $user;
     }
 
-    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas (coach/player via time). */
     private function authenticateAs(string $role, array $leagueIds = []): User
     {
         $user = User::factory()->create();
@@ -61,16 +58,12 @@ class StadiumControllerTest extends TestCase
         return $user;
     }
 
-    // ── Auth ──────────────────────────────────────────────────────────────────
-
     public function test_guest_cannot_list_stadiums(): void
     {
         $response = $this->getJson('/api/stadiums');
 
         $response->assertStatus(401);
     }
-
-    // ── Master: acesso irrestrito ao index ────────────────────────────────────
 
     public function test_index_returns_all_stadiums(): void
     {
@@ -146,8 +139,6 @@ class StadiumControllerTest extends TestCase
         $response->assertStatus(422)->assertJson(['message' => 'Estádio não encontrado!']);
     }
 
-    // ── Master: acesso irrestrito ───────────────────────────────────────────────
-
     public function test_master_can_show_any_stadium(): void
     {
         $this->authenticate();
@@ -180,8 +171,6 @@ class StadiumControllerTest extends TestCase
         $this->assertDatabaseMissing('stadiums', ['id' => $stadium->id]);
     }
 
-    // ── Admin: escopo por liga ───────────────────────────────────────────────
-
     public function test_admin_index_only_sees_stadiums_in_assigned_leagues(): void
     {
         $leagueA = League::factory()->create();
@@ -207,8 +196,6 @@ class StadiumControllerTest extends TestCase
 
         $response->assertOk()->assertJsonCount(0, 'data');
     }
-
-    // ── Filtro por league_id ─────────────────────────────────────────────────
 
     public function test_master_can_filter_index_by_league_id(): void
     {
@@ -361,8 +348,6 @@ class StadiumControllerTest extends TestCase
         $this->assertDatabaseHas('stadiums', ['id' => $stadium->id]);
     }
 
-    // ── Regressão: filtro ?league_id= inválido ────────────────────────────────
-
     public static function invalidLeagueIdQueryProvider(): array
     {
         return [
@@ -389,8 +374,6 @@ class StadiumControllerTest extends TestCase
 
         $this->getJson('/api/stadiums/1abc')->assertNotFound();
     }
-
-    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
 
     public function test_coach_cannot_create_stadium(): void
     {
@@ -465,8 +448,6 @@ class StadiumControllerTest extends TestCase
 
         $response->assertCreated()->assertJsonPath('data.league_id', $league->id);
     }
-
-    // ── Liga de destino na escrita (FOOT-0044) ────────────────────────────────
 
     public function test_admin_cannot_create_stadium_in_unassigned_league(): void
     {

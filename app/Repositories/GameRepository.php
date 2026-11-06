@@ -41,7 +41,21 @@ class GameRepository
         return $game->save();
     }
 
-    // Copia o league_id atual da partida para todos os seus eventos (campo denormalizado).
+    public function findForUpdate(int $id): ?Game
+    {
+        return Game::query()->lockForUpdate()->find($id);
+    }
+
+    public function scoringEventCounts(Game $game): Collection
+    {
+        return $game->events()
+            ->joinEventType()
+            ->whereNotNull('game_event_types.counts_for')
+            ->groupBy('game_events.team_id', 'game_event_types.counts_for')
+            ->selectRaw('game_events.team_id as team_id, game_event_types.counts_for as counts_for, COUNT(*) as total')
+            ->get();
+    }
+
     public function syncEventsLeague(Game $game): int
     {
         return $game->events()->update(['league_id' => $game->league_id]);
@@ -54,7 +68,6 @@ class GameRepository
 
     private function applyFilters(Builder $query, array $filters = []): Builder
     {
-        // filled() em vez do valor cru: when() trata "0" como falso e ignoraria phase=0.
         $query->when(filled($filters['round'] ?? null), function (Builder $q) use ($filters) {
             $q->where('round', $filters['round']);
         });
@@ -75,8 +88,6 @@ class GameRepository
         return $query;
     }
 
-    // Rodadas primeiro e mata-mata (round NULL) depois, por phase_order. `X IS NULL` vem
-    // antes porque MySQL e SQLite ordenam NULL primeiro em ASC.
     private function orderedForListing(Builder $query): Builder
     {
         return $query

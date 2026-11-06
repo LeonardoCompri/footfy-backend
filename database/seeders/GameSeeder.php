@@ -12,10 +12,6 @@ use Illuminate\Support\Carbon;
 
 class GameSeeder extends Seeder
 {
-    /**
-     * Quantidade de rodadas já disputadas (status finished) antes da rodada
-     * "atual" de cada liga.
-     */
     private const FINISHED_ROUNDS = 6;
 
     public function run(): void
@@ -40,12 +36,6 @@ class GameSeeder extends Seeder
         }
     }
 
-    /**
-     * Gera as rodadas de turno único (round-robin) e monta as linhas de Game
-     * já com status/placar coerentes: rodadas até FINISHED_ROUNDS ficam
-     * "finished" com placar, a primeira partida da rodada seguinte fica
-     * "in_progress" (com placar parcial), e o restante "scheduled".
-     */
     private function buildRounds(League $league, array $teamIds, array $stadiumIdByTeamId): array
     {
         $rounds = $this->roundRobin($teamIds);
@@ -111,10 +101,6 @@ class GameSeeder extends Seeder
         return $result;
     }
 
-    /**
-     * Método do círculo: gera n-1 rodadas para n times (par), cada uma com
-     * n/2 confrontos, sem repetir nenhum par ao longo do turno único.
-     */
     private function roundRobin(array $teamIds): array
     {
         $list = $teamIds;

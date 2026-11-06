@@ -20,8 +20,6 @@ class GameStoreRequest extends FormRequest
             'away_team_id' => ['required', 'integer', 'exists:teams,id', 'different:home_team_id'],
             'stadium_id' => ['nullable', 'integer', 'exists:stadiums,id'],
             'match_date' => ['nullable', 'date'],
-            'home_score' => ['nullable', 'integer', 'min:0'],
-            'away_score' => ['nullable', 'integer', 'min:0'],
             'round' => ['nullable', 'integer', 'min:1'],
             'phase' => ['nullable', 'string', 'max:255'],
             'phase_order' => ['nullable', 'integer', 'min:1'],
@@ -51,8 +49,6 @@ class GameStoreRequest extends FormRequest
                 }
             }
 
-            // league_id que já falhou nas regras (ex: enviado como array) não é resolvido:
-            // League::find(array) devolveria uma Collection.
             $league = $leagueId && ! $validator->errors()->has('league_id') ? League::find($leagueId) : null;
 
             $this->validateTeamsBelongToLeague($validator, $league, [

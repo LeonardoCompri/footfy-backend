@@ -7,12 +7,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Substitui championship_team por league_team, com unique constraint
-     * [league_id, team_id] desde a criação (a tabela antiga não tinha esse
-     * unique, permitindo duplicar o vínculo time-campeonato). Os dados são
-     * copiados deduplicando por par, mantendo o menor id de cada duplicata.
-     */
     public function up(): void
     {
         Schema::create('league_team', function (Blueprint $table) {

@@ -5,12 +5,6 @@ use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
-    /**
-     * Copia os registros de goals para game_events com type = 'goal' e
-     * related_player_id = null (assistência não existia antes, não há o
-     * que migrar). league_id é preenchido via join com games.league_id,
-     * já que a tabela antiga não tinha essa informação diretamente.
-     */
     public function up(): void
     {
         DB::statement('

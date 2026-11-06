@@ -21,8 +21,6 @@ class GameUpdateRequest extends FormRequest
             'away_team_id' => ['sometimes', 'integer', 'exists:teams,id', 'different:home_team_id'],
             'stadium_id' => ['nullable', 'integer', 'exists:stadiums,id'],
             'match_date' => ['nullable', 'date'],
-            'home_score' => ['nullable', 'integer', 'min:0'],
-            'away_score' => ['nullable', 'integer', 'min:0'],
             'round' => ['nullable', 'integer', 'min:1'],
             'phase' => ['nullable', 'string', 'max:255'],
             'phase_order' => ['nullable', 'integer', 'min:1'],
@@ -47,8 +45,6 @@ class GameUpdateRequest extends FormRequest
                 }
             }
 
-            // league_id que já falhou nas regras (ex: enviado como array) não é resolvido:
-            // League::find(array) devolveria uma Collection.
             $league = $leagueId && ! $validator->errors()->has('league_id') ? League::find($leagueId) : null;
 
             $this->validateTeams($validator, $game, $league);
@@ -57,8 +53,6 @@ class GameUpdateRequest extends FormRequest
         });
     }
 
-    // Só roda quando liga ou times mudam. Usa o valor gravado para o campo não enviado, então
-    // trocar só a liga confere os times atuais e trocar só um time confere a liga atual.
     private function validateTeams(Validator $validator, ?Game $game, ?League $league): void
     {
         if (! $this->hasAny(['league_id', 'home_team_id', 'away_team_id'])) {
@@ -68,8 +62,6 @@ class GameUpdateRequest extends FormRequest
         $homeTeamId = $this->input('home_team_id', $game?->home_team_id);
         $awayTeamId = $this->input('away_team_id', $game?->away_team_id);
 
-        // `different:home_team_id` só compara quando os dois vêm no payload; aqui a comparação
-        // usa os valores finais (payload + gravado).
         $sameTeamField = $this->has('away_team_id') ? 'away_team_id' : 'home_team_id';
         if (
             $homeTeamId !== null && $awayTeamId !== null
@@ -87,9 +79,6 @@ class GameUpdateRequest extends FormRequest
         ]);
     }
 
-    // Partida de ida e volta (`leg` preenchido) precisa de `tie_key` para ser agrupada com a
-    // outra perna. Usa o valor gravado como fallback para aceitar updates parciais (ex: PUT só
-    // com `leg` num jogo que já tem `tie_key`) e barrar o PUT que zera `tie_key` de um jogo com `leg`.
     private function validateTieKey(Validator $validator, ?Game $game): void
     {
         $leg = $this->input('leg', $game?->leg);

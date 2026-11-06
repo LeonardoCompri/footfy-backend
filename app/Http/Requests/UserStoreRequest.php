@@ -19,7 +19,6 @@ class UserStoreRequest extends FormRequest
             'email' => ['nullable', 'email', 'unique:users,email'],
             'document' => ['required', 'string', 'size:11', 'unique:users,document'],
             'password' => ['required', 'string', 'min:6'],
-            // Quem não é master só cria coach e player: barrado antes, com 403, por access:user_create.
             'role' => ['required', 'string', 'in:master,admin,coach,player'],
             ...$this->userLinkRules($role, null, false),
         ];

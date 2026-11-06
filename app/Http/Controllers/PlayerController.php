@@ -45,7 +45,6 @@ class PlayerController extends Controller
 
             return response()->json(['data' => new PlayerResource($response)]);
         } catch (ValidationException $ex) {
-            // Rota pública: jogador inexistente ou removido (soft delete) responde 404.
             return response()->json(['message' => $ex->getMessage()], 404);
         } catch (Throwable $th) {
             return response()->json([

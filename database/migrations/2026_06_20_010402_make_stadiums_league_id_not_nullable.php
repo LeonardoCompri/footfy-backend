@@ -6,10 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Fecha o backfill da migration anterior: a essa altura todo stadium já
-     * tem league_id preenchido, então a coluna pode se tornar obrigatória.
-     */
     public function up(): void
     {
         Schema::table('stadiums', function (Blueprint $table) {
@@ -17,9 +13,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::table('stadiums', function (Blueprint $table) {

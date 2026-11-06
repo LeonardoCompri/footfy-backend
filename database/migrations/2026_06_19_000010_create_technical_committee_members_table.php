@@ -6,12 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Cria technical_committee_members, substituindo coaches: agora um
-     * time pode ter vários membros na comissão técnica, cada um com uma
-     * função livre (treinador, auxiliar, preparador físico etc.), em vez
-     * de um único técnico por time.
-     */
     public function up(): void
     {
         Schema::create('technical_committee_members', function (Blueprint $table) {
@@ -24,9 +18,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('technical_committee_members');

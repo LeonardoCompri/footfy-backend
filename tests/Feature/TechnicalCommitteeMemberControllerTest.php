@@ -22,7 +22,6 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        // Papéis e permissões reais do RoleSeeder: as rotas de escrita exigem `permission:`.
         $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
@@ -47,7 +46,6 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         return $user;
     }
 
-    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas (coach/player via time). */
     private function authenticateAs(string $role, array $leagueIds = []): User
     {
         $user = User::factory()->create();
@@ -60,16 +58,12 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         return $user;
     }
 
-    // ── Auth ──────────────────────────────────────────────────────────────────
-
     public function test_guest_cannot_list_technical_committee_members(): void
     {
         $response = $this->getJson('/api/technical-committee-members');
 
         $response->assertStatus(401);
     }
-
-    // ── Master ────────────────────────────────────────────────────────────────
 
     public function test_master_index_returns_all_technical_committee_members(): void
     {
@@ -137,8 +131,6 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $this->assertDatabaseMissing('technical_committee_members', ['id' => $member->id]);
     }
 
-    // ── Validações ────────────────────────────────────────────────────────────
-
     public function test_store_fails_validation_without_name(): void
     {
         $this->authenticate();
@@ -179,8 +171,6 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $response->assertStatus(422)->assertJson(['message' => 'Membro da comissão técnica não encontrado!']);
     }
 
-    // ── Múltiplos membros por time (regra nova da Fase 3) ───────────────────────
-
     public function test_team_can_have_multiple_committee_members_with_different_roles(): void
     {
         $this->authenticate();
@@ -210,8 +200,6 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $this->assertDatabaseCount('technical_committee_members', 3);
         $this->assertEquals(3, $team->technicalCommitteeMembers()->count());
     }
-
-    // ── Admin: escopo por liga ───────────────────────────────────────────────
 
     public function test_admin_index_only_sees_members_of_teams_in_assigned_leagues(): void
     {
@@ -277,8 +265,6 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $response->assertForbidden();
     }
 
-    // ── Integridade referencial ───────────────────────────────────────────────
-
     public function test_destroying_team_nullifies_member_team_id(): void
     {
         $this->authenticate();
@@ -289,8 +275,6 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
 
         $this->assertDatabaseHas('technical_committee_members', ['id' => $member->id, 'team_id' => null]);
     }
-
-    // ── Validação de função contra a lista oficial ───────────────────────────
 
     public function test_store_fails_when_role_is_not_in_official_list(): void
     {
@@ -389,8 +373,6 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
         $response->assertStatus(422)->assertJsonValidationErrors('role');
     }
 
-    // ── Lookup de funções ────────────────────────────────────────────────────
-
     public function test_authenticated_user_can_list_roles(): void
     {
         $this->authenticate();
@@ -408,8 +390,6 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
 
         $response->assertStatus(401);
     }
-
-    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
 
     public static function rolesWithoutCommitteePermissionsProvider(): array
     {
@@ -471,9 +451,6 @@ class TechnicalCommitteeMemberControllerTest extends TestCase
             ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
     }
 
-    // ── Time de destino na escrita (FOOT-0044) ────────────────────────────────
-
-    /** @return array{0: League, 1: Team, 2: Team} liga do admin, time dela e time só de outra liga */
     private function teamsInAndOutOfLeague(): array
     {
         $league = League::factory()->create();

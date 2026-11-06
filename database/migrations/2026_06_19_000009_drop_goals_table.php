@@ -6,10 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Remove goals, absorvida por game_events (ver migrations anteriores
-     * desta sequência).
-     */
     public function up(): void
     {
         Schema::dropIfExists('goals');

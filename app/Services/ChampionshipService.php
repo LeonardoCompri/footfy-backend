@@ -31,10 +31,6 @@ class ChampionshipService
         return $this->repository->index();
     }
 
-    /**
-     * Cria o campeonato e as ligas de `leagues` (opcional) na mesma transação. A imagem é
-     * gravada antes; se a transação falhar, o arquivo novo é removido para não ficar órfão.
-     */
     public function store(array $data): Championship
     {
         $leagues = Arr::pull($data, 'leagues') ?? [];
@@ -69,12 +65,6 @@ class ChampionshipService
         return $this->find($id, ['leagues']);
     }
 
-    /**
-     * Atualiza o campeonato e grava `leagues` na mesma transação: liga com id é atualizada,
-     * sem id é criada e a que não veio no payload fica intacta (nada é apagado aqui).
-     * `image` ausente mantém a imagem; enviada (arquivo novo ou null) troca ou remove, e a
-     * antiga só sai do disco depois do commit.
-     */
     public function update(array $data, string $id): Championship
     {
         $championship = $this->find($id, ['leagues']);
@@ -106,8 +96,6 @@ class ChampionshipService
         return $this->repository->loadLeagues($championship);
     }
 
-    // Apaga em cascata as ligas (e partidas, eventos, estádios e vínculos delas); times,
-    // jogadores e usuários ficam. A imagem só sai do disco depois que o registro foi apagado.
     public function destroy(string $id): ?bool
     {
         $championship = $this->find($id);
@@ -131,11 +119,6 @@ class ChampionshipService
         return $championship;
     }
 
-    /**
-     * Cria (sem id) ou atualiza (com id) as ligas do campeonato. O FormRequest já garante que
-     * o id pertence a este campeonato; `championship_id` sempre vem do servidor e `format`
-     * nulo não sobrescreve nada (na criação vale o default do model).
-     */
     private function saveLeagues(Championship $championship, array $leagues): void
     {
         $existing = $championship->relationLoaded('leagues') ? $championship->leagues->keyBy('id') : collect();

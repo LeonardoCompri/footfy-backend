@@ -12,14 +12,6 @@ class StatisticsService
 
     public function __construct(private readonly StatisticsRepository $repository) {}
 
-    /**
-     * Estatísticas da liga inteira (grupos + mata-mata somados, mesmo em liga `hybrid` —
-     * diferente da Tabela da Liga, que isola as duas fases). Reaproveitado tanto pela rota
-     * admin quanto pela pública (e pelo Dashboard, que usa `goals_by_bucket`/`results_split`/
-     * `totals`/`cards_split` desta mesma resposta), seguindo o mesmo princípio do StandingsService.
-     * Gols (`goals_by_bucket`/`totals`) vêm do placar das partidas finalizadas; rankings
-     * (`top_*`) e `cards_split` vêm dos eventos (súmula).
-     */
     public function build(League $league): array
     {
         $leagueId = (int) $league->id;
@@ -64,13 +56,6 @@ class StatisticsService
         ])->all();
     }
 
-    /**
-     * Gols (pelo placar das partidas finalizadas com placar preenchido, não pelos eventos
-     * `goal`) agrupados por rodada (jogos com `round`) seguidos dos agrupados por fase (jogos
-     * com `phase`) — cobre round_robin (só rodadas), knockout (só fases) e hybrid (os dois,
-     * já que uma liga híbrida tem jogos de grupo com `round` e jogos de mata-mata com `phase`
-     * misturados na mesma competição).
-     */
     private function goalsByBucket(int $leagueId): array
     {
         $byRound = $this->repository->goalsByRound($leagueId)->map(fn ($row) => [
@@ -101,8 +86,6 @@ class StatisticsService
         ];
     }
 
-    // Total de gols pelo placar e média por partida finalizada (`null` sem partidas
-    // finalizadas, para o front não exibir uma média 0 enganosa).
     private function totals(?object $summary): array
     {
         $goals = (int) ($summary->goals ?? 0);
@@ -115,7 +98,6 @@ class StatisticsService
         ];
     }
 
-    // Total de cartões da liga inteira (sem o limite de RANKING_LIMIT de `top_cards`).
     private function cardsSplit(int $leagueId): array
     {
         $row = $this->repository->cardsSplit($leagueId);

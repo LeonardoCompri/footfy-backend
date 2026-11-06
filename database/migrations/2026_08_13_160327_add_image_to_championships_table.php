@@ -6,10 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Adiciona a coluna image (caminho relativo no disco "public",
-     * ex: "championships/abc123.jpg") ao campeonato.
-     */
     public function up(): void
     {
         Schema::table('championships', function (Blueprint $table) {

@@ -22,13 +22,11 @@ class PlayerRepository
         return Player::create($data);
     }
 
-    // Jogador removido (soft delete) com esse CPF, se houver.
     public function findTrashedByDocument(string $document): ?Player
     {
         return Player::onlyTrashed()->where('document', $document)->first();
     }
 
-    // Restaura o jogador removido já com os novos dados, num único save (sem transação).
     public function restore(Player $player, array $data): Player
     {
         $player->fill($data);
@@ -43,7 +41,6 @@ class PlayerRepository
         return Player::find($id);
     }
 
-    // Jogador vinculado ao usuário (players.user_id), inclusive se removido (soft delete).
     public function findByUserIdWithTrashed(int $userId): ?Player
     {
         return Player::withTrashed()->where('user_id', $userId)->first();
