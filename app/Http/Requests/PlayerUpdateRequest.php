@@ -20,7 +20,6 @@ class PlayerUpdateRequest extends FormRequest
                 'nullable',
                 'string',
                 'size:11',
-                // Contra todos, inclusive removidos: o unique do banco em document é global.
                 Rule::unique('players', 'document')->ignore($this->route('id')),
             ],
         ];

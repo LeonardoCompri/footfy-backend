@@ -15,8 +15,6 @@ class StadiumService
 
     public function __construct(private readonly StadiumRepository $repository) {}
 
-    // Lista estádios do usuário, opcionalmente restrita a uma única liga (leagueId),
-    // sempre validando que essa liga está entre as que o usuário tem acesso.
     public function index(?string $leagueId = null): Collection
     {
         $user = Auth::user();
@@ -71,8 +69,6 @@ class StadiumService
         return $stadium;
     }
 
-    // games.stadium_id é nullOnDelete, então o banco não barra a exclusão: a checagem de
-    // partidas vinculadas precisa ser explícita para não apagar o estádio do histórico.
     public function destroy(string $id): ?bool
     {
         $stadium = $this->show($id);

@@ -7,7 +7,6 @@ use Illuminate\Database\Eloquent\Collection;
 
 class GameEventRepository
 {
-    // Jogador e assistência do evento (withTrashed nas relações: vêm mesmo se removidos).
     private const WITH = ['player', 'relatedPlayer'];
 
     public function index(?array $gameIds = null, ?string $type = null): Collection
@@ -20,7 +19,7 @@ class GameEventRepository
             $query->where('type', $type);
         }
 
-        return $query->get();
+        return $query->latestMinuteFirst()->get();
     }
 
     public function store(array $data): GameEvent
@@ -33,7 +32,6 @@ class GameEventRepository
         return GameEvent::with(self::WITH)->find($id);
     }
 
-    // Recarrega as relações depois do save: as já carregadas não acompanham a troca de player_id.
     public function update(GameEvent $event): bool
     {
         $saved = $event->save();

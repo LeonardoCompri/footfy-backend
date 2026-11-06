@@ -7,12 +7,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Cria a tabela leagues (assume o papel de "edição/divisão concreta" que
-     * championships tinha hoje) e copia os dados de championships preservando
-     * os IDs, para que as FKs existentes continuem numericamente válidas após
-     * serem repontadas pelas próximas migrations.
-     */
     public function up(): void
     {
         Schema::create('leagues', function (Blueprint $table) {

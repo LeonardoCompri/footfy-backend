@@ -31,13 +31,6 @@ class PlayerService
         return $this->repository->index($teamIds);
     }
 
-    /**
-     * O unique de `document` no banco é global (inclui removidos): recadastrar o CPF de um
-     * jogador removido (soft delete) restaura esse mesmo registro (mesmo id, súmula preservada)
-     * com os dados novos, em vez de criar outro. Os campos opcionais que não vierem no payload
-     * são zerados, para não herdar dados do cadastro antigo. Restaura mesmo que o removido fosse
-     * de time de outra liga: o acesso conferido é só ao time de destino.
-     */
     public function store(array $data): Player
     {
         $this->ensureUserCanWriteToTeam($data['team_id']);
@@ -54,7 +47,6 @@ class PlayerService
         return $this->repository->store($data);
     }
 
-    // Lista de opções sugeridas para o select de posição no admin (Player::POSITIONS).
     public function positions(): array
     {
         return Player::POSITIONS;
@@ -76,7 +68,6 @@ class PlayerService
         $player = $this->show($id);
 
         if (array_key_exists('team_id', $data)) {
-            // Coach não transfere jogador: o time só pode continuar o mesmo.
             if (Auth::user()->isCoach() && (int) $data['team_id'] !== (int) $player->team_id) {
                 throw ValidationException::withMessages(['message' => 'Você não pode transferir o jogador para outro time.']);
             }
@@ -91,11 +82,6 @@ class PlayerService
         return $player;
     }
 
-    /**
-     * PUT /me/player: o usuário edita o jogador vinculado à própria conta (players.user_id).
-     * Sem vínculo lança ModelNotFoundException (404 no controller); jogador removido do elenco
-     * (soft delete) é recusado com 422. $data só traz os campos liberados (nome e nascimento).
-     */
     public function updateOwnPlayer(array $data): Player
     {
         $player = $this->repository->findByUserIdWithTrashed(Auth::id());
@@ -122,7 +108,6 @@ class PlayerService
         return $this->repository->destroy($player);
     }
 
-    // Coach só escreve no próprio time (users.team_id); demais papéis pela liga do time.
     private function ensureUserCanWriteToTeam(int|string $teamId): void
     {
         $user = Auth::user();

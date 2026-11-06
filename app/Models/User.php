@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -17,16 +16,8 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, HasRoles, Notifiable;
 
-    /**
-     * Papéis cujas ligas derivam do time (coach: users.team_id; player: time do jogador
-     * vinculado em players.user_id), e não de user_leagues.
-     */
     public const TEAM_SCOPED_ROLES = ['coach', 'player'];
 
-    /**
-     * Papéis com ligas vinculadas manualmente (user_leagues). Têm precedência: um usuário
-     * com admin e coach ao mesmo tempo usa user_leagues.
-     */
     public const LEAGUE_SCOPED_ROLES = ['master', 'admin'];
 
     protected $fillable = [
@@ -55,14 +46,11 @@ class User extends Authenticatable
         return $this->belongsToMany(League::class, 'user_leagues');
     }
 
-    // Time treinado pelo coach (1:1, unique em users.team_id).
     public function team(): BelongsTo
     {
         return $this->belongsTo(Team::class);
     }
 
-    // Cadastro de jogador do usuário player (1:1, unique em players.user_id). Jogador
-    // removido (soft delete) não conta: o player fica sem time e sem ligas.
     public function player(): HasOne
     {
         return $this->hasOne(Player::class);
@@ -78,13 +66,11 @@ class User extends Authenticatable
         return $this->hasRole('coach') && ! $this->hasAnyRole(self::LEAGUE_SCOPED_ROLES);
     }
 
-    // Coach/player sem papel master/admin: ligas derivadas do time.
     public function hasTeamScope(): bool
     {
         return $this->hasAnyRole(self::TEAM_SCOPED_ROLES) && ! $this->hasAnyRole(self::LEAGUE_SCOPED_ROLES);
     }
 
-    // Time do usuário: o vinculado ao coach ou o do jogador vinculado ao player.
     public function linkedTeam(): ?Team
     {
         return $this->team ?? $this->player?->team;
@@ -100,10 +86,6 @@ class User extends Authenticatable
         return $this->scopedLeagues()->where('leagues.id', $leagueId)->exists();
     }
 
-    /**
-     * Ligas que delimitam o acesso do usuário: user_leagues para master/admin (e usuários
-     * sem papel); para coach/player, as ligas do time vinculado (vazio sem vínculo).
-     */
     private function scopedLeagues(): Builder|BelongsToMany
     {
         if (! $this->hasTeamScope()) {
@@ -116,9 +98,6 @@ class User extends Authenticatable
         ));
     }
 
-    /**
-     * Usuários cujas ligas (mesma regra de leagueIds()) incluem ao menos uma de $leagueIds.
-     */
     public function scopeInLeagues(Builder $query, array $leagueIds): void
     {
         $teamScoped = fn ($q) => $q

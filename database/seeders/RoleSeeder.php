@@ -8,12 +8,6 @@ use Spatie\Permission\Models\Role;
 
 class RoleSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     *
-     * Idempotente (firstOrCreate + syncPermissions): pode ser rodado de novo em
-     * ambientes existentes para realinhar as permissões de cada papel.
-     */
     public function run(): void
     {
         $master = Role::firstOrCreate(['name' => 'master']);
@@ -52,7 +46,6 @@ class RoleSeeder extends Seeder
             'game_event:delete',
         ]);
 
-        // Escrita de jogador só no próprio time (users.team_id): access:player_write e PlayerService.
         $coach->syncPermissions([
             'team:read',
             'stadium:read',
@@ -62,8 +55,6 @@ class RoleSeeder extends Seeder
             'player:delete',
         ]);
 
-        // player:update só vale em PUT /me/player (FOOT-0048): em PUT /players/{id} o
-        // access:player_write nega o papel player.
         $player->syncPermissions([
             'player:read',
             'player:update',

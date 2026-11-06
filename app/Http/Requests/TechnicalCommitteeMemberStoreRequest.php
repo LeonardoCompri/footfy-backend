@@ -25,7 +25,6 @@ class TechnicalCommitteeMemberStoreRequest extends FormRequest
         ];
     }
 
-    // Aqui role é a função na comissão técnica, não o papel do usuário (validation.attributes.role).
     public function attributes(): array
     {
         return [

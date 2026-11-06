@@ -16,7 +16,6 @@ class PlayerStoreRequest extends FormRequest
             'position' => ['nullable', 'string', Rule::in(Player::positionValues())],
             'number' => ['nullable', 'integer'],
             'birth_date' => ['nullable', 'date'],
-            // CPF de jogador removido (soft delete) não bloqueia: o PlayerService restaura esse registro.
             'document' => ['nullable', 'string', 'size:11', Rule::unique('players', 'document')->withoutTrashed()],
         ];
     }

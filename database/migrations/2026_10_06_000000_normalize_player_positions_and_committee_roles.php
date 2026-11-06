@@ -7,10 +7,6 @@ use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
-    /**
-     * Títulos/variações legadas de posição => código oficial (comparação
-     * case-insensitive, com TRIM).
-     */
     private const POSITION_MAP = [
         'goleiro' => 'GOL',
         'zagueiro' => 'ZAG',
@@ -20,21 +16,11 @@ return new class extends Migration
         'atacante' => 'ATA',
     ];
 
-    /**
-     * Funções legadas => função oficial. 'Treinador principal' veio da
-     * migration 2026_06_19_000011 (coaches → technical_committee_members) e
-     * 'Técnico' do TechnicalCommitteeMemberSeeder antigo.
-     */
     private const ROLE_MAP = [
         'técnico' => 'Treinador',
         'treinador principal' => 'Treinador',
     ];
 
-    /**
-     * Normaliza players.position e technical_committee_members.role para as
-     * listas oficiais (Player::POSITIONS / TechnicalCommitteeMember::ROLES),
-     * agora validadas nos FormRequests. Não altera schema.
-     */
     public function up(): void
     {
         $positionMap = self::POSITION_MAP;
@@ -48,7 +34,6 @@ return new class extends Migration
                 ->update(['position' => $code]);
         }
 
-        // Qualquer posição que continue fora da lista oficial vira NULL (campo é opcional).
         DB::table('players')
             ->whereNotNull('position')
             ->whereNotIn('position', Player::positionValues())
@@ -59,8 +44,6 @@ return new class extends Migration
             $roleMap[mb_strtolower($role)] = $role;
         }
 
-        // Roles fora da lista após o mapeamento ficam como estão: são aceitos no
-        // update do próprio registro (ver TechnicalCommitteeMemberUpdateRequest).
         foreach ($roleMap as $legacy => $role) {
             DB::table('technical_committee_members')
                 ->whereRaw('LOWER(TRIM(role)) = ?', [$legacy])
@@ -68,13 +51,5 @@ return new class extends Migration
         }
     }
 
-    /**
-     * Irreversível: os valores originais não são guardados (vários títulos
-     * mapeiam para o mesmo código e posições inválidas viraram NULL), então
-     * não há como restaurá-los. O rollback não desfaz nada.
-     */
-    public function down(): void
-    {
-        //
-    }
+    public function down(): void {}
 };

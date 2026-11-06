@@ -15,8 +15,11 @@ class GameService
 {
     use EnsuresLeagueAccess;
 
-    // Relações da partida no show/publicShow; o jogador do evento vem mesmo se removido (soft delete).
     private const SHOW_RELATIONS = ['homeTeam', 'awayTeam', 'stadium', 'events.player', 'events.relatedPlayer'];
+
+    private const BACKOFFICE_RELATIONS = ['homeTeam.players', 'awayTeam.players'];
+
+    private const STATUSES_WITH_SCORE = ['in_progress', 'finished'];
 
     public function __construct(private readonly GameRepository $repository) {}
 
@@ -34,34 +37,27 @@ class GameService
     {
         $this->ensureUserHasAccessToLeagues([$data['league_id']]);
 
+        if (in_array($data['status'], self::STATUSES_WITH_SCORE, true)) {
+            $data['home_score'] = 0;
+            $data['away_score'] = 0;
+        }
+
         return $this->repository->store($data);
     }
 
     public function show(string $id): Game
     {
-        $game = $this->repository->show($id, self::SHOW_RELATIONS);
-
-        if (! $game) {
-            throw ValidationException::withMessages(['message' => 'Partida não encontrada!']);
-        }
-
-        return $game;
+        return $this->find($id, $this->showRelations(backoffice: true));
     }
 
     public function publicShow(string $id): Game
     {
-        $game = $this->repository->show($id, self::SHOW_RELATIONS);
-
-        if (! $game) {
-            throw ValidationException::withMessages(['message' => 'Partida não encontrada!']);
-        }
-
-        return $game;
+        return $this->find($id, $this->showRelations());
     }
 
     public function update(array $data, string $id): Game
     {
-        $game = $this->show($id);
+        $game = $this->find($id);
 
         if (array_key_exists('league_id', $data)) {
             $this->ensureUserHasAccessToLeagues([$data['league_id']]);
@@ -69,9 +65,13 @@ class GameService
 
         $game->fill($data);
         $leagueChanged = $game->isDirty('league_id');
+        $recalculateScore = $this->shouldRecalculateScore($game);
 
-        // game_events.league_id é denormalizado: ao trocar a liga da partida, os eventos acompanham.
-        DB::transaction(function () use ($game, $leagueChanged) {
+        DB::transaction(function () use ($game, $leagueChanged, $recalculateScore) {
+            if ($recalculateScore) {
+                $game->fill($this->scoreFromEvents($game));
+            }
+
             $this->repository->update($game);
 
             if ($leagueChanged) {
@@ -79,15 +79,75 @@ class GameService
             }
         });
 
-        // show() carregou as relações antes do fill: recarrega para a resposta não sair com times,
-        // estádio ou league_id dos eventos antigos (refresh() não recarregaria events.player).
-        return $game->load(self::SHOW_RELATIONS);
+        return $game->load($this->showRelations(backoffice: true));
+    }
+
+    public function refreshScore(int $gameId): void
+    {
+        $game = $this->repository->findForUpdate($gameId);
+
+        if (! $game) {
+            return;
+        }
+
+        $game->fill($this->scoreFromEvents($game));
+        $this->repository->update($game);
+    }
+
+    private function scoreFromEvents(Game $game): array
+    {
+        $score = ['home_score' => 0, 'away_score' => 0];
+
+        foreach ($this->repository->scoringEventCounts($game) as $row) {
+            $isHome = (int) $row->team_id === (int) $game->home_team_id;
+            $isAway = (int) $row->team_id === (int) $game->away_team_id;
+
+            if (! $isHome && ! $isAway) {
+                continue;
+            }
+
+            $creditsHome = $row->counts_for === 'opponent' ? $isAway : $isHome;
+            $score[$creditsHome ? 'home_score' : 'away_score'] += (int) $row->total;
+        }
+
+        return $score;
+    }
+
+    private function shouldRecalculateScore(Game $game): bool
+    {
+        $hasScore = $game->home_score !== null && $game->away_score !== null;
+
+        if (! $hasScore) {
+            return in_array($game->status, self::STATUSES_WITH_SCORE, true);
+        }
+
+        return $game->isDirty(['home_team_id', 'away_team_id']);
     }
 
     public function destroy(string $id): ?bool
     {
-        $game = $this->show($id);
+        $game = $this->find($id);
 
         return $this->repository->destroy($game);
+    }
+
+    private function showRelations(bool $backoffice = false): array
+    {
+        return [
+            'events' => fn ($query) => $query->latestMinuteFirst(),
+            ...self::SHOW_RELATIONS,
+            ...($backoffice ? self::BACKOFFICE_RELATIONS : []),
+        ];
+    }
+
+    private function find(string $id, array $relations = []): Game
+    {
+        $game = $this->repository->show($id, $relations);
+
+        if (! $game) {
+            throw ValidationException::withMessages(['message' => 'Partida não encontrada!']);
+        }
+
+        return $game;
     }
 }

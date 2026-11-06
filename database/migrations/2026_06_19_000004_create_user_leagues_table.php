@@ -7,10 +7,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Substitui user_championships por user_leagues — vínculo de acesso do
-     * admin agora é por liga (edição específica), não mais por campeonato.
-     */
     public function up(): void
     {
         Schema::create('user_leagues', function (Blueprint $table) {

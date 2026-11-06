@@ -5,12 +5,6 @@ use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
-    /**
-     * Copia os registros de coaches para technical_committee_members com
-     * role = 'Treinador principal': todo registro existente já
-     * representava o técnico principal, não havia outra função possível
-     * antes desta mudança.
-     */
     public function up(): void
     {
         DB::statement("

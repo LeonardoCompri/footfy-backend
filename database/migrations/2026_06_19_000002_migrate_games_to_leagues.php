@@ -7,11 +7,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Repointa games de championship_id para league_id (mesma FK numérica,
-     * já que leagues preservou os IDs de championships). Índice em league_id
-     * porque é o ponto de junção de estatísticas futuras por liga (Fase 2).
-     */
     public function up(): void
     {
         Schema::table('games', function (Blueprint $table) {

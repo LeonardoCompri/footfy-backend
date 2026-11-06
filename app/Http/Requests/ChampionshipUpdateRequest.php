@@ -16,7 +16,6 @@ class ChampionshipUpdateRequest extends FormRequest
             'name' => ['sometimes', 'string', 'max:255'],
             'image' => ['sometimes', 'nullable', 'image', 'mimes:jpeg,png,jpg,webp', 'max:2048'],
             ...$this->championshipLeaguesRules(),
-            // Liga com id é atualizada; só vale liga deste campeonato.
             'leagues.*.id' => [
                 'nullable',
                 'integer',

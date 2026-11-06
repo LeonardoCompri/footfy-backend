@@ -1,18 +1,6 @@
 <?php
 
 return [
-
-    /*
-    |--------------------------------------------------------------------------
-    | Mensagens de validação
-    |--------------------------------------------------------------------------
-    |
-    | Mensagens padrão do validador do Laravel 12 em português. As regras com
-    | várias versões (between, gt, gte, lt, lte, max, min, size) têm uma
-    | mensagem por tipo de valor: array, file, numeric e string.
-    |
-    */
-
     'accepted' => 'O campo :attribute deve ser aceito.',
     'accepted_if' => 'O campo :attribute deve ser aceito quando :other for :value.',
     'active_url' => 'O campo :attribute deve ser uma URL válida.',
@@ -167,37 +155,20 @@ return [
     'ulid' => 'O campo :attribute deve ser um ULID válido.',
     'uuid' => 'O campo :attribute deve ser um UUID válido.',
 
-    /*
-    |--------------------------------------------------------------------------
-    | Mensagens personalizadas por campo
-    |--------------------------------------------------------------------------
-    |
-    | Mensagens de um campo específico ficam no messages() do FormRequest,
-    | junto da regra que as usa.
-    |
-    */
-
     'custom' => [],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Nomes dos campos
-    |--------------------------------------------------------------------------
-    |
-    | Nome legível que substitui :attribute (e :other/:values) nas mensagens.
-    | Precisa cobrir todos os campos dos FormRequests de app/Http/Requests. Um
-    | campo com nome diferente em um request específico (ex: role do membro da
-    | comissão técnica) é sobrescrito no attributes() desse request.
-    |
-    */
-
     'attributes' => [
+        'active' => 'ativo',
+        'allows_assist' => 'permite assistência',
         'away_score' => 'placar do visitante',
         'away_team_id' => 'time visitante',
         'birth_date' => 'data de nascimento',
         'capacity' => 'capacidade',
+        'card' => 'cartão',
         'championship_id' => 'campeonato',
         'city' => 'cidade',
+        'color' => 'cor',
+        'counts_for' => 'conta no placar para',
         'document' => 'CPF',
         'email' => 'e-mail',
         'end_date' => 'data de término',
@@ -205,6 +176,7 @@ return [
         'game_id' => 'partida',
         'home_score' => 'placar do mandante',
         'home_team_id' => 'time mandante',
+        'icon' => 'ícone',
         'image' => 'imagem',
         'league_id' => 'liga',
         'league_ids' => 'ligas',
@@ -238,6 +210,8 @@ return [
         'role' => 'papel',
         'round' => 'rodada',
         'season' => 'temporada',
+        'slug' => 'identificador',
+        'sort_order' => 'ordem',
         'stadium_id' => 'estádio',
         'start_date' => 'data de início',
         'status' => 'status',

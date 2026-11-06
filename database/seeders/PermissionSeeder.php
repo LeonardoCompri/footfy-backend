@@ -7,9 +7,6 @@ use Spatie\Permission\Models\Permission;
 
 class PermissionSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
         $modules = ['tournament', 'team', 'player', 'stadium', 'technical_committee_member', 'game', 'game_event'];

@@ -5,10 +5,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Remove as tabelas pivot antigas, já substituídas por league_team e
-     * user_leagues (dados já copiados nas migrations anteriores).
-     */
     public function up(): void
     {
         Schema::dropIfExists('championship_team');

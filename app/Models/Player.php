@@ -10,11 +10,6 @@ class Player extends Model
 {
     use HasFactory, SoftDeletes;
 
-    /**
-     * Lista oficial de posições (coluna `position` é string no banco, sem enum).
-     * Fonte única: alimenta o select do admin (GET /players/positions) e a
-     * validação de PlayerStoreRequest/PlayerUpdateRequest.
-     */
     public const POSITIONS = [
         ['value' => 'GOL', 'title' => 'Goleiro'],
         ['value' => 'ZAG', 'title' => 'Zagueiro'],
@@ -23,9 +18,6 @@ class Player extends Model
         ['value' => 'ATA', 'title' => 'Atacante'],
     ];
 
-    /**
-     * Códigos aceitos no campo `position` (ex: ['GOL', 'ZAG', ...]).
-     */
     public static function positionValues(): array
     {
         return array_column(self::POSITIONS, 'value');

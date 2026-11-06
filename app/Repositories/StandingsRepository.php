@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\DB;
 
 class StandingsRepository
 {
-    // Times vinculados à liga, para a tabela exibir mesmo os que ainda não jogaram (linha zerada).
     public function leagueTeams(int $leagueId): EloquentCollection
     {
         return Team::query()
@@ -19,11 +18,6 @@ class StandingsRepository
             ->get(['id', 'name', 'nickname', 'logo']);
     }
 
-    /**
-     * Agrega PJ/V/E/D/GP/GC/Pts da fase de pontos corridos (jogos com `round` preenchido)
-     * já finalizados, em uma única query por liga (UNION ALL casa+visitante seguido de
-     * GROUP BY team_id no banco), para não gerar 1 query por time.
-     */
     public function groupStageAggregates(int $leagueId): Collection
     {
         $base = fn () => Game::query()
@@ -57,23 +51,20 @@ class StandingsRepository
             ->get();
     }
 
-    // Nº de cartões (amarelo+vermelho) por time, restrito à fase de pontos corridos —
-    // usado só como critério de desempate da tabela de classificação.
     public function groupStageCardCounts(int $leagueId): array
     {
         return GameEvent::query()
+            ->joinEventType()
             ->join('games', 'games.id', '=', 'game_events.game_id')
             ->where('game_events.league_id', $leagueId)
             ->whereNotNull('games.round')
-            ->whereIn('game_events.type', ['yellow_card', 'red_card'])
+            ->whereNotNull('game_event_types.card')
             ->groupBy('game_events.team_id')
             ->selectRaw('game_events.team_id as team_id, COUNT(*) as cards')
             ->pluck('cards', 'team_id')
             ->toArray();
     }
 
-    // Jogos diretos já finalizados entre dois times, na fase de pontos corridos — usado só
-    // quando exatamente 2 times seguem empatados após pontos/vitórias/saldo/gols pró.
     public function headToHeadGames(int $leagueId, int $teamAId, int $teamBId): EloquentCollection
     {
         return Game::query()
@@ -89,8 +80,6 @@ class StandingsRepository
             ->get();
     }
 
-    // Jogos do mata-mata (fase preenchida), já com os times carregados para montar os
-    // confrontos sem N+1, ordenados por fase, confronto e perna.
     public function knockoutGames(int $leagueId): EloquentCollection
     {
         return Game::query()
