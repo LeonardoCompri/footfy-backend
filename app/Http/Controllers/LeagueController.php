@@ -64,7 +64,6 @@ class LeagueController extends Controller
         }
     }
 
-    // Tabela da Liga (classificação e/ou chaveamento, conforme o formato da liga).
     public function table(string $id): JsonResponse
     {
         try {
@@ -97,9 +96,6 @@ class LeagueController extends Controller
         }
     }
 
-    // Estatísticas da liga inteira (artilharia, assistências, cartões, gols por rodada/fase,
-    // totais de gols/média e vitória mandante/empate/vitória visitante) — grupos + mata-mata
-    // somados. JSON_PRESERVE_ZERO_FRACTION mantém `totals.goals_average` como float (2.0, não 2).
     public function statistics(string $id): JsonResponse
     {
         try {
@@ -132,9 +128,6 @@ class LeagueController extends Controller
         }
     }
 
-    // Dashboard do admin: contadores do cabeçalho, últimos resultados/próximas partidas e os
-    // gráficos de gols por rodada/fase e vitória mandante/empate/vitória visitante, além de
-    // `totals` (gols/média) — mesmo JSON_PRESERVE_ZERO_FRACTION de `statistics`.
     public function dashboard(string $id): JsonResponse
     {
         try {
@@ -196,7 +189,6 @@ class LeagueController extends Controller
         }
     }
 
-    // A senha do master é conferida no LeagueDestroyRequest (422 em errors.password).
     public function destroy(LeagueDestroyRequest $request, string $id): JsonResponse
     {
         try {

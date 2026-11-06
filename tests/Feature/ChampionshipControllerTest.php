@@ -50,16 +50,12 @@ class ChampionshipControllerTest extends TestCase
         return $user;
     }
 
-    // ── Auth ──────────────────────────────────────────────────────────────────
-
     public function test_guest_cannot_list_championships(): void
     {
         $response = $this->getJson('/api/championships');
 
         $response->assertStatus(401);
     }
-
-    // ── Index/show: qualquer autenticado ───────────────────────────────────────
 
     public function test_master_index_returns_all_championships(): void
     {
@@ -99,8 +95,6 @@ class ChampionshipControllerTest extends TestCase
 
         $response->assertStatus(422)->assertJson(['message' => 'Campeonato não encontrado!']);
     }
-
-    // ── Master: CRUD completo ────────────────────────────────────────────────
 
     public function test_master_can_create_championship(): void
     {
@@ -149,8 +143,6 @@ class ChampionshipControllerTest extends TestCase
         Storage::disk('public')->assertExists($otherPath);
         $this->assertDatabaseHas('championships', ['id' => $other->id, 'image' => $otherPath]);
     }
-
-    // ── Destroy: senha do master e cascata ───────────────────────────────────────
 
     public function test_destroy_without_password_returns_422_and_keeps_championship(): void
     {
@@ -228,7 +220,6 @@ class ChampionshipControllerTest extends TestCase
         $this->assertDatabaseMissing('league_team', ['league_id' => $league->id]);
         $this->assertDatabaseMissing('user_leagues', ['league_id' => $league->id]);
         Storage::disk('public')->assertMissing($path);
-        // Preservados: outro campeonato e sua liga, liga sem campeonato, times, elenco, comissão e usuários.
         $this->assertDatabaseHas('championships', ['id' => $otherChampionship->id]);
         $this->assertDatabaseHas('leagues', ['id' => $other->id]);
         $this->assertDatabaseHas('leagues', ['id' => $orphan->id, 'championship_id' => null]);
@@ -266,8 +257,6 @@ class ChampionshipControllerTest extends TestCase
         $this->deleteJson("/api/championships/{$championship->id}", ['password' => 'password'])->assertStatus(429);
         $this->assertDatabaseHas('championships', ['id' => $championship->id]);
     }
-
-    // ── Upload de imagem ─────────────────────────────────────────────────────
 
     public function test_master_can_create_championship_with_image(): void
     {
@@ -364,8 +353,6 @@ class ChampionshipControllerTest extends TestCase
         Storage::disk('public')->assertExists($path);
     }
 
-    // ── Validações ────────────────────────────────────────────────────────────
-
     public function test_store_fails_validation_without_name(): void
     {
         $this->authenticate();
@@ -374,8 +361,6 @@ class ChampionshipControllerTest extends TestCase
 
         $response->assertStatus(422);
     }
-
-    // ── Admin: sem acesso a store/update/destroy ────────────────────────────────
 
     public function test_admin_cannot_create_championship(): void
     {
@@ -407,8 +392,6 @@ class ChampionshipControllerTest extends TestCase
         $this->assertDatabaseHas('championships', ['id' => $championship->id]);
     }
 
-    // ── Rotas públicas ────────────────────────────────────────────────────────
-
     public function test_guest_can_list_championships_via_public_route(): void
     {
         Championship::factory()->count(2)->create();
@@ -436,8 +419,6 @@ class ChampionshipControllerTest extends TestCase
 
         $response->assertStatus(422)->assertJson(['message' => 'Campeonato não encontrado!']);
     }
-
-    // ── Estrutura de resposta (ChampionshipResource) ────────────────────────────
 
     public function test_public_index_response_does_not_include_leagues(): void
     {
@@ -474,8 +455,6 @@ class ChampionshipControllerTest extends TestCase
         $this->assertArrayNotHasKey('leagues', $response->json('data.0'));
     }
 
-    // ── Campeonato sem ligas ──────────────────────────────────────────────────
-
     public function test_show_of_championship_without_leagues_returns_empty_leagues(): void
     {
         $this->authenticate();
@@ -491,8 +470,6 @@ class ChampionshipControllerTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data');
     }
-
-    // ── Store/update com ligas (`leagues`) ───────────────────────────────────────
 
     public function test_master_can_create_championship_with_leagues(): void
     {
@@ -628,7 +605,6 @@ class ChampionshipControllerTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('data.name', 'Novo')
             ->assertJsonCount(3, 'data.leagues');
-        // format nulo numa liga existente mantém o formato atual.
         $this->assertDatabaseHas('leagues', ['id' => $updated->id, 'name' => 'Série A 2026', 'season' => '2026', 'format' => 'knockout', 'championship_id' => $championship->id]);
         $this->assertDatabaseHas('leagues', ['name' => 'Série B 2026', 'championship_id' => $championship->id, 'format' => 'round_robin']);
         $this->assertDatabaseHas('leagues', ['id' => $untouched->id, 'name' => 'Série C', 'championship_id' => $championship->id]);
@@ -716,7 +692,6 @@ class ChampionshipControllerTest extends TestCase
         Storage::fake('public');
         $this->authenticate();
 
-        // post() com UploadedFile envia multipart/form-data; os campos chegam como leagues[0][name] (strings).
         $response = $this->post('/api/championships', [
             'name' => 'Copa X',
             'image' => UploadedFile::fake()->image('logo.png'),
@@ -730,7 +705,6 @@ class ChampionshipControllerTest extends TestCase
         $championship = Championship::first();
         Storage::disk('public')->assertExists($championship->image);
         $this->assertDatabaseHas('leagues', ['name' => 'Série A', 'format' => 'knockout', 'start_date' => '2026-01-10', 'championship_id' => $championship->id]);
-        // String vazia vira null (ConvertEmptyStringsToNull): formato cai no default.
         $this->assertDatabaseHas('leagues', ['name' => 'Série B', 'format' => 'round_robin', 'season' => null, 'championship_id' => $championship->id]);
     }
 

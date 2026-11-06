@@ -13,7 +13,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
-// Conta do usuário autenticado (/me), para qualquer papel.
 class ProfileController extends Controller
 {
     public function __construct(
@@ -54,7 +53,6 @@ class ProfileController extends Controller
 
             return response()->json(['data' => new PlayerResource($response)]);
         } catch (ModelNotFoundException $ex) {
-            // Usuário sem jogador vinculado (ex.: coach, admin, player sem vínculo).
             return response()->json(['message' => $ex->getMessage()], 404);
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);

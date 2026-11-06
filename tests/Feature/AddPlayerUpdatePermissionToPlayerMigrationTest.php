@@ -15,7 +15,6 @@ class AddPlayerUpdatePermissionToPlayerMigrationTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** Permissões do coach depois da FOOT-0047 (não mudam aqui). */
     private const COACH = ['player:create', 'player:delete', 'player:read', 'player:update', 'stadium:read', 'team:read'];
 
     protected function setUp(): void
@@ -29,7 +28,6 @@ class AddPlayerUpdatePermissionToPlayerMigrationTest extends TestCase
         return require database_path('migrations/2026_10_29_000000_add_player_update_permission_to_player.php');
     }
 
-    /** Estado de um ambiente existente antes da FOOT-0048: player só com player:read. */
     private function seedRolesBeforeMigration(): void
     {
         $this->seed(PermissionSeeder::class);

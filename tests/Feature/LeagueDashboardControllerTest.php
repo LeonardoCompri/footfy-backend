@@ -207,8 +207,6 @@ class LeagueDashboardControllerTest extends TestCase
         $this->assertSame(['home_wins' => 1, 'draws' => 0, 'away_wins' => 0], $dashboard->json('data.results_split'));
     }
 
-    // ── cards_split ───────────────────────────────────────────────────────────
-
     private function card(League $league, Game $game, Team $team, Player $player, string $type): GameEvent
     {
         return GameEvent::factory()->create([
@@ -220,10 +218,6 @@ class LeagueDashboardControllerTest extends TestCase
         ]);
     }
 
-    /**
-     * Liga alvo com 12 jogadores cartoados (acima do top 10 de `top_cards`): 13 amarelos e
-     * 2 vermelhos. Outra liga com cartões próprios, que não podem entrar no total da primeira.
-     */
     private function buildLeagueWithCardsAndAnotherLeague(): League
     {
         $league = League::factory()->create(['format' => 'round_robin']);
@@ -279,12 +273,10 @@ class LeagueDashboardControllerTest extends TestCase
         $this->authenticate();
         $league = $this->buildLeagueWithCardsAndAnotherLeague();
 
-        // Aquece o cache de roles/permissions antes de medir.
         $this->getJson("/api/leagues/{$league->id}/dashboard")->assertOk();
 
         $cardsSplitQueries = [];
         DB::listen(function ($query) use (&$cardsSplitQueries) {
-            // Alias `as yellow,` é exclusivo do cardsSplit (topCards usa `as yellow_cards`).
             if (str_contains($query->sql, 'as yellow,')) {
                 $cardsSplitQueries[] = $query->sql;
             }
@@ -294,8 +286,6 @@ class LeagueDashboardControllerTest extends TestCase
 
         $this->assertCount(1, $cardsSplitQueries);
     }
-
-    // ── Caso de borda: liga sem nenhum dado cadastrado ──────────────────────
 
     public function test_dashboard_for_empty_league_returns_zeroed_data_without_error(): void
     {
@@ -316,8 +306,6 @@ class LeagueDashboardControllerTest extends TestCase
             $response->json('data.totals')
         );
     }
-
-    // ── Autorização ───────────────────────────────────────────────────────────
 
     public function test_admin_without_league_access_gets_forbidden(): void
     {

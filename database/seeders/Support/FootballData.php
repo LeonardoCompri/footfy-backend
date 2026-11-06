@@ -2,17 +2,8 @@
 
 namespace Database\Seeders\Support;
 
-/**
- * Massa de dados "âncora" (campeonatos, ligas, times, estádios e técnicos
- * reais/realistas) compartilhada entre os seeders. Mantida como arrays
- * estáticos, sem tocar no Eloquent, para que cada seeder decida como
- * persistir e relacionar esses dados.
- */
 class FootballData
 {
-    /**
-     * Championship (marca) => nome.
-     */
     public static function championships(): array
     {
         return [
@@ -24,9 +15,6 @@ class FootballData
         ];
     }
 
-    /**
-     * League (edição/temporada) => dados, vinculada à championship pela key acima.
-     */
     public static function leagues(): array
     {
         return [
@@ -73,14 +61,9 @@ class FootballData
         ];
     }
 
-    /**
-     * Team key => nome oficial, apelido e locale usado para gerar nomes de
-     * jogadores/comissão técnica (Faker) coerentes com o país do time.
-     */
     public static function teams(): array
     {
         return [
-            // Brasileirão Série A
             'corinthians' => ['name' => 'Sport Club Corinthians Paulista', 'nickname' => 'Corinthians', 'locale' => 'pt_BR'],
             'palmeiras' => ['name' => 'Sociedade Esportiva Palmeiras', 'nickname' => 'Palmeiras', 'locale' => 'pt_BR'],
             'flamengo' => ['name' => 'Clube de Regatas do Flamengo', 'nickname' => 'Flamengo', 'locale' => 'pt_BR'],
@@ -92,7 +75,6 @@ class FootballData
             'botafogo' => ['name' => 'Botafogo de Futebol e Regatas', 'nickname' => 'Botafogo', 'locale' => 'pt_BR'],
             'atletico_mg' => ['name' => 'Clube Atlético Mineiro', 'nickname' => 'Atlético-MG', 'locale' => 'pt_BR'],
 
-            // Copa do Brasil (além dos times acima que também disputam)
             'cruzeiro' => ['name' => 'Cruzeiro Esporte Clube', 'nickname' => 'Cruzeiro', 'locale' => 'pt_BR'],
             'vasco' => ['name' => 'Club de Regatas Vasco da Gama', 'nickname' => 'Vasco da Gama', 'locale' => 'pt_BR'],
             'bahia' => ['name' => 'Esporte Clube Bahia', 'nickname' => 'Bahia', 'locale' => 'pt_BR'],
@@ -102,7 +84,6 @@ class FootballData
             'criciuma' => ['name' => 'Criciúma Esporte Clube', 'nickname' => 'Criciúma', 'locale' => 'pt_BR'],
             'vitoria' => ['name' => 'Esporte Clube Vitória', 'nickname' => 'Vitória', 'locale' => 'pt_BR'],
 
-            // Campeonato Paulista (além dos times acima que também disputam)
             'bragantino' => ['name' => 'Red Bull Bragantino', 'nickname' => 'Bragantino', 'locale' => 'pt_BR'],
             'ponte_preta' => ['name' => 'Associação Atlética Ponte Preta', 'nickname' => 'Ponte Preta', 'locale' => 'pt_BR'],
             'guarani' => ['name' => 'Guarani Futebol Clube', 'nickname' => 'Guarani', 'locale' => 'pt_BR'],
@@ -110,7 +91,6 @@ class FootballData
             'portuguesa' => ['name' => 'Associação Portuguesa de Desportos', 'nickname' => 'Portuguesa', 'locale' => 'pt_BR'],
             'novorizontino' => ['name' => 'Grêmio Novorizontino', 'nickname' => 'Novorizontino', 'locale' => 'pt_BR'],
 
-            // Premier League
             'man_city' => ['name' => 'Manchester City FC', 'nickname' => 'Manchester City', 'locale' => 'en_GB'],
             'man_united' => ['name' => 'Manchester United FC', 'nickname' => 'Manchester United', 'locale' => 'en_GB'],
             'liverpool' => ['name' => 'Liverpool FC', 'nickname' => 'Liverpool', 'locale' => 'en_GB'],
@@ -122,7 +102,6 @@ class FootballData
             'west_ham' => ['name' => 'West Ham United FC', 'nickname' => 'West Ham', 'locale' => 'en_GB'],
             'everton' => ['name' => 'Everton FC', 'nickname' => 'Everton', 'locale' => 'en_GB'],
 
-            // La Liga
             'real_madrid' => ['name' => 'Real Madrid Club de Fútbol', 'nickname' => 'Real Madrid', 'locale' => 'es_ES'],
             'barcelona' => ['name' => 'Futbol Club Barcelona', 'nickname' => 'Barcelona', 'locale' => 'es_ES'],
             'atletico_madrid' => ['name' => 'Club Atlético de Madrid', 'nickname' => 'Atlético de Madrid', 'locale' => 'es_ES'],
@@ -136,12 +115,6 @@ class FootballData
         ];
     }
 
-    /**
-     * League key => lista de team keys participantes (define também a
-     * pivot league_team). Alguns times aparecem em mais de uma liga
-     * nacional, como na realidade (ex: Corinthians disputa Brasileirão,
-     * Copa do Brasil e Paulista).
-     */
     public static function leagueTeams(): array
     {
         return [
@@ -168,12 +141,6 @@ class FootballData
         ];
     }
 
-    /**
-     * Team key => estádio "mandante" real (nome, cidade, capacidade). Times
-     * que dividem o mesmo estádio na vida real (ex: Flamengo e Fluminense no
-     * Maracanã) apontam para o mesmo nome — o StadiumSeeder deduplica por
-     * liga, criando uma única linha para o par (liga, nome do estádio).
-     */
     public static function stadiums(): array
     {
         return [
@@ -228,10 +195,6 @@ class FootballData
         ];
     }
 
-    /**
-     * Team key => nome do técnico principal (role "Técnico" na comissão
-     * técnica). Auxiliares são gerados via Faker no seeder.
-     */
     public static function headCoaches(): array
     {
         return [
@@ -286,10 +249,6 @@ class FootballData
         ];
     }
 
-    /**
-     * Locale do Faker (nomes de jogadores/comissão) a partir do nome oficial
-     * do time já persistido no banco.
-     */
     public static function localeForTeamName(string $teamName): string
     {
         static $map = null;
@@ -301,9 +260,6 @@ class FootballData
         return $map[$teamName] ?? 'pt_BR';
     }
 
-    /**
-     * Team key a partir do nome oficial do time já persistido no banco.
-     */
     public static function teamKeyForName(string $teamName): string
     {
         static $map = null;

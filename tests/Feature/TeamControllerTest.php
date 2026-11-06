@@ -26,7 +26,6 @@ class TeamControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        // Papéis e permissões reais do RoleSeeder: as rotas de escrita exigem `permission:`.
         $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
@@ -51,7 +50,6 @@ class TeamControllerTest extends TestCase
         return $user;
     }
 
-    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas (coach/player via time). */
     private function authenticateAs(string $role, array $leagueIds = []): User
     {
         $user = User::factory()->create();
@@ -64,16 +62,12 @@ class TeamControllerTest extends TestCase
         return $user;
     }
 
-    // ── Auth ──────────────────────────────────────────────────────────────────
-
     public function test_guest_cannot_list_teams(): void
     {
         $response = $this->getJson('/api/teams');
 
         $response->assertStatus(401);
     }
-
-    // ── Master ────────────────────────────────────────────────────────────────
 
     public function test_master_index_returns_all_teams(): void
     {
@@ -141,8 +135,6 @@ class TeamControllerTest extends TestCase
         $response->assertStatus(422)->assertJson(['message' => 'Time não encontrado!']);
     }
 
-    // ── Validações ────────────────────────────────────────────────────────────
-
     public function test_store_fails_validation_without_name(): void
     {
         $this->authenticate();
@@ -151,8 +143,6 @@ class TeamControllerTest extends TestCase
 
         $response->assertStatus(422);
     }
-
-    // ── Upload de imagem (logo) ──────────────────────────────────────────────
 
     public function test_master_can_create_team_with_logo(): void
     {
@@ -296,8 +286,6 @@ class TeamControllerTest extends TestCase
         $response->assertStatus(422)->assertJsonValidationErrors('logo');
     }
 
-    // ── Store com ligas (league_ids) ──────────────────────────────────────────
-
     public function test_master_can_create_team_with_leagues(): void
     {
         $this->authenticate();
@@ -393,7 +381,6 @@ class TeamControllerTest extends TestCase
         $league1 = League::factory()->create();
         $league2 = League::factory()->create();
 
-        // post() com UploadedFile envia multipart/form-data; league_ids chega como league_ids[] (strings).
         $response = $this->post('/api/teams', [
             'name' => 'Sport Club X',
             'logo' => UploadedFile::fake()->image('logo.png'),
@@ -425,8 +412,6 @@ class TeamControllerTest extends TestCase
         $this->assertDatabaseCount('teams', 0);
         $this->assertEmpty(Storage::disk('public')->allFiles());
     }
-
-    // ── Show: ligas do time ───────────────────────────────────────────────────
 
     public function test_master_show_returns_all_team_leagues(): void
     {
@@ -540,8 +525,6 @@ class TeamControllerTest extends TestCase
 
     public function test_show_runs_fixed_number_of_queries_regardless_of_relations_size(): void
     {
-        // Reautentica com instância nova do usuário a cada request para que o cache de
-        // roles em memória não faça a primeira medição ter uma query a mais.
         $countQueries = function (Team $team, User $admin): int {
             Sanctum::actingAs($admin->fresh());
             DB::flushQueryLog();
@@ -578,8 +561,6 @@ class TeamControllerTest extends TestCase
             ->assertJsonCount(5, 'data.technicalCommitteeMembers');
     }
 
-    // ── Admin: escopo por liga ───────────────────────────────────────────────
-
     public function test_admin_index_only_sees_teams_in_assigned_leagues(): void
     {
         $league = League::factory()->create();
@@ -606,8 +587,6 @@ class TeamControllerTest extends TestCase
 
         $response->assertOk()->assertJsonCount(0, 'data');
     }
-
-    // ── Filtro por league_id ─────────────────────────────────────────────────
 
     public function test_master_can_filter_index_by_league_id(): void
     {
@@ -698,8 +677,6 @@ class TeamControllerTest extends TestCase
         $response->assertForbidden();
     }
 
-    // ── Integridade referencial ───────────────────────────────────────────────
-
     public function test_destroying_team_nullifies_player_team_id(): void
     {
         $this->authenticate();
@@ -753,8 +730,6 @@ class TeamControllerTest extends TestCase
         Storage::disk('public')->assertExists($path);
     }
 
-    // ── TeamResource: elenco e comissão técnica ─────────────────────────────────
-
     public function test_show_returns_players_and_technical_committee_members(): void
     {
         $this->authenticate();
@@ -768,8 +743,6 @@ class TeamControllerTest extends TestCase
             ->assertJsonPath('data.players.0.id', $player->id)
             ->assertJsonPath('data.technicalCommitteeMembers.0.id', $member->id);
     }
-
-    // ── Rotas públicas ────────────────────────────────────────────────────────
 
     public function test_guest_can_show_team_via_public_route_with_players(): void
     {
@@ -813,8 +786,6 @@ class TeamControllerTest extends TestCase
 
         $response->assertStatus(422)->assertJson(['message' => 'Time não encontrado!']);
     }
-
-    // ── Vínculo N:N time-liga ─────────────────────────────────────────────────
 
     public function test_master_can_sync_leagues_to_team(): void
     {
@@ -920,8 +891,6 @@ class TeamControllerTest extends TestCase
         $this->assertDatabaseHas('league_team', ['team_id' => $team->id, 'league_id' => $league->id]);
     }
 
-    // ── Regressão: filtro ?league_id= inválido ────────────────────────────────
-
     public static function invalidLeagueIdQueryProvider(): array
     {
         return [
@@ -948,8 +917,6 @@ class TeamControllerTest extends TestCase
 
         $this->getJson('/api/teams/1abc')->assertNotFound();
     }
-
-    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
 
     public function test_player_cannot_update_team_of_own_league(): void
     {
@@ -1002,7 +969,6 @@ class TeamControllerTest extends TestCase
         $team = Team::factory()->create(['name' => 'Time Original']);
         $league->teams()->attach($team->id);
         $this->authenticateAs($role, [$league->id]);
-        // Inclui o time criado pelo helper para vincular o coach/player à liga.
         $teamCount = Team::count();
 
         $url = str_replace(['{id}', '{lid}'], [$team->id, $league->id], $uri);

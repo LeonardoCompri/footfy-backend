@@ -8,7 +8,6 @@ use App\Models\Team;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
-use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -17,9 +16,6 @@ use Spatie\Permission\PermissionRegistrar;
 use Tests\Concerns\LinksUsersToLeagues;
 use Tests\TestCase;
 
-/**
- * Mensagens da API em pt_BR (lang/pt_BR): validação, resumo do 422 e 403 do Spatie.
- */
 class ValidationTranslationTest extends TestCase
 {
     use LinksUsersToLeagues, RefreshDatabase;
@@ -78,7 +74,6 @@ class ValidationTranslationTest extends TestCase
             ->assertJsonPath('errors.name.0', 'O campo nome não pode ter mais de 255 caracteres.')
             ->assertJsonPath('errors.document.0', 'O campo CPF deve ter 11 caracteres.')
             ->assertJsonPath('errors.birth_date.0', 'O campo data de nascimento deve ser uma data válida.')
-            // Mensagem customizada do messages() continua valendo.
             ->assertJsonPath('errors.position.0', 'A posição informada é inválida.');
     }
 
@@ -197,10 +192,6 @@ class ValidationTranslationTest extends TestCase
         $this->assertSame('en', $config['fallback_locale']);
     }
 
-    /**
-     * Todo campo de todo FormRequest precisa de nome legível em validation.attributes
-     * (ou no attributes() do próprio request), senão a mensagem sai com a chave crua.
-     */
     public function test_every_form_request_field_has_a_readable_attribute(): void
     {
         $user = $this->authenticateAs('master');
@@ -209,7 +200,6 @@ class ValidationTranslationTest extends TestCase
 
         foreach (glob(app_path('Http/Requests/*.php')) as $file) {
             $class = 'App\\Http\\Requests\\'.basename($file, '.php');
-            /** @var FormRequest $request */
             $request = new $class;
             $request->setUserResolver(fn () => $user);
 

@@ -15,7 +15,6 @@ class AddPlayerDeletePermissionToCoachMigrationTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** Permissões do coach antes da FOOT-0047. */
     private const OLD_COACH = ['player:create', 'player:read', 'player:update', 'stadium:read', 'team:read'];
 
     protected function setUp(): void

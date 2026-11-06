@@ -18,14 +18,6 @@ class DashboardService
         private readonly StatisticsService $statisticsService,
     ) {}
 
-    /**
-     * Monta o Dashboard do admin para uma liga: contadores do cabeçalho, últimos
-     * resultados/próximas partidas, os gráficos (`goals_by_bucket`/`results_split`), o total de
-     * gols/partidas finalizadas/média pelo placar (`totals`) e o total de cartões da liga
-     * (`cards_split`).
-     * Reaproveita TeamService/GameService/StadiumService (já validam acesso por liga) e
-     * StatisticsService — nenhuma query nova de agregação é escrita aqui, só composição.
-     */
     public function build(League $league): array
     {
         $leagueId = (string) $league->id;
@@ -51,7 +43,6 @@ class DashboardService
         ];
     }
 
-    // Últimas partidas finalizadas da liga, mais recentes primeiro.
     private function lastResults(Collection $games): array
     {
         $games = $games->where('status', 'finished')
@@ -64,7 +55,6 @@ class DashboardService
         return $games->map(fn (Game $game) => $this->summarizeGame($game))->all();
     }
 
-    // Próximas partidas agendadas da liga, mais próximas primeiro.
     private function upcomingGames(Collection $games): array
     {
         $games = $games->where('status', 'scheduled')
@@ -77,9 +67,6 @@ class DashboardService
         return $games->map(fn (Game $game) => $this->summarizeGame($game))->all();
     }
 
-    // Resumo leve da partida para as listas do Dashboard — mesmos campos usados pelas
-    // "legs" de confronto do StandingsService, sem passar pelo GameResource completo
-    // (eventos/estádio não são exibidos nessas listas).
     private function summarizeGame(Game $game): array
     {
         return [

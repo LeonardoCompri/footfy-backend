@@ -6,10 +6,6 @@ use App\Models\Team;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
-/**
- * Confere, na escrita, se a liga/time de destino informado no payload está entre as ligas
- * do usuário logado. Master é sempre liberado. Lança ValidationException (422 no Controller).
- */
 trait EnsuresLeagueAccess
 {
     protected function ensureUserHasAccessToLeagues(array $leagueIds): void
@@ -28,8 +24,6 @@ trait EnsuresLeagueAccess
         }
     }
 
-    // O time precisa estar vinculado (pivot league_team) a pelo menos uma liga do usuário.
-    // Sem time (null) só master passa.
     protected function ensureUserHasAccessToTeam(int|string|null $teamId): void
     {
         $user = Auth::user();

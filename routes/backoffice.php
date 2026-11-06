@@ -4,6 +4,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChampionshipController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\GameEventController;
+use App\Http\Controllers\GameEventTypeController;
 use App\Http\Controllers\LeagueController;
 use App\Http\Controllers\PlayerController;
 use App\Http\Controllers\ProfileController;
@@ -105,5 +106,12 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::post('/', [GameEventController::class, 'store'])->name('store')->middleware('permission:game_event:create');
         Route::put('/{id}', [GameEventController::class, 'update'])->name('update')->middleware(['permission:game_event:update', 'access:game_event']);
         Route::delete('/{id}', [GameEventController::class, 'destroy'])->name('destroy')->middleware(['permission:game_event:delete', 'access:game_event']);
+    });
+
+    Route::prefix('/event-types')->name('event-types.')->group(function () {
+        Route::get('/', [GameEventTypeController::class, 'index'])->name('index');
+        Route::post('/', [GameEventTypeController::class, 'store'])->name('store')->middleware('role:master');
+        Route::put('/{id}', [GameEventTypeController::class, 'update'])->name('update')->middleware('role:master');
+        Route::delete('/{id}', [GameEventTypeController::class, 'destroy'])->name('destroy')->middleware('role:master');
     });
 });

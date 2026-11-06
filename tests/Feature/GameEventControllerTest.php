@@ -24,7 +24,6 @@ class GameEventControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        // Papéis e permissões reais do RoleSeeder: as rotas de escrita exigem `permission:`.
         $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
@@ -49,7 +48,6 @@ class GameEventControllerTest extends TestCase
         return $user;
     }
 
-    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas (coach/player via time). */
     private function authenticateAs(string $role, array $leagueIds = []): User
     {
         $user = User::factory()->create();
@@ -62,10 +60,6 @@ class GameEventControllerTest extends TestCase
         return $user;
     }
 
-    /**
-     * Monta um cenário consistente: liga, jogo com home/away times definidos
-     * e um jogador vinculado a um dos times do jogo (respeitando a regra de negócio do evento).
-     */
     private function buildGameScenario(?int $leagueId = null): array
     {
         $league = $leagueId
@@ -104,16 +98,12 @@ class GameEventControllerTest extends TestCase
         ], $overrides);
     }
 
-    // ── Auth ──────────────────────────────────────────────────────────────────
-
     public function test_guest_cannot_list_game_events(): void
     {
         $response = $this->getJson('/api/game-events');
 
         $response->assertStatus(401);
     }
-
-    // ── Master ────────────────────────────────────────────────────────────────
 
     public function test_master_index_returns_all_game_events(): void
     {
@@ -159,6 +149,24 @@ class GameEventControllerTest extends TestCase
         $response->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $eventA->id);
+    }
+
+    public function test_index_by_game_returns_events_ordered_by_minute_desc_with_null_last(): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        $events = array_map(fn (?int $minute) => GameEvent::factory()->create([
+            'game_id' => $scenario['game']->id,
+            'league_id' => $scenario['league']->id,
+            'team_id' => $scenario['homeTeam']->id,
+            'player_id' => $scenario['player']->id,
+            'minute' => $minute,
+        ]), [15, null, 18, 10, 18]);
+
+        $response = $this->getJson("/api/game-events?game_id={$scenario['game']->id}")->assertOk();
+
+        $this->assertSame([18, 18, 15, 10, null], array_column($response->json('data'), 'minute'));
+        $this->assertSame([$events[4]->id, $events[2]->id], array_column(array_slice($response->json('data'), 0, 2), 'id'));
     }
 
     public function test_admin_can_filter_index_by_game_id_of_assigned_league(): void
@@ -324,8 +332,6 @@ class GameEventControllerTest extends TestCase
         $this->assertDatabaseMissing('game_events', ['id' => $event->id]);
     }
 
-    // ── Validações ────────────────────────────────────────────────────────────
-
     public function test_store_fails_without_required_fields(): void
     {
         $this->authenticate();
@@ -457,8 +463,6 @@ class GameEventControllerTest extends TestCase
         $response->assertStatus(422)->assertJson(['message' => 'Evento não encontrado!']);
     }
 
-    // ── Admin: escopo por liga ───────────────────────────────────────────────
-
     public function test_admin_index_only_sees_game_events_in_assigned_leagues(): void
     {
         $assignedLeague = League::factory()->create();
@@ -537,8 +541,6 @@ class GameEventControllerTest extends TestCase
         $response->assertForbidden();
     }
 
-    // ── Integridade referencial ───────────────────────────────────────────────
-
     public function test_destroying_game_cascades_to_game_event(): void
     {
         $this->authenticate();
@@ -549,8 +551,6 @@ class GameEventControllerTest extends TestCase
 
         $this->assertDatabaseMissing('game_events', ['id' => $event->id]);
     }
-
-    // ── Regressão: filtros ?game_id=/?type= inválidos ─────────────────────────
 
     public static function invalidIndexQueryProvider(): array
     {
@@ -579,8 +579,6 @@ class GameEventControllerTest extends TestCase
 
         $this->getJson('/api/game-events/1abc')->assertNotFound();
     }
-
-    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
 
     public static function rolesWithoutGameEventPermissionsProvider(): array
     {
@@ -643,8 +641,6 @@ class GameEventControllerTest extends TestCase
             ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
     }
 
-    // ── Liga da partida na escrita (FOOT-0044) ────────────────────────────────
-
     public function test_admin_cannot_create_event_in_game_of_unassigned_league(): void
     {
         $payload = $this->eventPayload();
@@ -657,7 +653,6 @@ class GameEventControllerTest extends TestCase
         $this->assertDatabaseCount('game_events', 0);
     }
 
-    /** Evento na liga A e outra partida, na liga B, com o mesmo time (aceita pelo request). */
     private function eventAndGameOfAnotherLeague(): array
     {
         $scenario = $this->buildGameScenario();
@@ -714,8 +709,6 @@ class GameEventControllerTest extends TestCase
     public function test_store_with_field_sent_as_array_returns_422_instead_of_500(string $field): void
     {
         $this->authenticate();
-        // Cenário antes do payload: o player_id do payload não é 1, então `(int) [id]` (= 1) não cai
-        // por acaso na checagem "relacionado igual ao principal" e o after() chegaria ao find(array).
         $scenario = $this->buildGameScenario();
         $payload = $this->eventPayload();
         $payload[$field] = [$field === 'game_id' ? $scenario['game']->id : $scenario['player']->id];
@@ -752,9 +745,6 @@ class GameEventControllerTest extends TestCase
         $this->assertDatabaseHas('game_events', ['id' => $event->id, 'player_id' => $scenario['player']->id]);
     }
 
-    // ── Jogador removido (soft delete, FOOT-0046) ─────────────────────────────
-
-    /** Evento do cenário (gol do `player`, assistência opcional), gravado direto no banco. */
     private function eventOf(array $scenario, ?Player $assist = null): GameEvent
     {
         return GameEvent::create([
@@ -852,7 +842,6 @@ class GameEventControllerTest extends TestCase
             ->assertJsonPath('data.player.removed', true)
             ->assertJsonPath('data.related_player.removed', true);
 
-        // Reenviar os mesmos jogadores removidos também passa (o front costuma mandar o form inteiro).
         $this->putJson("/api/game-events/{$event->id}", [
             'player_id' => $scenario['player']->id,
             'related_player_id' => $scenario['teammate']->id,

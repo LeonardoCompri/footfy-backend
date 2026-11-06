@@ -21,10 +21,8 @@ class UpdateCoachAndPlayerPermissionsMigrationTest extends TestCase
 
     private const NEW_COACH = ['player:create', 'player:read', 'player:update', 'stadium:read', 'team:read'];
 
-    /** Lista atual do RoleSeeder: a FOOT-0047 deu player:delete ao coach (migration própria). */
     private const SEEDER_COACH = ['player:create', 'player:delete', 'player:read', 'player:update', 'stadium:read', 'team:read'];
 
-    /** Lista atual do RoleSeeder: a FOOT-0048 devolveu player:update ao player (migration própria). */
     private const SEEDER_PLAYER = ['player:read', 'player:update'];
 
     protected function setUp(): void
@@ -38,7 +36,6 @@ class UpdateCoachAndPlayerPermissionsMigrationTest extends TestCase
         return require database_path('migrations/2026_10_20_000000_update_coach_and_player_permissions.php');
     }
 
-    /** Estado de um ambiente existente: permissões seedadas e papéis com as listas anteriores ao FOOT-0043. */
     private function seedLegacyRoles(): void
     {
         $this->seed(PermissionSeeder::class);

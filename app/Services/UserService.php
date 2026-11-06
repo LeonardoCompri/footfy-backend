@@ -21,9 +21,6 @@ class UserService
         private readonly PlayerRepository $playerRepository,
     ) {}
 
-    // Master vê todos os usuários (opcionalmente só os de uma liga). Demais papéis veem
-    // apenas usuários não-master vinculados às suas ligas, sempre incluindo a si mesmos;
-    // um leagueId fora das ligas do usuário é rejeitado.
     public function index(?string $leagueId = null): Collection
     {
         $user = Auth::user();
@@ -75,19 +72,13 @@ class UserService
         return DB::transaction(fn () => $this->repository->update($user, $data));
     }
 
-    // Conta do usuário autenticado (GET /me), com as mesmas relações do show().
     public function showProfile(): User
     {
         return $this->show((string) Auth::id());
     }
 
-    /**
-     * PUT /me: o usuário edita a própria conta. $data só traz nome, e-mail e senha
-     * (ProfileUpdateRequest); papel, time, jogador e ligas não mudam por aqui.
-     */
     public function updateProfile(array $data): User
     {
-        // Defesa extra: o UserRepository::update reage a role/player_id/team_id se vierem.
         return $this->repository->update($this->showProfile(), Arr::only($data, ['name', 'email', 'password']));
     }
 
@@ -98,7 +89,6 @@ class UserService
         return $this->repository->destroy($user);
     }
 
-    // Coach e player não usam user_leagues: as ligas deles vêm do time vinculado.
     public function syncLeagues(string $id, array $leagueIds): User
     {
         $user = $this->show($id);
@@ -112,7 +102,6 @@ class UserService
         return $this->repository->syncLeagues($user, $leagueIds);
     }
 
-    // Segue liberado para coach/player: serve para limpar vínculos antigos de user_leagues.
     public function removeLeague(string $id, string $leagueId): User
     {
         $user = $this->show($id);
@@ -120,10 +109,6 @@ class UserService
         return $this->repository->removeLeague($user, $leagueId);
     }
 
-    /**
-     * O time do coach e o time do jogador vinculado ao player precisam estar nas ligas de
-     * quem edita (master livre). Jogador sem time só pode ser vinculado por master.
-     */
     private function ensureUserCanLink(int|string|null $teamId, int|string|null $playerId): void
     {
         if ($teamId !== null) {

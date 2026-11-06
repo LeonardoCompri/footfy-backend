@@ -7,15 +7,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Liga stadiums à liga (edição/divisão concreta), mesmo nível de
-     * teams/games, fechando o gap de autorização: hoje stadiums não tem
-     * nenhuma relação com o resto do sistema. Coluna nasce nullable porque
-     * stadiums já existentes precisam de um valor de backfill antes de a
-     * coluna virar NOT NULL (próxima migration desta sequência). FK usa
-     * cascadeOnDelete (mesmo padrão de games.league_id): a coluna vai se
-     * tornar NOT NULL, e nullOnDelete/SET NULL é incompatível com isso.
-     */
     public function up(): void
     {
         Schema::table('stadiums', function (Blueprint $table) {
@@ -36,9 +27,6 @@ return new class extends Migration
         }
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::table('stadiums', function (Blueprint $table) {

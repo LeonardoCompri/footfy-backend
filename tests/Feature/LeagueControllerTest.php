@@ -27,7 +27,6 @@ class LeagueControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        // Papéis e permissões reais do RoleSeeder: as rotas de escrita exigem `permission:`.
         $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
@@ -52,7 +51,6 @@ class LeagueControllerTest extends TestCase
         return $user;
     }
 
-    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas (coach/player via time). */
     private function authenticateAs(string $role, array $leagueIds = []): User
     {
         $user = User::factory()->create();
@@ -65,16 +63,12 @@ class LeagueControllerTest extends TestCase
         return $user;
     }
 
-    // ── Auth ──────────────────────────────────────────────────────────────────
-
     public function test_guest_cannot_list_leagues(): void
     {
         $response = $this->getJson('/api/leagues');
 
         $response->assertStatus(401);
     }
-
-    // ── Master: acesso irrestrito ─────────────────────────────────────────────
 
     public function test_master_index_returns_all_leagues(): void
     {
@@ -136,8 +130,6 @@ class LeagueControllerTest extends TestCase
         $this->assertDatabaseMissing('leagues', ['id' => $league->id]);
     }
 
-    // ── Destroy: senha do master ──────────────────────────────────────────────
-
     public function test_destroy_without_password_returns_422_and_keeps_league(): void
     {
         $this->authenticate();
@@ -198,7 +190,6 @@ class LeagueControllerTest extends TestCase
         $this->assertDatabaseMissing('stadiums', ['id' => $stadium->id]);
         $this->assertDatabaseMissing('league_team', ['league_id' => $league->id]);
         $this->assertDatabaseMissing('user_leagues', ['league_id' => $league->id]);
-        // Preservados: campeonato, outra liga e seus vínculos, times, elenco, comissão e usuários.
         $this->assertDatabaseHas('championships', ['id' => $championship->id]);
         $this->assertDatabaseHas('leagues', ['id' => $other->id]);
         $this->assertDatabaseHas('league_team', ['league_id' => $other->id, 'team_id' => $home->id]);
@@ -244,8 +235,6 @@ class LeagueControllerTest extends TestCase
         $response->assertStatus(422)->assertJson(['message' => 'Liga não encontrada!']);
     }
 
-    // ── Validações ────────────────────────────────────────────────────────────
-
     public function test_store_fails_validation_without_name(): void
     {
         $this->authenticate();
@@ -278,8 +267,6 @@ class LeagueControllerTest extends TestCase
         $response->assertStatus(422);
     }
 
-    // ── Admin: acesso restrito ao seu escopo ──────────────────────────────────
-
     public function test_admin_index_only_sees_assigned_leagues(): void
     {
         $assigned = League::factory()->create();
@@ -307,7 +294,7 @@ class LeagueControllerTest extends TestCase
     public function test_admin_cannot_show_unassigned_league(): void
     {
         $league = League::factory()->create();
-        $this->authenticateAsAdmin(); // sem ligas associadas
+        $this->authenticateAsAdmin();
 
         $response = $this->getJson("/api/leagues/{$league->id}");
 
@@ -375,8 +362,6 @@ class LeagueControllerTest extends TestCase
         $response->assertOk()->assertJsonCount(0, 'data');
     }
 
-    // ── Eager-load de championship ────────────────────────────────────────────
-
     public function test_master_index_eager_loads_championship(): void
     {
         $this->authenticate();
@@ -398,8 +383,6 @@ class LeagueControllerTest extends TestCase
 
         $response->assertOk()->assertJsonPath('data.0.championship.id', $championship->id);
     }
-
-    // ── Rotas públicas ────────────────────────────────────────────────────────
 
     public function test_guest_can_show_league_via_public_route_with_related_data(): void
     {
@@ -426,8 +409,6 @@ class LeagueControllerTest extends TestCase
 
         $response->assertStatus(422)->assertJson(['message' => 'Liga não encontrada!']);
     }
-
-    // ── Formato de disputa (format) ─────────────────────────────────────────────
 
     public function test_master_can_create_league_with_round_robin_format(): void
     {
@@ -489,8 +470,6 @@ class LeagueControllerTest extends TestCase
         $this->assertDatabaseHas('leagues', ['id' => $league->id, 'format' => 'hybrid']);
     }
 
-    // ── Estrutura de resposta (LeagueResource) ──────────────────────────────────
-
     public function test_league_show_response_does_not_expose_internal_fields(): void
     {
         $this->authenticate();
@@ -504,8 +483,6 @@ class LeagueControllerTest extends TestCase
         $this->assertArrayNotHasKey('created_at', $data);
         $this->assertArrayNotHasKey('updated_at', $data);
     }
-
-    // ── Regressão: {id} só aceita dígitos ─────────────────────────────────────
 
     public function test_admin_non_numeric_league_id_returns_404(): void
     {
@@ -522,8 +499,6 @@ class LeagueControllerTest extends TestCase
 
         $this->getJson("/api/public/leagues/{$league->id}abc")->assertNotFound();
     }
-
-    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
 
     public static function rolesWithoutTournamentUpdateProvider(): array
     {

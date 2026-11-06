@@ -6,11 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Troca leagues.championship_id de nullOnDelete para cascadeOnDelete: apagar o campeonato
-     * apaga as ligas e, pelas cascatas da liga, partidas, eventos, estádios, league_team e
-     * user_leagues. Só muda a FK: ligas já sem campeonato (championship_id null) ficam como estão.
-     */
     public function up(): void
     {
         Schema::table('leagues', function (Blueprint $table) {

@@ -37,7 +37,6 @@ class TechnicalCommitteeMemberService
         return $this->repository->store($data);
     }
 
-    // Lista de opções sugeridas para o select de função no admin (TechnicalCommitteeMember::ROLES).
     public function roles(): array
     {
         return TechnicalCommitteeMember::ROLES;

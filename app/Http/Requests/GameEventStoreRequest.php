@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\Game;
+use App\Models\GameEventType;
 use App\Models\Player;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -17,7 +18,7 @@ class GameEventStoreRequest extends FormRequest
             'player_id' => ['required', 'integer', Rule::exists('players', 'id')->withoutTrashed()],
             'team_id' => ['required', 'integer', 'exists:teams,id'],
             'related_player_id' => ['nullable', 'integer', Rule::exists('players', 'id')->withoutTrashed()],
-            'type' => ['required', 'string', 'in:goal,yellow_card,red_card'],
+            'type' => ['required', 'string', Rule::exists('game_event_types', 'slug')->where('active', true)],
             'minute' => ['nullable', 'integer', 'min:0'],
         ];
     }
@@ -27,13 +28,18 @@ class GameEventStoreRequest extends FormRequest
         return [
             'player_id.exists' => 'O jogador informado foi removido ou não existe.',
             'related_player_id.exists' => 'O jogador informado foi removido ou não existe.',
+            'type.exists' => 'O tipo de evento informado não existe ou está inativo.',
         ];
+    }
+
+    private function typeAllowsAssist(?string $slug): bool
+    {
+        return (bool) GameEventType::where('slug', $slug)->value('allows_assist');
     }
 
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator) {
-            // after() roda mesmo com regra falhando: com campo[]=1, find(array) devolveria Collection (500).
             if ($validator->errors()->hasAny(['game_id', 'player_id', 'team_id', 'related_player_id'])) {
                 return;
             }
@@ -42,6 +48,12 @@ class GameEventStoreRequest extends FormRequest
             $playerId = $this->input('player_id');
             $teamId = $this->input('team_id');
             $relatedPlayerId = $this->input('related_player_id');
+
+            if ($relatedPlayerId && ! $validator->errors()->has('type') && ! $this->typeAllowsAssist($this->input('type'))) {
+                $validator->errors()->add('related_player_id', 'O tipo de evento informado não permite assistência.');
+
+                return;
+            }
 
             if (! $gameId || ! $playerId || ! $teamId) {
                 return;

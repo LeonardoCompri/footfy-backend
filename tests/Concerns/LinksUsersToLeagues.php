@@ -8,11 +8,6 @@ use App\Models\User;
 
 trait LinksUsersToLeagues
 {
-    /**
-     * Coloca o usuário nas ligas informadas do jeito que vale para o papel dele: master/admin
-     * via user_leagues; coach via time vinculado (users.team_id); player via jogador vinculado
-     * (players.user_id) de um time nessas ligas. Devolve o time criado para coach/player.
-     */
     protected function linkUserToLeagues(User $user, array $leagueIds): ?Team
     {
         if (! $user->hasTeamScope()) {

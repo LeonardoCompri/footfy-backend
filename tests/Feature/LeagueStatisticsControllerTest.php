@@ -87,8 +87,6 @@ class LeagueStatisticsControllerTest extends TestCase
         ]);
     }
 
-    // ── Artilharia / assistências / cartões ─────────────────────────────────
-
     public function test_statistics_aggregate_scorers_assists_and_cards(): void
     {
         $this->authenticate();
@@ -124,8 +122,6 @@ class LeagueStatisticsControllerTest extends TestCase
         $this->assertSame(3, $cards[$carded->id]['total_cards']);
     }
 
-    // ── Liga híbrida: mata-mata entra na estatística (diferente da Tabela da Liga) ──
-
     public function test_hybrid_league_sums_group_stage_and_knockout_goals(): void
     {
         $this->authenticate();
@@ -148,12 +144,8 @@ class LeagueStatisticsControllerTest extends TestCase
         $response->assertOk();
         $scorers = collect($response->json('data.top_scorers'))->keyBy('player_id');
 
-        // 1 gol na fase de grupos + 2 no mata-mata = 3, soma que a Tabela da Liga não faria
-        // (lá o mata-mata fica isolado em `phases`, sem contar pontos/gols de `standings`).
         $this->assertSame(3, $scorers[$player->id]['goals']);
     }
-
-    // ── Caso de borda: transferência de jogador entre times da mesma liga ───
 
     public function test_player_transferred_between_teams_sums_goals_across_teams(): void
     {
@@ -162,7 +154,6 @@ class LeagueStatisticsControllerTest extends TestCase
         [$teamA, $teamB, $teamC] = Team::factory()->count(3)->create();
         $league->teams()->attach([$teamA->id, $teamB->id, $teamC->id]);
 
-        // Jogador atualmente no time B (transferência), mas marcou gols também pelo time A.
         $player = Player::factory()->create(['team_id' => $teamB->id]);
 
         $gameWithA = $this->finishedGame($league, $teamA, $teamC, 1, 0);
@@ -177,11 +168,8 @@ class LeagueStatisticsControllerTest extends TestCase
         $scorers = collect($response->json('data.top_scorers'))->keyBy('player_id');
 
         $this->assertSame(2, $scorers[$player->id]['goals']);
-        // Exibição usa o time atual do jogador (players.team_id), não o time do evento.
         $this->assertSame($teamB->id, $scorers[$player->id]['team_id']);
     }
-
-    // ── goals_by_bucket ───────────────────────────────────────────────────────
 
     public function test_goals_by_bucket_groups_by_round_for_round_robin(): void
     {
@@ -205,7 +193,6 @@ class LeagueStatisticsControllerTest extends TestCase
 
         $this->assertSame(2, $buckets[1]['goals']);
         $this->assertSame('round', $buckets[1]['type']);
-        // Gols vêm do placar (1x1), não dos eventos (só 1 lançado na súmula).
         $this->assertSame(2, $buckets[2]['goals']);
     }
 
@@ -233,13 +220,10 @@ class LeagueStatisticsControllerTest extends TestCase
         $response->assertOk();
         $buckets = collect($response->json('data.goals_by_bucket'))->keyBy('phase');
 
-        // Gols vêm do placar (2x1), não dos eventos (só 2 lançados na súmula).
         $this->assertSame(3, $buckets['Semifinal']['goals']);
         $this->assertSame('phase', $buckets['Semifinal']['type']);
         $this->assertSame(1, $buckets['Final']['goals']);
     }
-
-    // ── results_split ─────────────────────────────────────────────────────────
 
     public function test_results_split_matches_real_counts_including_knockout_games(): void
     {
@@ -248,14 +232,13 @@ class LeagueStatisticsControllerTest extends TestCase
         [$teamA, $teamB, $teamC, $teamD] = Team::factory()->count(4)->create();
         $league->teams()->attach([$teamA->id, $teamB->id, $teamC->id, $teamD->id]);
 
-        $this->finishedGame($league, $teamA, $teamB, 2, 0, ['round' => 1]); // mandante vence
-        $this->finishedGame($league, $teamB, $teamA, 1, 1, ['round' => 2]); // empate
-        $this->finishedGame($league, $teamC, $teamD, 0, 0, ['round' => 1]); // empate
+        $this->finishedGame($league, $teamA, $teamB, 2, 0, ['round' => 1]);
+        $this->finishedGame($league, $teamB, $teamA, 1, 1, ['round' => 2]);
+        $this->finishedGame($league, $teamC, $teamD, 0, 0, ['round' => 1]);
         $this->finishedGame($league, $teamA, $teamB, 0, 2, [
             'round' => null, 'phase' => 'Final', 'phase_order' => 1, 'tie_key' => 'final-1', 'leg' => 1,
-        ]); // visitante vence (mata-mata entra na contagem)
+        ]);
 
-        // Partida não finalizada não deve entrar na contagem.
         Game::factory()->create([
             'league_id' => $league->id,
             'home_team_id' => $teamC->id,
@@ -276,8 +259,6 @@ class LeagueStatisticsControllerTest extends TestCase
         ], $response->json('data.results_split'));
     }
 
-    // ── Caso de borda: liga sem eventos cadastrados ──────────────────────────
-
     public function test_league_without_events_returns_empty_statistics_without_error(): void
     {
         $this->authenticate();
@@ -296,7 +277,6 @@ class LeagueStatisticsControllerTest extends TestCase
                 'cards_split' => ['yellow' => 0, 'red' => 0],
             ],
         ]);
-        // assertJson compara frouxamente; garante inteiros (não null/"0") no cards_split/totals.
         $this->assertSame(['yellow' => 0, 'red' => 0], $response->json('data.cards_split'));
         $this->assertSame(
             ['goals' => 0, 'finished_games' => 0, 'goals_average' => null],
@@ -304,14 +284,6 @@ class LeagueStatisticsControllerTest extends TestCase
         );
     }
 
-    // ── totals / gols pelo placar (sem depender da súmula) ───────────────────
-
-    /**
-     * Liga com 2x1 (rodada 1) e 0x0 (rodada 2) finalizadas, sem nenhum evento lançado, e uma
-     * partida agendada (sem placar) na rodada 3.
-     *
-     * @return array{0: League, 1: Game, 2: Team}
-     */
     private function buildLeagueWithScoresAndNoEvents(): array
     {
         $league = League::factory()->create(['format' => 'round_robin']);
@@ -368,7 +340,6 @@ class LeagueStatisticsControllerTest extends TestCase
         $response = $this->getJson("/api/leagues/{$league->id}/statistics");
 
         $response->assertOk();
-        // 4 gols / 2 partidas = 2.0 (float no JSON, não o inteiro 2).
         $this->assertStringContainsString('"goals_average":2.0', $response->getContent());
         $this->assertSame(2.0, $response->json('data.totals.goals_average'));
     }
@@ -465,16 +436,6 @@ class LeagueStatisticsControllerTest extends TestCase
         $this->assertSame($adminResponse->json('data.totals'), $publicResponse->json('data.totals'));
     }
 
-    // ── cards_split ───────────────────────────────────────────────────────────
-
-    /**
-     * Monta duas ligas: a liga alvo com 12 jogadores cartoados (acima do RANKING_LIMIT de
-     * top_cards) somando 14 amarelos e 3 vermelhos, e outra liga com cartões que não podem
-     * vazar para o total da primeira. Gols também são criados para garantir que só cartões
-     * entram na soma.
-     *
-     * @return array{0: League, 1: League}
-     */
     private function buildTwoLeaguesWithCards(): array
     {
         $league = League::factory()->create(['format' => 'round_robin']);
@@ -515,7 +476,6 @@ class LeagueStatisticsControllerTest extends TestCase
         $response = $this->getJson("/api/leagues/{$league->id}/statistics");
 
         $response->assertOk();
-        // 12 + 2 amarelos, 1 + 2 vermelhos — mesmo com top_cards cortado em 10 jogadores.
         $this->assertSame(['yellow' => 14, 'red' => 3], $response->json('data.cards_split'));
         $this->assertCount(10, $response->json('data.top_cards'));
 
@@ -542,12 +502,10 @@ class LeagueStatisticsControllerTest extends TestCase
         $this->authenticate();
         [$league] = $this->buildTwoLeaguesWithCards();
 
-        // Aquece o cache de roles/permissions antes de medir.
         $this->getJson("/api/leagues/{$league->id}/statistics")->assertOk();
 
         $cardsSplitQueries = [];
         DB::listen(function ($query) use (&$cardsSplitQueries) {
-            // Alias `as yellow,` é exclusivo do cardsSplit (topCards usa `as yellow_cards`).
             if (str_contains($query->sql, 'as yellow,')) {
                 $cardsSplitQueries[] = $query->sql;
             }
@@ -557,12 +515,10 @@ class LeagueStatisticsControllerTest extends TestCase
 
         $this->assertCount(1, $cardsSplitQueries);
         $sql = strtolower($cardsSplitQueries[0]);
-        $this->assertStringContainsString('sum(case when type', $sql);
+        $this->assertStringContainsString('sum(case when game_event_types.card', $sql);
         $this->assertStringNotContainsString('group by', $sql);
-        $this->assertStringNotContainsString('join', $sql);
+        $this->assertStringNotContainsString("'yellow_card'", $sql);
     }
-
-    // ── Autorização ───────────────────────────────────────────────────────────
 
     public function test_admin_without_league_access_gets_forbidden(): void
     {
@@ -593,8 +549,6 @@ class LeagueStatisticsControllerTest extends TestCase
         $response->assertStatus(401);
     }
 
-    // ── Rota pública usa a mesma fonte de cálculo ───────────────────────────
-
     public function test_guest_can_view_statistics_via_public_route_with_same_data_as_admin(): void
     {
         $league = League::factory()->create(['format' => 'round_robin']);
@@ -613,8 +567,6 @@ class LeagueStatisticsControllerTest extends TestCase
 
         $this->assertSame($adminResponse->json('data'), $publicResponse->json('data'));
     }
-
-    // ── Performance: sem N+1 ─────────────────────────────────────────────────
 
     private function buildLeagueWithGoals(int $playersCount): League
     {
@@ -638,7 +590,6 @@ class LeagueStatisticsControllerTest extends TestCase
         $smallLeague = $this->buildLeagueWithGoals(3);
         $largeLeague = $this->buildLeagueWithGoals(15);
 
-        // Aquece o cache de roles/permissions antes de medir.
         $this->getJson("/api/leagues/{$smallLeague->id}/statistics")->assertOk();
 
         DB::enableQueryLog();
@@ -677,7 +628,6 @@ class LeagueStatisticsControllerTest extends TestCase
         $smallLeague = $this->buildLeagueWithFinishedGames(2);
         $largeLeague = $this->buildLeagueWithFinishedGames(12);
 
-        // Aquece o cache de roles/permissions antes de medir.
         $this->getJson("/api/leagues/{$smallLeague->id}/statistics")->assertOk();
 
         DB::enableQueryLog();
@@ -693,9 +643,6 @@ class LeagueStatisticsControllerTest extends TestCase
         $this->assertSame($smallQueryCount, $largeQueryCount);
     }
 
-    // ── Jogador removido nos rankings (soft delete, FOOT-0046) ───────────────
-
-    /** Liga com artilheiro, assistente e cartoado removidos, e um artilheiro ativo. */
     private function buildLeagueWithRemovedPlayers(): array
     {
         $league = League::factory()->create(['format' => 'round_robin']);

@@ -26,7 +26,6 @@ class PlayerControllerTest extends TestCase
     {
         parent::setUp();
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
-        // Papéis e permissões reais do RoleSeeder: as rotas de escrita exigem `permission:`.
         $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
@@ -51,7 +50,6 @@ class PlayerControllerTest extends TestCase
         return $user;
     }
 
-    /** Autentica com um papel do RoleSeeder (ex.: coach, player) vinculado às ligas informadas (coach/player via time). */
     private function authenticateAs(string $role, array $leagueIds = []): User
     {
         $user = User::factory()->create();
@@ -64,16 +62,12 @@ class PlayerControllerTest extends TestCase
         return $user;
     }
 
-    // ── Auth ──────────────────────────────────────────────────────────────────
-
     public function test_guest_cannot_list_players(): void
     {
         $response = $this->getJson('/api/players');
 
         $response->assertStatus(401);
     }
-
-    // ── Master ────────────────────────────────────────────────────────────────
 
     public function test_master_index_returns_all_players(): void
     {
@@ -136,8 +130,6 @@ class PlayerControllerTest extends TestCase
         $response->assertStatus(204);
         $this->assertSoftDeleted('players', ['id' => $player->id]);
     }
-
-    // ── Validações ────────────────────────────────────────────────────────────
 
     public function test_store_fails_validation_without_name(): void
     {
@@ -209,8 +201,6 @@ class PlayerControllerTest extends TestCase
         $response->assertOk();
     }
 
-    // ── Admin: escopo por liga ───────────────────────────────────────────────
-
     public function test_admin_index_only_sees_players_of_teams_in_assigned_leagues(): void
     {
         $league = League::factory()->create();
@@ -275,8 +265,6 @@ class PlayerControllerTest extends TestCase
         $response->assertForbidden();
     }
 
-    // ── Integridade referencial ───────────────────────────────────────────────
-
     public function test_destroying_team_nullifies_player_team_id(): void
     {
         $this->authenticate();
@@ -287,8 +275,6 @@ class PlayerControllerTest extends TestCase
 
         $this->assertDatabaseHas('players', ['id' => $player->id, 'team_id' => null]);
     }
-
-    // ── Rotas públicas ────────────────────────────────────────────────────────
 
     public function test_guest_can_show_player_via_public_route(): void
     {
@@ -326,8 +312,6 @@ class PlayerControllerTest extends TestCase
 
         $response->assertNotFound()->assertJson(['message' => 'Jogador não encontrado!']);
     }
-
-    // ── Validação de posição contra a lista oficial ──────────────────────────
 
     public function test_store_fails_when_position_is_not_in_official_list(): void
     {
@@ -392,8 +376,6 @@ class PlayerControllerTest extends TestCase
             ->assertJsonPath('data.position', 'ATA');
     }
 
-    // ── Lookup de posições ───────────────────────────────────────────────────
-
     public function test_authenticated_user_can_list_positions(): void
     {
         $this->authenticate();
@@ -412,9 +394,6 @@ class PlayerControllerTest extends TestCase
         $response->assertStatus(401);
     }
 
-    // ── Permissões por papel (FOOT-0043) ──────────────────────────────────────
-
-    /** Time vinculado a uma liga nova, para cenários de papel com acesso à liga. */
     private function teamInLeague(): array
     {
         $league = League::factory()->create();
@@ -424,7 +403,6 @@ class PlayerControllerTest extends TestCase
         return [$league, $team];
     }
 
-    /** Autentica um coach vinculado ao time (users.team_id). */
     private function authenticateAsCoachOf(?Team $team): User
     {
         $user = User::factory()->create(['team_id' => $team?->id]);
@@ -434,7 +412,6 @@ class PlayerControllerTest extends TestCase
         return $user;
     }
 
-    /** Liga com o time do coach e outro time (de outro coach), para cenários de escrita. */
     private function coachScenario(): array
     {
         [$league, $team] = $this->teamInLeague();
@@ -558,7 +535,6 @@ class PlayerControllerTest extends TestCase
         $this->getJson('/api/players')->assertOk()->assertJsonCount(2, 'data');
     }
 
-    // Vínculo antigo em user_leagues não vale mais para coach: sem time, sem ligas.
     public function test_coach_with_only_legacy_user_leagues_sees_nothing(): void
     {
         [$league, $team] = $this->coachScenario();
@@ -570,7 +546,6 @@ class PlayerControllerTest extends TestCase
         $this->getJson("/api/leagues/{$league->id}")->assertForbidden();
     }
 
-    // Player tem player:update (só para PUT /me/player, FOOT-0048): aqui quem barra é o access:player_write.
     public function test_player_cannot_update_player(): void
     {
         [$league, $team] = $this->teamInLeague();
@@ -613,13 +588,11 @@ class PlayerControllerTest extends TestCase
     {
         [$league, $team] = $this->teamInLeague();
         Player::factory()->create(['team_id' => $team->id]);
-        // O helper cria outro time na liga com o jogador vinculado ao usuário player.
         $this->authenticateAs('player', [$league->id]);
 
         $this->getJson('/api/players')->assertOk()->assertJsonCount(2, 'data');
     }
 
-    // Mesmo com player:update, o access:player_write nega escrita ao papel player.
     #[DataProvider('playerWriteRequestsProvider')]
     public function test_player_with_write_permission_is_still_blocked_by_player_write(string $method, array $payload): void
     {
@@ -661,9 +634,6 @@ class PlayerControllerTest extends TestCase
             ->assertJsonPath('message', 'Você não tem acesso a este recurso.');
     }
 
-    // ── Time de destino na escrita (FOOT-0044) ────────────────────────────────
-
-    /** @return array{0: League, 1: Team, 2: Team} liga do admin, time dela e time só de outra liga */
     private function teamsInAndOutOfLeague(): array
     {
         $league = League::factory()->create();
@@ -754,9 +724,6 @@ class PlayerControllerTest extends TestCase
         $this->assertDatabaseHas('players', ['id' => $model->id, 'team_id' => $team->id]);
     }
 
-    // ── Soft delete (FOOT-0046) ───────────────────────────────────────────────
-
-    /** Partida da liga com o time como mandante e um gol do jogador (assistência opcional). */
     private function goalOf(League $league, Team $team, Player $player, ?Player $assist = null): GameEvent
     {
         $game = Game::factory()->create([
@@ -848,7 +815,6 @@ class PlayerControllerTest extends TestCase
             ->assertStatus(422)
             ->assertJson(['message' => 'Jogador não encontrado!']);
 
-        // access:player não enxerga o removido (escopo do SoftDeletes), então o admin toma 403.
         $this->authenticateAsAdmin([$league->id]);
         $this->getJson("/api/players/{$player->id}")->assertForbidden();
     }
@@ -961,7 +927,6 @@ class PlayerControllerTest extends TestCase
             $player->forceDelete();
             $this->fail('forceDelete deveria ser barrado pela FK restrict de game_events.player_id.');
         } catch (QueryException) {
-            // esperado
         }
 
         $this->assertDatabaseHas('game_events', ['id' => $event->id, 'player_id' => $player->id]);

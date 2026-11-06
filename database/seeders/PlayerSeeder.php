@@ -10,9 +10,6 @@ use Illuminate\Database\Seeder;
 
 class PlayerSeeder extends Seeder
 {
-    /**
-     * Distribuição de posições do elenco (20 jogadores por time).
-     */
     private const SQUAD_POSITIONS = [
         'GOL', 'GOL', 'GOL',
         'ZAG', 'ZAG', 'ZAG', 'ZAG',
@@ -21,10 +18,6 @@ class PlayerSeeder extends Seeder
         'ATA', 'ATA', 'ATA', 'ATA',
     ];
 
-    /**
-     * Números de camisa tradicionais por posição, sorteados sem repetição
-     * dentro de cada time.
-     */
     private const NUMBER_POOLS = [
         'GOL' => [1, 12, 22],
         'ZAG' => [2, 3, 4, 13, 15, 25],

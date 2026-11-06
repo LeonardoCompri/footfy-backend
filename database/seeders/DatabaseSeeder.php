@@ -27,7 +27,6 @@ class DatabaseSeeder extends Seeder
             GameEventSeeder::class,
         ]);
 
-        // Associar o usuário admin às duas primeiras ligas criadas
         $admin = User::where('email', 'admin@footfy.com')->first();
         $leagues = League::take(2)->pluck('id')->toArray();
         $admin?->leagues()->sync($leagues);

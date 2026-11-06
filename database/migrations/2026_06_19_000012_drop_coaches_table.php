@@ -6,10 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Remove coaches, absorvida por technical_committee_members (ver
-     * migrations anteriores desta sequência).
-     */
     public function up(): void
     {
         Schema::dropIfExists('coaches');

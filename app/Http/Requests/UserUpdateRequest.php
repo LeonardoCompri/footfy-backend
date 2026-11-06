@@ -21,7 +21,6 @@ class UserUpdateRequest extends FormRequest
             'email' => ['sometimes', 'nullable', 'email', "unique:users,email,{$userId}"],
             'document' => ['sometimes', 'string', 'size:11', "unique:users,document,{$userId}"],
             'password' => ['sometimes', 'string', 'min:6'],
-            // Só master altera papel; para os demais o campo é rejeitado (422).
             'role' => [
                 Rule::prohibitedIf(fn () => ! $this->user()->isMaster()),
                 'sometimes', 'string', 'in:master,admin,coach,player',
@@ -40,7 +39,6 @@ class UserUpdateRequest extends FormRequest
         $validator->after(fn (Validator $validator) => $this->validatePlayerIsFree($validator, (int) $this->route('id')));
     }
 
-    // Papel após o update: o enviado (só master envia) ou o atual do usuário da rota.
     private function effectiveRole(): ?string
     {
         if ($this->has('role')) {

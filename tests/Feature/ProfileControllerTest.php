@@ -24,11 +24,9 @@ class ProfileControllerTest extends TestCase
     {
         parent::setUp();
         app(PermissionRegistrar::class)->forgetCachedPermissions();
-        // Papéis e permissões reais: PUT /me/player exige permission:player:update.
         $this->seed([PermissionSeeder::class, RoleSeeder::class]);
     }
 
-    /** Autentica um usuário com o papel informado, sem vínculos. */
     private function authenticateAs(string $role, array $attributes = []): User
     {
         $user = User::factory()->create($attributes);
@@ -47,7 +45,6 @@ class ProfileControllerTest extends TestCase
         return $team;
     }
 
-    /** Autentica um player vinculado a um jogador (players.user_id) de um time numa liga. */
     private function authenticateAsLinkedPlayer(array $playerAttributes = []): array
     {
         $team = $this->teamInLeague();
@@ -76,8 +73,6 @@ class ProfileControllerTest extends TestCase
         ];
     }
 
-    // ── Auth ──────────────────────────────────────────────────────────────────
-
     public static function profileRoutesProvider(): array
     {
         return [
@@ -92,8 +87,6 @@ class ProfileControllerTest extends TestCase
     {
         $this->json($method, $url, ['name' => 'Intruso'])->assertUnauthorized();
     }
-
-    // ── GET /me ───────────────────────────────────────────────────────────────
 
     #[DataProvider('rolesProvider')]
     public function test_any_role_can_show_own_profile(string $role): void
@@ -131,8 +124,6 @@ class ProfileControllerTest extends TestCase
             ->assertJsonPath('data.player.id', $player->id)
             ->assertJsonPath('data.team.id', $team->id);
     }
-
-    // ── PUT /me ───────────────────────────────────────────────────────────────
 
     #[DataProvider('rolesProvider')]
     public function test_any_role_can_update_own_name_and_email(string $role): void
@@ -267,8 +258,6 @@ class ProfileControllerTest extends TestCase
             ->assertJsonValidationErrors('password');
     }
 
-    // ── PUT /me/player ────────────────────────────────────────────────────────
-
     public function test_player_updates_only_name_and_birth_date_of_linked_player(): void
     {
         [, $player, $team] = $this->authenticateAsLinkedPlayer();
@@ -343,7 +332,6 @@ class ProfileControllerTest extends TestCase
         $this->assertSame('Sem Dono', $orphan->fresh()->name);
     }
 
-    // Coach (e admin/master) também têm player:update, mas não têm jogador vinculado.
     public static function rolesWithoutPlayerLinkProvider(): array
     {
         return [
@@ -376,8 +364,6 @@ class ProfileControllerTest extends TestCase
         $this->assertSame('Nome Antigo', $player->fresh()->name);
     }
 
-    // ── player:update do player x PUT /players/{id} ──────────────────────────
-
     public function test_player_still_cannot_update_own_player_via_players_route(): void
     {
         [, $player] = $this->authenticateAsLinkedPlayer();
@@ -388,8 +374,6 @@ class ProfileControllerTest extends TestCase
         $this->assertDatabaseHas('players', ['id' => $player->id, 'name' => 'Nome Antigo', 'number' => 9]);
     }
 
-    // Ambiente existente antes da FOOT-0048 (player só com player:read): a migration libera
-    // só o PUT /me/player; PUT /players/{id} segue 403.
     public function test_permission_migration_enables_only_profile_route_for_player(): void
     {
         Role::findByName('player')->syncPermissions(['player:read']);

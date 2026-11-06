@@ -49,8 +49,6 @@ class PublicRouteMiddlewareTest extends TestCase
         $this->assertEquals(200, $response->getStatusCode());
     }
 
-    // ── Integração com as rotas reais ────────────────────────────────────────
-
     public function test_public_route_is_accessible_in_testing_environment(): void
     {
         $response = $this->getJson('/api/public/championships');

@@ -77,8 +77,6 @@ class LeagueTableControllerTest extends TestCase
         ]);
     }
 
-    // ── round_robin: cálculo básico ──────────────────────────────────────────
-
     public function test_round_robin_standings_reflect_finished_games(): void
     {
         $this->authenticate();
@@ -86,9 +84,9 @@ class LeagueTableControllerTest extends TestCase
         [$teamA, $teamB, $teamC, $teamD] = Team::factory()->count(4)->create();
         $league->teams()->attach([$teamA->id, $teamB->id, $teamC->id, $teamD->id]);
 
-        $this->finishedGame($league, $teamA, $teamB, 2, 1); // A vence
-        $this->finishedGame($league, $teamC, $teamD, 0, 0); // empate
-        $this->finishedGame($league, $teamA, $teamC, 1, 1); // empate
+        $this->finishedGame($league, $teamA, $teamB, 2, 1);
+        $this->finishedGame($league, $teamC, $teamD, 0, 0);
+        $this->finishedGame($league, $teamA, $teamC, 1, 1);
 
         $response = $this->getJson("/api/leagues/{$league->id}/table");
 
@@ -107,12 +105,9 @@ class LeagueTableControllerTest extends TestCase
         $this->assertSame(2, $standings[$teamC->id]['points']);
         $this->assertSame(1, $standings[$teamD->id]['points']);
 
-        // Ordenação por pontos desc: A(4), C(2), D(1), B(0)
         $order = collect($response->json('data.standings'))->pluck('team_id')->all();
         $this->assertSame([$teamA->id, $teamC->id, $teamD->id, $teamB->id], $order);
     }
-
-    // ── round_robin: desempate ───────────────────────────────────────────────
 
     public function test_round_robin_tie_is_broken_by_head_to_head_when_two_teams_fully_tied(): void
     {
@@ -121,11 +116,9 @@ class LeagueTableControllerTest extends TestCase
         [$teamP, $teamQ, $teamR, $teamS] = Team::factory()->count(4)->create();
         $league->teams()->attach([$teamP->id, $teamQ->id, $teamR->id, $teamS->id]);
 
-        // P e Q terminam com pontos/vitórias/saldo/gols pró idênticos (3 pts, 1V 0E 1D,
-        // GF1 GA1, SG0), mas P venceu o confronto direto contra Q.
-        $this->finishedGame($league, $teamP, $teamQ, 1, 0); // P vence Q
-        $this->finishedGame($league, $teamP, $teamR, 0, 1); // P perde de R
-        $this->finishedGame($league, $teamQ, $teamS, 1, 0); // Q vence S
+        $this->finishedGame($league, $teamP, $teamQ, 1, 0);
+        $this->finishedGame($league, $teamP, $teamR, 0, 1);
+        $this->finishedGame($league, $teamQ, $teamS, 1, 0);
 
         $response = $this->getJson("/api/leagues/{$league->id}/table");
         $response->assertOk();
@@ -151,8 +144,6 @@ class LeagueTableControllerTest extends TestCase
         [$teamX, $teamY, $teamA, $teamB] = Team::factory()->count(4)->create();
         $league->teams()->attach([$teamX->id, $teamY->id, $teamA->id, $teamB->id]);
 
-        // X e Y nunca jogaram entre si (sem confronto direto), mas terminam totalmente
-        // empatados. Y recebe um cartão a mais, então X deve ficar à frente.
         $this->finishedGame($league, $teamX, $teamA, 1, 0);
         $gameY = $this->finishedGame($league, $teamY, $teamB, 1, 0);
         $this->addCard($league, $gameY, $teamY);
@@ -166,8 +157,6 @@ class LeagueTableControllerTest extends TestCase
 
         $this->assertLessThan($positionY, $positionX);
     }
-
-    // ── Caso de borda: liga sem partidas finalizadas ────────────────────────
 
     public function test_round_robin_standings_are_empty_and_ordered_deterministically_without_finished_games(): void
     {
@@ -186,11 +175,8 @@ class LeagueTableControllerTest extends TestCase
             $this->assertSame(0, $row['played']);
             $this->assertSame(0, $row['points']);
         }
-        // Sorteio (fallback determinístico): ordem por id do time.
         $this->assertSame([$teamA->id, $teamB->id], collect($standings)->pluck('team_id')->all());
     }
-
-    // ── knockout ──────────────────────────────────────────────────────────────
 
     public function test_knockout_phases_aggregate_home_and_away_legs_and_compute_winner(): void
     {
@@ -217,15 +203,13 @@ class LeagueTableControllerTest extends TestCase
 
         $this->assertSame('semi-1', $tie['tie_key']);
         $this->assertTrue($tie['decided']);
-        $this->assertSame($teamTwo->id, $tie['winner_team_id']); // agregado: Two=1+2=3, One=2+0=2
+        $this->assertSame($teamTwo->id, $tie['winner_team_id']);
         $this->assertCount(2, $tie['legs']);
 
         $aggregates = collect($tie['teams'])->pluck('aggregate_score', 'team_id');
         $this->assertSame(2, $aggregates[$teamOne->id]);
         $this->assertSame(3, $aggregates[$teamTwo->id]);
     }
-
-    // ── Caso de borda: confronto de mata-mata com apenas 1 perna jogada ─────
 
     public function test_knockout_tie_with_one_leg_still_unplayed_is_open(): void
     {
@@ -268,7 +252,6 @@ class LeagueTableControllerTest extends TestCase
         [$teamOne, $teamTwo] = Team::factory()->count(2)->create();
         $league->teams()->attach([$teamOne->id, $teamTwo->id]);
 
-        // Volta ainda não cadastrada.
         $this->finishedGame($league, $teamOne, $teamTwo, 2, 0, [
             'round' => null, 'phase' => 'Semifinal', 'phase_order' => 1, 'tie_key' => 'semi-1', 'leg' => 1,
         ]);
@@ -282,7 +265,6 @@ class LeagueTableControllerTest extends TestCase
         $this->assertNull($tie['winner_team_id']);
         $this->assertCount(1, $tie['legs']);
 
-        // Agregado parcial continua sendo exibido.
         $aggregates = collect($tie['teams'])->pluck('aggregate_score', 'team_id');
         $this->assertSame(2, $aggregates[$teamOne->id]);
         $this->assertSame(0, $aggregates[$teamTwo->id]);
@@ -335,7 +317,6 @@ class LeagueTableControllerTest extends TestCase
         [$teamOne, $teamTwo] = Team::factory()->count(2)->create();
         $league->teams()->attach([$teamOne->id, $teamTwo->id]);
 
-        // Dado legado: `leg` preenchido sem `tie_key` vira um grupo isolado (`game-{id}`).
         $this->finishedGame($league, $teamOne, $teamTwo, 3, 0, [
             'round' => null, 'phase' => 'Final', 'phase_order' => 1, 'tie_key' => null, 'leg' => 1,
         ]);
@@ -369,12 +350,9 @@ class LeagueTableControllerTest extends TestCase
         $response->assertOk();
         $tie = $response->json('data.phases')[0]['ties'][0];
 
-        // Agregado 1x1: decidido, mas sem critério de desempate modelado (sem vencedor).
         $this->assertTrue($tie['decided']);
         $this->assertNull($tie['winner_team_id']);
     }
-
-    // ── hybrid ────────────────────────────────────────────────────────────────
 
     public function test_hybrid_league_ignores_phase_games_in_standings_but_returns_phases_too(): void
     {
@@ -383,10 +361,8 @@ class LeagueTableControllerTest extends TestCase
         [$teamA, $teamB, $teamC, $teamD] = Team::factory()->count(4)->create();
         $league->teams()->attach([$teamA->id, $teamB->id, $teamC->id, $teamD->id]);
 
-        // Fase de grupos (round preenchido) — entra na tabela.
         $this->finishedGame($league, $teamA, $teamB, 3, 0);
 
-        // Mata-mata (phase preenchida) — NÃO deve contar pontos para standings.
         $this->finishedGame($league, $teamC, $teamD, 5, 0, [
             'round' => null, 'phase' => 'Final', 'phase_order' => 1, 'tie_key' => 'final-1', 'leg' => 1,
         ]);
@@ -398,7 +374,6 @@ class LeagueTableControllerTest extends TestCase
 
         $this->assertSame(3, $standings[$teamA->id]['points']);
         $this->assertSame(0, $standings[$teamB->id]['points']);
-        // C e D não jogaram na fase de grupos: goleada do mata-mata não conta.
         $this->assertSame(0, $standings[$teamC->id]['points']);
         $this->assertSame(0, $standings[$teamD->id]['played']);
 
@@ -407,7 +382,6 @@ class LeagueTableControllerTest extends TestCase
         $tie = $phases[0]['ties'][0];
         $this->assertSame('final-1', $tie['tie_key']);
 
-        // Só a Ida foi cadastrada: confronto segue em aberto, com o agregado parcial.
         $this->assertFalse($tie['decided']);
         $this->assertNull($tie['winner_team_id']);
         $aggregates = collect($tie['teams'])->pluck('aggregate_score', 'team_id');
@@ -415,12 +389,10 @@ class LeagueTableControllerTest extends TestCase
         $this->assertSame(0, $aggregates[$teamD->id]);
     }
 
-    // ── Autorização ───────────────────────────────────────────────────────────
-
     public function test_admin_without_league_access_gets_forbidden(): void
     {
         $league = League::factory()->create(['format' => 'round_robin']);
-        $this->authenticateAsAdmin(); // sem vínculo com a liga
+        $this->authenticateAsAdmin();
 
         $response = $this->getJson("/api/leagues/{$league->id}/table");
 
@@ -446,8 +418,6 @@ class LeagueTableControllerTest extends TestCase
         $response->assertStatus(401);
     }
 
-    // ── Rota pública ─────────────────────────────────────────────────────────
-
     public function test_guest_can_view_table_via_public_route(): void
     {
         $league = League::factory()->create(['format' => 'round_robin']);
@@ -459,8 +429,6 @@ class LeagueTableControllerTest extends TestCase
 
         $response->assertOk()->assertJsonPath('data.standings.0.team_id', $teamA->id);
     }
-
-    // ── Logo do time como URL pública ────────────────────────────────────────
 
     private function leagueWithLogoAndWithoutLogo(): array
     {
@@ -510,8 +478,6 @@ class LeagueTableControllerTest extends TestCase
         $this->assertSame($resourceLogo, $tableLogo);
     }
 
-    // ── Performance: sem N+1 ─────────────────────────────────────────────────
-
     private function buildDistinctRoundRobinLeague(int $teamsCount): League
     {
         $league = League::factory()->create(['format' => 'round_robin']);
@@ -525,9 +491,6 @@ class LeagueTableControllerTest extends TestCase
 
             [$home, $away] = $pair->values()->all();
 
-            // Placar com margem distinta por par, para nenhum time empatar com outro em
-            // pontos/vitórias/saldo/gols pró (evita disparar a consulta de confronto direto
-            // e manter o nº de queries comparável entre ligas pequenas e grandes).
             $this->finishedGame($league, $home, $away, $index + 2, 1);
         }
 
@@ -541,8 +504,6 @@ class LeagueTableControllerTest extends TestCase
         $smallLeague = $this->buildDistinctRoundRobinLeague(4);
         $largeLeague = $this->buildDistinctRoundRobinLeague(20);
 
-        // Aquece o cache de roles/permissions (Spatie) antes de medir, para a comparação
-        // não ser contaminada pelo custo de autenticação da primeira requisição do teste.
         $this->getJson("/api/leagues/{$smallLeague->id}/table")->assertOk();
 
         DB::enableQueryLog();

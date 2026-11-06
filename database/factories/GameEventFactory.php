@@ -8,9 +8,6 @@ use App\Models\Player;
 use App\Models\Team;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-/**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\GameEvent>
- */
 class GameEventFactory extends Factory
 {
     public function definition(): array
@@ -34,6 +31,11 @@ class GameEventFactory extends Factory
             'type' => 'goal',
             'minute' => fake()->numberBetween(1, 90),
         ];
+    }
+
+    public function ownGoal(): static
+    {
+        return $this->state(fn () => ['type' => 'own_goal']);
     }
 
     public function yellowCard(): static

@@ -45,7 +45,6 @@ class UserControllerTest extends TestCase
         return $user;
     }
 
-    /** Usuário com o papel nas ligas informadas (coach/player via time, ver LinksUsersToLeagues). */
     private function createUserWithRole(string $role, array $leagueIds = []): User
     {
         $user = User::factory()->create();
@@ -68,8 +67,6 @@ class UserControllerTest extends TestCase
         ], $overrides);
     }
 
-    // ── Auth e controle de acesso ─────────────────────────────────────────────
-
     public function test_guest_cannot_list_users(): void
     {
         $response = $this->getJson('/api/users');
@@ -84,13 +81,11 @@ class UserControllerTest extends TestCase
         $admin->leagues()->attach($league->id);
         $this->createUserWithRole('coach', [$league->id]);
         $this->createUserWithRole('player', [$league->id]);
-        // fora do escopo: sem liga e de liga alheia
         User::factory()->create();
         $this->createUserWithRole('coach', [League::factory()->create()->id]);
 
         $response = $this->getJson('/api/users');
 
-        // 2 da mesma liga + o próprio admin
         $response->assertOk()->assertJsonCount(3, 'data');
     }
 
@@ -132,8 +127,6 @@ class UserControllerTest extends TestCase
         $this->assertTrue($target->fresh()->hasRole('coach'));
         $this->assertFalse($target->fresh()->hasRole('master'));
     }
-
-    // ── Admin x master ────────────────────────────────────────────────────────
 
     public function test_admin_cannot_show_master(): void
     {
@@ -190,8 +183,6 @@ class UserControllerTest extends TestCase
         $this->assertContains($admin->id, $ids);
     }
 
-    // ── Admin x usuários de outra liga ────────────────────────────────────────
-
     public static function rolesProvider(): array
     {
         return [['coach'], ['player'], ['admin']];
@@ -211,8 +202,6 @@ class UserControllerTest extends TestCase
         $ids = collect($this->getJson('/api/users')->assertOk()->json('data'))->pluck('id');
         $this->assertNotContains($target->id, $ids);
     }
-
-    // ── Admin x coach/player/admin da mesma liga ──────────────────────────────
 
     #[DataProvider('rolesProvider')]
     public function test_admin_can_show_user_of_same_league(string $role): void
@@ -250,8 +239,6 @@ class UserControllerTest extends TestCase
         $this->assertDatabaseMissing('users', ['id' => $other->id, 'name' => 'Hack']);
     }
 
-    // ── Admin x ele mesmo ─────────────────────────────────────────────────────
-
     public function test_admin_can_show_and_update_himself(): void
     {
         $admin = $this->authenticateAsAdmin();
@@ -272,8 +259,6 @@ class UserControllerTest extends TestCase
         $this->assertTrue($admin->fresh()->hasRole('admin'));
         $this->assertFalse($admin->fresh()->hasRole('master'));
     }
-
-    // ── Filtro ?league_id= ────────────────────────────────────────────────────
 
     public function test_admin_cannot_filter_by_league_he_does_not_belong_to(): void
     {
@@ -372,7 +357,6 @@ class UserControllerTest extends TestCase
             ->assertJson(['message' => 'Você não tem acesso a essa liga.']);
     }
 
-    // O TrimStrings global remove espaços das pontas antes da validação: " 1" vira "1".
     public function test_league_id_with_surrounding_spaces_is_trimmed(): void
     {
         $admin = $this->authenticateAsAdmin();
@@ -394,8 +378,6 @@ class UserControllerTest extends TestCase
             ->assertOk()
             ->assertJsonCount(0, 'data');
     }
-
-    // ── Regressão: {id}/{lid} só aceitam dígitos ──────────────────────────────
 
     public static function nonNumericIdSuffixProvider(): array
     {
@@ -460,8 +442,6 @@ class UserControllerTest extends TestCase
         $this->assertCount(0, $target->fresh()->leagues);
     }
 
-    // ── Regressão: ações exclusivas de master ─────────────────────────────────
-
     public function test_admin_cannot_remove_league_from_user(): void
     {
         $admin = $this->authenticateAsAdmin();
@@ -504,8 +484,6 @@ class UserControllerTest extends TestCase
         $this->assertDatabaseMissing('users', ['document' => '98765432100']);
     }
 
-    // ── Master: CRUD de usuários ──────────────────────────────────────────────
-
     public function test_master_can_list_users(): void
     {
         $this->authenticate();
@@ -513,7 +491,6 @@ class UserControllerTest extends TestCase
 
         $response = $this->getJson('/api/users');
 
-        // +1 porque o próprio master também é listado
         $response->assertOk()->assertJsonCount(3, 'data');
     }
 
@@ -584,8 +561,6 @@ class UserControllerTest extends TestCase
         $this->assertDatabaseMissing('users', ['id' => $target->id]);
     }
 
-    // ── Validações de criação ─────────────────────────────────────────────────
-
     public function test_store_fails_without_name(): void
     {
         $this->authenticate();
@@ -650,8 +625,6 @@ class UserControllerTest extends TestCase
 
         $response->assertStatus(422)->assertJson(['message' => 'Usuário não encontrado!']);
     }
-
-    // ── Associação de ligas ────────────────────────────────────────────────────
 
     public function test_master_can_sync_leagues_to_admin(): void
     {
@@ -733,9 +706,6 @@ class UserControllerTest extends TestCase
         $this->assertDatabaseHas('users', ['id' => $target->id]);
     }
 
-    // ── Vínculo coach → time e player → jogador (FOOT-0047) ──────────────────
-
-    /** Time vinculado às ligas informadas. */
     private function teamInLeagues(array $leagueIds): Team
     {
         $team = Team::factory()->create();
@@ -744,7 +714,6 @@ class UserControllerTest extends TestCase
         return $team;
     }
 
-    /** Admin autenticado numa liga nova; devolve [admin, liga]. */
     private function adminWithLeague(): array
     {
         $admin = $this->authenticateAsAdmin();
@@ -769,7 +738,6 @@ class UserControllerTest extends TestCase
         $this->assertSame($team->id, $coach->team_id);
         $this->assertSame([$league->id], $coach->leagueIds());
 
-        // E passa a aparecer na listagem do admin (liga derivada do time).
         $ids = collect($this->getJson('/api/users')->assertOk()->json('data'))->pluck('id');
         $this->assertContains($coach->id, $ids);
     }
@@ -1068,7 +1036,6 @@ class UserControllerTest extends TestCase
         $this->assertDatabaseMissing('user_leagues', ['user_id' => $coach->id]);
     }
 
-    // Ligas de coach/player vêm só do time: vínculo antigo em user_leagues não conta.
     public function test_admin_does_not_see_coach_linked_only_by_legacy_user_leagues(): void
     {
         [, $league] = $this->adminWithLeague();
@@ -1097,7 +1064,6 @@ class UserControllerTest extends TestCase
         $this->assertTrue($playerUser->hasLeagueId($league2->id));
         $this->assertSame([], $unlinked->leagueIds());
 
-        // Jogador removido (soft delete): o usuário player fica sem ligas.
         $player->delete();
         $this->assertSame([], $playerUser->fresh()->leagueIds());
         $this->assertFalse($playerUser->fresh()->hasLeagueId($league1->id));

@@ -11,11 +11,6 @@ use Illuminate\Support\Collection;
 
 class GameEventSeeder extends Seeder
 {
-    /**
-     * Gera gols (coerentes com home_score/away_score) e cartões para toda
-     * partida com status "finished", usando jogadores reais do elenco de
-     * cada time.
-     */
     public function run(): void
     {
         $playersByTeam = Player::select('id', 'team_id', 'position')->get()->groupBy('team_id');
@@ -37,11 +32,6 @@ class GameEventSeeder extends Seeder
         }
     }
 
-    /**
-     * Um evento type=goal por gol marcado, com o artilheiro sorteado do
-     * elenco (priorizando ATA/MEI) e chance de assistência de um
-     * companheiro de time diferente.
-     */
     private function goalsFor(Game $game, int $teamId, ?int $goals, Collection $playersByTeam, Carbon $now): array
     {
         if (! $goals) {
@@ -79,10 +69,6 @@ class GameEventSeeder extends Seeder
         return $events;
     }
 
-    /**
-     * Cartões amarelos (0 a 3) e, com 10% de chance, um cartão vermelho,
-     * distribuídos entre jogadores aleatórios do elenco do time na partida.
-     */
     private function cardsFor(Game $game, int $teamId, Collection $playersByTeam, Carbon $now): array
     {
         $pool = $playersByTeam->get($teamId, collect());
