@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Team;
+use App\Repositories\LeagueRepository;
 use App\Repositories\TeamRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
 use App\Services\Concerns\HandlesImageUpload;
@@ -17,7 +18,10 @@ class TeamService
 {
     use EnsuresLeagueAccess, HandlesImageUpload;
 
-    public function __construct(private readonly TeamRepository $repository) {}
+    public function __construct(
+        private readonly TeamRepository $repository,
+        private readonly LeagueRepository $leagueRepository,
+    ) {}
 
     public function index(?string $leagueId = null): Collection
     {
@@ -47,6 +51,7 @@ class TeamService
 
         if (! empty($leagueIds)) {
             $this->ensureUserHasAccessToLeagues($leagueIds);
+            $this->ensureLeaguesAcceptNewTeams($leagueIds);
         }
 
         if (isset($data['logo'])) {
@@ -156,8 +161,20 @@ class TeamService
     {
         $team = $this->findOrFail($id);
         $this->ensureUserHasAccessToLeagues($leagueIds);
+        $this->ensureLeaguesAcceptNewTeams($leagueIds, $team);
 
         return $this->repository->syncLeagues($team, $leagueIds);
+    }
+
+    private function ensureLeaguesAcceptNewTeams(array $leagueIds, ?Team $team = null): void
+    {
+        $league = $this->leagueRepository->withDrawnRoundsAmong($leagueIds, $team)->first();
+
+        if ($league) {
+            throw ValidationException::withMessages([
+                'message' => sprintf('Não é possível adicionar o time à liga %s porque ela já tem rodadas sorteadas.', $league->name),
+            ]);
+        }
     }
 
     public function removeLeague(string $id, string $leagueId): Team

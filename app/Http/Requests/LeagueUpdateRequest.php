@@ -25,6 +25,14 @@ class LeagueUpdateRequest extends FormRequest
         ];
     }
 
+    protected function prepareForValidation(): void
+    {
+        $league = $this->route('id') ? League::find($this->route('id')) : null;
+        $input = $this->all();
+
+        $this->merge(array_diff_key($this->adjustConfigurationToFormat($input, $league), $input));
+    }
+
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator) {

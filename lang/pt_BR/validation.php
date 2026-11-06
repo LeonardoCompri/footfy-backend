@@ -177,6 +177,7 @@ return [
         'format' => 'formato',
         'game_id' => 'partida',
         'group_legs' => 'turnos da fase de grupos',
+        'group_number' => 'grupo',
         'groups' => 'grupos',
         'groups.*' => 'grupo',
         'groups.*.group_number' => 'número do grupo',

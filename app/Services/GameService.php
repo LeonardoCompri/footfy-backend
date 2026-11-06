@@ -21,7 +21,10 @@ class GameService
 
     private const STATUSES_WITH_SCORE = ['in_progress', 'finished'];
 
-    public function __construct(private readonly GameRepository $repository) {}
+    public function __construct(
+        private readonly GameRepository $repository,
+        private readonly LeagueDrawService $drawService,
+    ) {}
 
     public function index(string $leagueId, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
@@ -66,8 +69,13 @@ class GameService
         $game->fill($data);
         $leagueChanged = $game->isDirty('league_id');
         $recalculateScore = $this->shouldRecalculateScore($game);
+        $drawnPairingChanged = $this->changesDrawnPairing($game);
 
-        DB::transaction(function () use ($game, $leagueChanged, $recalculateScore) {
+        DB::transaction(function () use ($game, $leagueChanged, $recalculateScore, $drawnPairingChanged) {
+            if ($drawnPairingChanged) {
+                $this->drawService->ensureTeamChangeKeepsSchedule($game);
+            }
+
             if ($recalculateScore) {
                 $game->fill($this->scoreFromEvents($game));
             }
@@ -124,9 +132,29 @@ class GameService
         return $game->isDirty(['home_team_id', 'away_team_id']);
     }
 
+    private function changesDrawnPairing(Game $game): bool
+    {
+        if ($game->group_number === null || ! $game->isDirty(['home_team_id', 'away_team_id'])) {
+            return false;
+        }
+
+        $before = [(int) $game->getOriginal('home_team_id'), (int) $game->getOriginal('away_team_id')];
+        $after = [(int) $game->home_team_id, (int) $game->away_team_id];
+        sort($before);
+        sort($after);
+
+        return $before !== $after;
+    }
+
     public function destroy(string $id): ?bool
     {
         $game = $this->find($id);
+
+        if ($game->group_number !== null) {
+            throw ValidationException::withMessages([
+                'message' => 'Partidas de rodada sorteada não podem ser excluídas; desfaça a rodada no sorteio.',
+            ]);
+        }
 
         return $this->repository->destroy($game);
     }

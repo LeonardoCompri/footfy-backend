@@ -26,6 +26,11 @@ class ChampionshipUpdateRequest extends FormRequest
         ];
     }
 
+    protected function prepareForValidation(): void
+    {
+        $this->adjustChampionshipLeaguesToFormat();
+    }
+
     public function withValidator(Validator $validator): void
     {
         $validator->after(fn (Validator $validator) => $this->validateChampionshipLeagues($validator));

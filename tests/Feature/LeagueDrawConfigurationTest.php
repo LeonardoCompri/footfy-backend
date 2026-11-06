@@ -576,4 +576,187 @@ class LeagueDrawConfigurationTest extends TestCase
 
         $this->assertSame(0, $league->teams()->wherePivotNotNull('group_number')->count());
     }
+
+    public function test_switching_hybrid_to_round_robin_clears_group_and_knockout_settings(): void
+    {
+        $league = $this->leagueWithTeams(8, self::HYBRID_DRAW);
+        $league->teams()->newPivotQuery()->update(['group_number' => 1]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['format' => 'round_robin'])
+            ->assertOk()
+            ->assertJsonPath('data.format', 'round_robin')
+            ->assertJsonPath('data.fixture_mode', 'draw')
+            ->assertJsonPath('data.groups_count', 1)
+            ->assertJsonPath('data.group_legs', 2)
+            ->assertJsonPath('data.qualifiers_per_group', null)
+            ->assertJsonPath('data.knockout_size', null)
+            ->assertJsonPath('data.knockout_legs', null)
+            ->assertJsonPath('data.final_legs', null)
+            ->assertJsonPath('data.third_place', false)
+            ->assertJsonPath('data.knockout_tiebreakers', null);
+
+        $this->assertSame(0, $league->teams()->wherePivotNotNull('group_number')->count());
+    }
+
+    public function test_switching_hybrid_to_knockout_turns_off_draw_and_groups(): void
+    {
+        $league = $this->leagueWithTeams(8, self::HYBRID_DRAW);
+        $league->teams()->newPivotQuery()->update(['group_number' => 2]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['format' => 'knockout'])
+            ->assertOk()
+            ->assertJsonPath('data.format', 'knockout')
+            ->assertJsonPath('data.fixture_mode', 'manual')
+            ->assertJsonPath('data.groups_count', 1)
+            ->assertJsonPath('data.qualifiers_per_group', null)
+            ->assertJsonPath('data.knockout_size', 4)
+            ->assertJsonPath('data.knockout_legs', 2)
+            ->assertJsonPath('data.third_place', true);
+
+        $this->assertSame(0, $league->teams()->wherePivotNotNull('group_number')->count());
+    }
+
+    public function test_switching_round_robin_draw_to_knockout_clears_the_single_group(): void
+    {
+        $league = $this->leagueWithTeams(6, ['fixture_mode' => 'draw']);
+        $league->teams()->newPivotQuery()->update(['group_number' => 1]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['format' => 'knockout'])
+            ->assertOk()
+            ->assertJsonPath('data.fixture_mode', 'manual');
+
+        $this->assertSame(0, $league->teams()->wherePivotNotNull('group_number')->count());
+    }
+
+    public function test_switching_round_robin_to_hybrid_draw_still_requires_knockout_settings(): void
+    {
+        $league = $this->leagueWithTeams(8, ['fixture_mode' => 'draw']);
+
+        $this->putJson("/api/leagues/{$league->id}", ['format' => 'hybrid'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['qualifiers_per_group', 'knockout_size', 'knockout_legs', 'final_legs', 'knockout_tiebreakers']);
+
+        $this->assertSame('round_robin', $league->refresh()->format);
+
+        $this->putJson("/api/leagues/{$league->id}", ['format' => 'hybrid', 'fixture_mode' => 'manual'])
+            ->assertOk()
+            ->assertJsonPath('data.format', 'hybrid');
+    }
+
+    public function test_values_sent_with_the_new_format_are_still_validated(): void
+    {
+        $league = League::factory()->create(self::HYBRID_DRAW);
+
+        $this->putJson("/api/leagues/{$league->id}", ['format' => 'round_robin', 'groups_count' => 2])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.groups_count.0', 'Ligas de pontos corridos têm um único grupo.');
+
+        $this->putJson("/api/leagues/{$league->id}", ['format' => 'knockout', 'fixture_mode' => 'draw'])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.fixture_mode.0', 'Ligas mata-mata só aceitam tabela manual.');
+
+        $this->assertSame('hybrid', $league->refresh()->format);
+    }
+
+    public function test_format_change_is_not_adjusted_after_rounds_are_drawn(): void
+    {
+        $league = League::factory()->create(self::HYBRID_DRAW);
+        $this->drawnRound($league);
+
+        $this->putJson("/api/leagues/{$league->id}", ['format' => 'round_robin'])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.groups_count.0', 'Ligas de pontos corridos têm um único grupo.');
+
+        $league->refresh();
+        $this->assertSame('hybrid', $league->format);
+        $this->assertSame(2, $league->groups_count);
+        $this->assertSame(4, $league->knockout_size);
+    }
+
+    public function test_championship_update_switches_league_format_without_resending_settings(): void
+    {
+        $championship = Championship::factory()->create();
+        $hybrid = $this->leagueWithTeams(8, [...self::HYBRID_DRAW, 'championship_id' => $championship->id]);
+        $hybrid->teams()->newPivotQuery()->update(['group_number' => 1]);
+        $other = League::factory()->create([...self::HYBRID_DRAW, 'championship_id' => $championship->id]);
+
+        $this->putJson("/api/championships/{$championship->id}", [
+            'leagues' => [
+                ['id' => $hybrid->id, 'name' => $hybrid->name, 'format' => 'knockout'],
+                ['id' => $other->id, 'name' => $other->name, 'format' => 'round_robin'],
+            ],
+        ])->assertOk();
+
+        $hybrid->refresh();
+        $this->assertSame('knockout', $hybrid->format);
+        $this->assertSame('manual', $hybrid->fixture_mode);
+        $this->assertSame(1, $hybrid->groups_count);
+        $this->assertNull($hybrid->qualifiers_per_group);
+        $this->assertSame(0, $hybrid->teams()->wherePivotNotNull('group_number')->count());
+
+        $other->refresh();
+        $this->assertSame('round_robin', $other->format);
+        $this->assertSame(1, $other->groups_count);
+        $this->assertNull($other->knockout_size);
+        $this->assertFalse($other->third_place);
+    }
+
+    public function test_championship_multipart_switches_league_format(): void
+    {
+        $championship = Championship::factory()->create();
+        $league = League::factory()->create([...self::HYBRID_DRAW, 'championship_id' => $championship->id]);
+
+        $this->post("/api/championships/{$championship->id}", [
+            '_method' => 'PUT',
+            'leagues' => [['id' => (string) $league->id, 'name' => $league->name, 'format' => 'round_robin']],
+        ], ['Accept' => 'application/json'])->assertOk();
+
+        $this->assertSame('round_robin', $league->refresh()->format);
+        $this->assertSame(1, $league->groups_count);
+    }
+
+    public function test_championship_update_keeps_the_lock_when_rounds_are_drawn(): void
+    {
+        $championship = Championship::factory()->create();
+        $league = League::factory()->create([...self::HYBRID_DRAW, 'championship_id' => $championship->id]);
+        $this->drawnRound($league);
+
+        $response = $this->putJson("/api/championships/{$championship->id}", [
+            'leagues' => [['id' => $league->id, 'name' => $league->name, 'format' => 'round_robin']],
+        ]);
+
+        $response->assertStatus(422);
+        $this->assertSame('Ligas de pontos corridos têm um único grupo.', $response->json('errors')['leagues.0.groups_count'][0]);
+        $this->assertSame('hybrid', $league->refresh()->format);
+    }
+
+    public function test_draw_league_needs_at_least_two_teams_per_group(): void
+    {
+        $league = $this->leagueWithTeams(2);
+
+        $this->putJson("/api/leagues/{$league->id}", [...self::HYBRID_DRAW, 'qualifiers_per_group' => 1, 'knockout_size' => 2])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.groups_count.0', 'Cada grupo precisa ter pelo menos 2 times.');
+
+        $single = $this->leagueWithTeams(1);
+        $this->putJson("/api/leagues/{$single->id}", ['fixture_mode' => 'draw'])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.groups_count.0', 'Cada grupo precisa ter pelo menos 2 times.');
+
+        $pair = $this->leagueWithTeams(2);
+        $this->putJson("/api/leagues/{$pair->id}", ['fixture_mode' => 'draw'])->assertOk();
+    }
+
+    public function test_championship_update_needs_at_least_two_teams_per_group(): void
+    {
+        $championship = Championship::factory()->create();
+        $league = $this->leagueWithTeams(4, ['championship_id' => $championship->id]);
+
+        $response = $this->putJson("/api/championships/{$championship->id}", [
+            'leagues' => [['id' => $league->id, 'name' => $league->name, 'format' => 'hybrid', 'fixture_mode' => 'draw', 'groups_count' => 4, 'qualifiers_per_group' => 1, 'knockout_size' => 4, 'knockout_legs' => 1, 'final_legs' => 1, 'knockout_tiebreakers' => ['penalties']]],
+        ]);
+
+        $response->assertStatus(422);
+        $this->assertSame('Cada grupo precisa ter pelo menos 2 times.', $response->json('errors')['leagues.0.groups_count'][0]);
+    }
 }

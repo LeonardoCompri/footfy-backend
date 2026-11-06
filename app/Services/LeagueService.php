@@ -70,11 +70,12 @@ class LeagueService
         DB::transaction(function () use ($league) {
             $this->ensureConfigurationIsEditable($league);
 
-            $groupsCountChanged = $league->isDirty('groups_count');
+            $clearGroups = $league->isDirty('groups_count')
+                || ($league->isDirty('format') && $league->format === 'knockout');
 
             $this->repository->update($league);
 
-            if ($groupsCountChanged) {
+            if ($clearGroups) {
                 $this->repository->clearGroups($league);
             }
         });

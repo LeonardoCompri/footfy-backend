@@ -3,6 +3,7 @@
 namespace App\Repositories;
 
 use App\Models\Game;
+use App\Models\League;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -64,6 +65,47 @@ class GameRepository
     public function destroy(Game $game): ?bool
     {
         return $game->delete();
+    }
+
+    public function drawnGames(League $league): Collection
+    {
+        return $league->games()
+            ->whereNotNull('group_number')
+            ->orderBy('round')
+            ->orderBy('id')
+            ->get(['id', 'league_id', 'home_team_id', 'away_team_id', 'round', 'group_number', 'status']);
+    }
+
+    public function hasManualRoundGames(League $league): bool
+    {
+        return $league->games()->whereNull('group_number')->whereNotNull('round')->exists();
+    }
+
+    public function hasStartedDrawnGames(League $league, ?int $round = null): bool
+    {
+        return $league->games()
+            ->whereNotNull('group_number')
+            ->when($round !== null, fn (Builder $q) => $q->where('round', $round))
+            ->where(fn (Builder $q) => $q->where('status', '!=', 'scheduled')->orWhereHas('events'))
+            ->exists();
+    }
+
+    public function insertDrawnGames(array $rows): void
+    {
+        $now = now();
+
+        Game::query()->insert(array_map(
+            fn (array $row) => [...$row, 'created_at' => $now, 'updated_at' => $now],
+            $rows,
+        ));
+    }
+
+    public function deleteDrawnGames(League $league, ?int $round = null): int
+    {
+        return $league->games()
+            ->whereNotNull('group_number')
+            ->when($round !== null, fn (Builder $q) => $q->where('round', $round))
+            ->delete();
     }
 
     private function applyFilters(Builder $query, array $filters = []): Builder

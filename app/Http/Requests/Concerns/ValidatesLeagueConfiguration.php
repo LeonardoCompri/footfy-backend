@@ -26,6 +26,23 @@ trait ValidatesLeagueConfiguration
 
     private const TEAM_COUNT_FIELDS = ['format', 'fixture_mode', 'groups_count', 'qualifiers_per_group'];
 
+    private const FORMAT_ADJUSTMENTS = [
+        'round_robin' => [
+            'groups_count' => 1,
+            'qualifiers_per_group' => null,
+            'knockout_size' => null,
+            'knockout_legs' => null,
+            'final_legs' => null,
+            'third_place' => false,
+            'knockout_tiebreakers' => null,
+        ],
+        'knockout' => [
+            'fixture_mode' => 'manual',
+            'groups_count' => 1,
+            'qualifiers_per_group' => null,
+        ],
+    ];
+
     protected function leagueConfigurationRules(string $prefix = ''): array
     {
         return [
@@ -42,6 +59,23 @@ trait ValidatesLeagueConfiguration
             "{$prefix}knockout_tiebreakers" => ['nullable', 'list'],
             "{$prefix}knockout_tiebreakers.*" => ['string', Rule::in(League::knockoutTiebreakerValues())],
         ];
+    }
+
+    protected function adjustConfigurationToFormat(array $input, ?League $league): array
+    {
+        $format = $input['format'] ?? null;
+
+        if (
+            ! $league
+            || ! is_string($format)
+            || $format === $league->format
+            || ! array_key_exists($format, self::FORMAT_ADJUSTMENTS)
+            || $league->games()->whereNotNull('group_number')->exists()
+        ) {
+            return $input;
+        }
+
+        return $input + self::FORMAT_ADJUSTMENTS[$format];
     }
 
     protected function validateLeagueConfiguration(Validator $validator, array $input, ?League $league, string $prefix = ''): void
@@ -218,6 +252,12 @@ trait ValidatesLeagueConfiguration
         }
 
         $groupSize = intdiv($teamsCount, $config['groups_count']);
+
+        if ($groupSize < 2) {
+            $errors['groups_count'] = 'Cada grupo precisa ter pelo menos 2 times.';
+
+            return;
+        }
 
         if ($config['qualifiers_per_group'] !== null && $config['qualifiers_per_group'] >= $groupSize) {
             $errors['qualifiers_per_group'] = sprintf(

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\ValidatesDrawnGames;
 use App\Http\Requests\Concerns\ValidatesGameTeams;
 use App\Models\Game;
 use App\Models\League;
@@ -11,7 +12,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class GameUpdateRequest extends FormRequest
 {
-    use ValidatesGameTeams;
+    use ValidatesDrawnGames, ValidatesGameTeams;
 
     public function rules(): array
     {
@@ -22,6 +23,7 @@ class GameUpdateRequest extends FormRequest
             'stadium_id' => ['nullable', 'integer', 'exists:stadiums,id'],
             'match_date' => ['nullable', 'date'],
             'round' => ['nullable', 'integer', 'min:1'],
+            'group_number' => ['sometimes', 'nullable', 'integer'],
             'phase' => ['nullable', 'string', 'max:255'],
             'phase_order' => ['nullable', 'integer', 'min:1'],
             'tie_key' => ['nullable', 'string', 'max:255'],
@@ -34,6 +36,8 @@ class GameUpdateRequest extends FormRequest
     {
         $validator->after(function (Validator $validator) {
             $game = $this->route('id') ? Game::find($this->route('id')) : null;
+
+            $this->rejectDrawnGameFieldChanges($validator, $game);
 
             $leagueId = $this->input('league_id', $game?->league_id);
             $stadiumId = $this->input('stadium_id', $game?->stadium_id);
@@ -50,6 +54,10 @@ class GameUpdateRequest extends FormRequest
             $this->validateTeams($validator, $game, $league);
             $this->validateRoundAndPhase($validator, $game, $league);
             $this->validateTieKey($validator, $game);
+
+            if ($game?->group_number === null && $this->hasAny(['round', 'league_id'])) {
+                $this->rejectManualRoundInDrawLeague($validator, $league, $this->input('round', $game?->round));
+            }
         });
     }
 

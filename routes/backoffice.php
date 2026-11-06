@@ -46,6 +46,10 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::get('/{id}/groups', [LeagueController::class, 'groups'])->name('groups')->middleware('access:league');
         Route::put('/{id}/groups', [LeagueController::class, 'updateGroups'])->name('groups.update')->middleware(['permission:tournament:update', 'access:league']);
         Route::post('/{id}/groups/shuffle', [LeagueController::class, 'shuffleGroups'])->name('groups.shuffle')->middleware(['permission:tournament:update', 'access:league']);
+        Route::get('/{id}/draw', [LeagueController::class, 'draw'])->name('draw')->middleware('access:league');
+        Route::post('/{id}/draw/next-round', [LeagueController::class, 'drawNextRound'])->name('draw.next-round')->middleware(['permission:tournament:update', 'access:league']);
+        Route::delete('/{id}/draw/last-round', [LeagueController::class, 'undoLastRound'])->name('draw.last-round')->middleware(['permission:tournament:update', 'access:league']);
+        Route::delete('/{id}/draw', [LeagueController::class, 'resetDraw'])->name('draw.reset')->middleware(['permission:tournament:update', 'access:league']);
         Route::post('/', [LeagueController::class, 'store'])->name('store')->middleware('role:master');
         Route::put('/{id}', [LeagueController::class, 'update'])->name('update')->middleware(['permission:tournament:update', 'access:league']);
         Route::delete('/{id}', [LeagueController::class, 'destroy'])->name('destroy')->middleware(['role:master', 'throttle:5,1']);

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\ValidatesDrawnGames;
 use App\Http\Requests\Concerns\ValidatesGameTeams;
 use App\Models\League;
 use App\Models\Stadium;
@@ -10,7 +11,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class GameStoreRequest extends FormRequest
 {
-    use ValidatesGameTeams;
+    use ValidatesDrawnGames, ValidatesGameTeams;
 
     public function rules(): array
     {
@@ -73,6 +74,8 @@ class GameStoreRequest extends FormRequest
         if (! $league) {
             return;
         }
+
+        $this->rejectManualRoundInDrawLeague($validator, $league, $round);
 
         if ($league->format === 'knockout') {
             if ($round !== null) {

@@ -24,6 +24,28 @@ trait ChampionshipLeaguesRules
         ];
     }
 
+    protected function adjustChampionshipLeaguesToFormat(): void
+    {
+        $leagues = $this->input('leagues');
+
+        if (! $this->route('id') || ! is_array($leagues)) {
+            return;
+        }
+
+        foreach ($leagues as $index => $item) {
+            $leagueId = is_array($item) ? ($item['id'] ?? null) : null;
+
+            if (! is_scalar($leagueId) || ! filled($leagueId)) {
+                continue;
+            }
+
+            $league = League::where('championship_id', $this->route('id'))->find($leagueId);
+            $leagues[$index] = $this->adjustConfigurationToFormat($item, $league);
+        }
+
+        $this->merge(['leagues' => $leagues]);
+    }
+
     protected function validateChampionshipLeagues(Validator $validator): void
     {
         $leagues = $this->input('leagues');

@@ -3,6 +3,7 @@
 namespace App\Repositories;
 
 use App\Models\League;
+use App\Models\Team;
 use Illuminate\Database\Eloquent\Collection;
 
 class LeagueRepository
@@ -50,6 +51,19 @@ class LeagueRepository
     public function hasKnockoutGames(League $league): bool
     {
         return $league->games()->whereNotNull('phase')->exists();
+    }
+
+    public function withDrawnRoundsAmong(array $leagueIds, ?Team $exceptMember = null): Collection
+    {
+        return League::query()
+            ->whereIn('id', $leagueIds)
+            ->whereHas('games', fn ($q) => $q->whereNotNull('group_number'))
+            ->when($exceptMember, fn ($q) => $q->whereDoesntHave(
+                'teams',
+                fn ($teams) => $teams->where('teams.id', $exceptMember->id),
+            ))
+            ->orderBy('id')
+            ->get(['id', 'name']);
     }
 
     public function teamIds(League $league): array

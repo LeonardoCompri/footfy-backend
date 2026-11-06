@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\LeagueDestroyRequest;
+use App\Http\Requests\LeagueDrawRoundRequest;
 use App\Http\Requests\LeagueGroupsRequest;
 use App\Http\Requests\LeagueStoreRequest;
 use App\Http\Requests\LeagueUpdateRequest;
 use App\Http\Resources\LeagueResource;
 use App\Services\DashboardService;
+use App\Services\LeagueDrawService;
 use App\Services\LeagueGroupService;
 use App\Services\LeagueService;
 use App\Services\StandingsService;
@@ -24,6 +26,7 @@ class LeagueController extends Controller
         private readonly StatisticsService $statisticsService,
         private readonly DashboardService $dashboardService,
         private readonly LeagueGroupService $groupService,
+        private readonly LeagueDrawService $drawService,
     ) {}
 
     public function index(): JsonResponse
@@ -182,6 +185,67 @@ class LeagueController extends Controller
     {
         try {
             $response = $this->groupService->shuffle($id);
+
+            return response()->json(['data' => $response]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    public function draw(string $id): JsonResponse
+    {
+        try {
+            $league = $this->service->show($id);
+            $response = $this->drawService->build($league);
+
+            return response()->json(['data' => $response]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    public function drawNextRound(LeagueDrawRoundRequest $request, string $id): JsonResponse
+    {
+        try {
+            $response = $this->drawService->drawNextRound($id, (int) $request->validated('round'));
+
+            return response()->json(['data' => $response]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    public function undoLastRound(LeagueDrawRoundRequest $request, string $id): JsonResponse
+    {
+        try {
+            $response = $this->drawService->undoLastRound($id, (int) $request->validated('round'));
+
+            return response()->json(['data' => $response]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    public function resetDraw(string $id): JsonResponse
+    {
+        try {
+            $response = $this->drawService->reset($id);
 
             return response()->json(['data' => $response]);
         } catch (ValidationException $ex) {
