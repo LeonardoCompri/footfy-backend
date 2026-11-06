@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\LeagueDestroyRequest;
+use App\Http\Requests\LeagueGroupsRequest;
 use App\Http\Requests\LeagueStoreRequest;
 use App\Http\Requests\LeagueUpdateRequest;
 use App\Http\Resources\LeagueResource;
 use App\Services\DashboardService;
+use App\Services\LeagueGroupService;
 use App\Services\LeagueService;
 use App\Services\StandingsService;
 use App\Services\StatisticsService;
@@ -21,6 +23,7 @@ class LeagueController extends Controller
         private readonly StandingsService $standingsService,
         private readonly StatisticsService $statisticsService,
         private readonly DashboardService $dashboardService,
+        private readonly LeagueGroupService $groupService,
     ) {}
 
     public function index(): JsonResponse
@@ -135,6 +138,52 @@ class LeagueController extends Controller
             $response = $this->dashboardService->build($league);
 
             return response()->json(['data' => $response], 200, [], JSON_PRESERVE_ZERO_FRACTION);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    public function groups(string $id): JsonResponse
+    {
+        try {
+            $league = $this->service->show($id);
+            $response = $this->groupService->build($league);
+
+            return response()->json(['data' => $response]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    public function updateGroups(LeagueGroupsRequest $request, string $id): JsonResponse
+    {
+        try {
+            $response = $this->groupService->assign($id, $request->validated('groups'));
+
+            return response()->json(['data' => $response]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    public function shuffleGroups(string $id): JsonResponse
+    {
+        try {
+            $response = $this->groupService->shuffle($id);
+
+            return response()->json(['data' => $response]);
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {

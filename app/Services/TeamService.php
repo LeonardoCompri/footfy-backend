@@ -135,6 +135,10 @@ class TeamService
     {
         $team = $this->show($id);
 
+        if ($this->repository->isInDrawnGroup($team)) {
+            throw ValidationException::withMessages(['message' => 'Não é possível remover o time pois ele está no grupo de uma liga com rodadas sorteadas.']);
+        }
+
         try {
             $deleted = $this->repository->destroy($team);
         } catch (QueryException $ex) {
@@ -163,6 +167,10 @@ class TeamService
 
         if (! $user->isMaster() && ! in_array((int) $leagueId, $user->leagueIds())) {
             throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa liga.']);
+        }
+
+        if ($this->repository->isInDrawnGroup($team, $leagueId)) {
+            throw ValidationException::withMessages(['message' => 'Não é possível remover o time da liga pois ele está em um grupo com rodadas sorteadas.']);
         }
 
         return $this->repository->removeLeague($team, $leagueId);

@@ -19,6 +19,7 @@ class GameResource extends JsonResource
             'home_score' => $this->home_score,
             'away_score' => $this->away_score,
             'round' => $this->round,
+            'group_number' => $this->group_number,
             'phase' => $this->phase,
             'phase_order' => $this->phase_order,
             'tie_key' => $this->tie_key,

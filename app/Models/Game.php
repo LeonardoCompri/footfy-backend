@@ -18,6 +18,7 @@ class Game extends Model
         'home_score',
         'away_score',
         'round',
+        'group_number',
         'phase',
         'phase_order',
         'tie_key',
