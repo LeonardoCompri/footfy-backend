@@ -11,7 +11,7 @@ class GameEventRepository
 
     public function index(?array $gameIds = null, ?string $type = null): Collection
     {
-        $query = GameEvent::query()->with(self::WITH);
+        $query = GameEvent::query()->with(self::WITH)->orderByDesc('minute');
         if ($gameIds !== null) {
             $query->whereIn('game_id', $gameIds);
         }
@@ -29,7 +29,7 @@ class GameEventRepository
 
     public function show(string $id): ?GameEvent
     {
-        return GameEvent::with(self::WITH)->find($id);
+        return GameEvent::with(self::WITH)->orderByDesc('minute')->find($id);
     }
 
     public function update(GameEvent $event): bool
