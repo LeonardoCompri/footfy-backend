@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Team;
+use App\Repositories\LeagueRepository;
 use App\Repositories\TeamRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
 use App\Services\Concerns\HandlesImageUpload;
@@ -17,7 +18,10 @@ class TeamService
 {
     use EnsuresLeagueAccess, HandlesImageUpload;
 
-    public function __construct(private readonly TeamRepository $repository) {}
+    public function __construct(
+        private readonly TeamRepository $repository,
+        private readonly LeagueRepository $leagueRepository,
+    ) {}
 
     public function index(?string $leagueId = null): Collection
     {
@@ -47,6 +51,7 @@ class TeamService
 
         if (! empty($leagueIds)) {
             $this->ensureUserHasAccessToLeagues($leagueIds);
+            $this->ensureLeaguesAcceptNewTeams($leagueIds);
         }
 
         if (isset($data['logo'])) {
@@ -135,6 +140,10 @@ class TeamService
     {
         $team = $this->show($id);
 
+        if ($this->repository->isInDrawnGroup($team)) {
+            throw ValidationException::withMessages(['message' => 'Não é possível remover o time pois ele está no grupo de uma liga com rodadas sorteadas.']);
+        }
+
         try {
             $deleted = $this->repository->destroy($team);
         } catch (QueryException $ex) {
@@ -152,8 +161,20 @@ class TeamService
     {
         $team = $this->findOrFail($id);
         $this->ensureUserHasAccessToLeagues($leagueIds);
+        $this->ensureLeaguesAcceptNewTeams($leagueIds, $team);
 
         return $this->repository->syncLeagues($team, $leagueIds);
+    }
+
+    private function ensureLeaguesAcceptNewTeams(array $leagueIds, ?Team $team = null): void
+    {
+        $league = $this->leagueRepository->withDrawnRoundsAmong($leagueIds, $team)->first();
+
+        if ($league) {
+            throw ValidationException::withMessages([
+                'message' => sprintf('Não é possível adicionar o time à liga %s porque ela já tem rodadas sorteadas.', $league->name),
+            ]);
+        }
     }
 
     public function removeLeague(string $id, string $leagueId): Team
@@ -163,6 +184,10 @@ class TeamService
 
         if (! $user->isMaster() && ! in_array((int) $leagueId, $user->leagueIds())) {
             throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa liga.']);
+        }
+
+        if ($this->repository->isInDrawnGroup($team, $leagueId)) {
+            throw ValidationException::withMessages(['message' => 'Não é possível remover o time da liga pois ele está em um grupo com rodadas sorteadas.']);
         }
 
         return $this->repository->removeLeague($team, $leagueId);

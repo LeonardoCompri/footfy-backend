@@ -16,6 +16,7 @@ class TeamResource extends JsonResource
             'logo' => $this->logoUrl(),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            'group_number' => $this->whenPivotLoaded('league_team', fn () => $this->pivot->group_number),
             'players' => PlayerResource::collection($this->whenLoaded('players')),
             'technicalCommitteeMembers' => TechnicalCommitteeMemberResource::collection($this->whenLoaded('technicalCommitteeMembers')),
             'leagues' => $this->whenLoaded('leagues', fn () => $this->leagues->map(fn ($league) => [

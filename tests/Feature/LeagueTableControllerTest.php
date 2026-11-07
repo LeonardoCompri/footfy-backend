@@ -65,11 +65,11 @@ class LeagueTableControllerTest extends TestCase
         ], $overrides));
     }
 
-    private function addCard(League $league, Game $game, Team $team): void
+    private function addCard(League $league, Game $game, Team $team, string $color = 'yellow'): void
     {
         $player = Player::factory()->create(['team_id' => $team->id]);
 
-        GameEvent::factory()->yellowCard()->create([
+        GameEvent::factory()->{$color.'Card'}()->create([
             'league_id' => $league->id,
             'game_id' => $game->id,
             'team_id' => $team->id,
@@ -162,7 +162,8 @@ class LeagueTableControllerTest extends TestCase
     {
         $this->authenticate();
         $league = League::factory()->create(['format' => 'round_robin']);
-        [$teamA, $teamB] = Team::factory()->count(2)->create();
+        $teamB = Team::factory()->create(['name' => 'Bravo']);
+        $teamA = Team::factory()->create(['name' => 'Alfa']);
         $league->teams()->attach([$teamA->id, $teamB->id]);
 
         $response = $this->getJson("/api/leagues/{$league->id}/table");
@@ -176,6 +177,7 @@ class LeagueTableControllerTest extends TestCase
             $this->assertSame(0, $row['points']);
         }
         $this->assertSame([$teamA->id, $teamB->id], collect($standings)->pluck('team_id')->all());
+        $this->assertSame([true, true], collect($standings)->pluck('tied')->all());
     }
 
     public function test_knockout_phases_aggregate_home_and_away_legs_and_compute_winner(): void
@@ -517,5 +519,243 @@ class LeagueTableControllerTest extends TestCase
         DB::disableQueryLog();
 
         $this->assertSame($smallQueryCount, $largeQueryCount);
+    }
+
+    private const ROW_FIELDS = [
+        'team_id', 'team', 'played', 'wins', 'draws', 'losses',
+        'goals_for', 'goals_against', 'goal_difference', 'points', 'tied',
+    ];
+
+    private function namedTeams(array $names): array
+    {
+        return array_map(fn (string $name) => Team::factory()->create(['name' => $name]), $names);
+    }
+
+    private function groupLeague(array $groups, array $attributes = []): League
+    {
+        $league = League::factory()->create([
+            'format' => 'hybrid',
+            'fixture_mode' => 'draw',
+            'groups_count' => count($groups),
+            'group_legs' => 1,
+            ...$attributes,
+        ]);
+
+        foreach ($groups as $index => $teams) {
+            foreach ($teams as $team) {
+                $league->teams()->attach($team->id, ['group_number' => $index + 1]);
+            }
+        }
+
+        return $league;
+    }
+
+    private function teamOrder(array $standings): array
+    {
+        return array_column($standings, 'team_id');
+    }
+
+    public function test_table_exposes_groups_tiebreakers_and_tied_on_admin_and_public_routes(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'round_robin']);
+        [$alfa, $bravo, $charlie] = $this->namedTeams(['Alfa', 'Bravo', 'Charlie']);
+        $league->teams()->attach([$alfa->id, $bravo->id, $charlie->id]);
+        $this->finishedGame($league, $charlie, $alfa, 2, 0);
+
+        foreach (["/api/leagues/{$league->id}/table", "/api/public/leagues/{$league->id}/table"] as $url) {
+            $response = $this->getJson($url)
+                ->assertOk()
+                ->assertJsonPath('data.tiebreakers', League::DEFAULT_TIEBREAKERS)
+                ->assertJsonCount(1, 'data.groups')
+                ->assertJsonPath('data.groups.0.group_number', 1)
+                ->assertJsonMissingPath('data.phases')
+                ->assertJsonStructure(['data' => [
+                    'standings' => ['*' => self::ROW_FIELDS],
+                    'groups' => ['*' => ['group_number', 'standings' => ['*' => self::ROW_FIELDS]]],
+                    'tiebreakers',
+                ]]);
+
+            $this->assertSame($response->json('data.standings'), $response->json('data.groups.0.standings'));
+            $this->assertSame([$charlie->id, $bravo->id, $alfa->id], $this->teamOrder($response->json('data.standings')));
+            $this->assertSame([false, false, false], array_column($response->json('data.standings'), 'tied'));
+        }
+    }
+
+    public function test_table_applies_the_configured_tiebreakers(): void
+    {
+        $this->authenticate();
+        [$alfa, $bravo, $charlie, $delta] = $this->namedTeams(['Alfa', 'Bravo', 'Charlie', 'Delta']);
+        $default = League::factory()->create(['format' => 'round_robin']);
+        $custom = League::factory()->create([
+            'format' => 'round_robin',
+            'tiebreakers' => ['points', 'goals_against', 'wins'],
+        ]);
+
+        foreach ([$default, $custom] as $league) {
+            $league->teams()->attach([$alfa->id, $bravo->id, $charlie->id, $delta->id]);
+            $this->finishedGame($league, $alfa, $charlie, 4, 3);
+            $this->finishedGame($league, $delta, $alfa, 1, 0, ['round' => 2]);
+            $this->finishedGame($league, $bravo, $charlie, 0, 0, ['round' => 3]);
+            $this->finishedGame($league, $bravo, $delta, 0, 0, ['round' => 4]);
+            $this->finishedGame($league, $charlie, $bravo, 0, 0, ['round' => 5]);
+        }
+
+        $defaultTable = $this->getJson("/api/leagues/{$default->id}/table")->assertOk();
+        $customTable = $this->getJson("/api/leagues/{$custom->id}/table")
+            ->assertOk()
+            ->assertJsonPath('data.tiebreakers', ['points', 'goals_against', 'wins']);
+
+        $this->assertSame([$delta->id, $alfa->id, $bravo->id, $charlie->id], $this->teamOrder($defaultTable->json('data.standings')));
+        $this->assertSame([$delta->id, $bravo->id, $alfa->id, $charlie->id], $this->teamOrder($customTable->json('data.standings')));
+    }
+
+    public function test_table_breaks_ties_by_red_and_yellow_cards_when_configured(): void
+    {
+        $this->authenticate();
+        [$alfa, $bravo, $charlie, $delta] = $this->namedTeams(['Alfa', 'Bravo', 'Charlie', 'Delta']);
+        $league = League::factory()->create(['format' => 'round_robin', 'tiebreakers' => ['points', 'fewer_red_cards']]);
+        $league->teams()->attach([$alfa->id, $bravo->id, $charlie->id, $delta->id]);
+        $alfaGame = $this->finishedGame($league, $alfa, $charlie, 1, 0);
+        $bravoGame = $this->finishedGame($league, $bravo, $delta, 1, 0);
+        $this->addCard($league, $alfaGame, $alfa, 'red');
+        $this->addCard($league, $bravoGame, $bravo);
+        $this->addCard($league, $bravoGame, $bravo);
+
+        $standings = $this->getJson("/api/leagues/{$league->id}/table")->assertOk()->json('data.standings');
+        $this->assertSame([$bravo->id, $alfa->id], array_slice($this->teamOrder($standings), 0, 2));
+
+        $league->update(['tiebreakers' => ['points', 'fewer_yellow_cards']]);
+        $standings = $this->getJson("/api/leagues/{$league->id}/table")->assertOk()->json('data.standings');
+        $this->assertSame([$alfa->id, $bravo->id], array_slice($this->teamOrder($standings), 0, 2));
+    }
+
+    public function test_head_to_head_now_breaks_three_team_ties(): void
+    {
+        $this->authenticate();
+        [$alfa, $bravo, $charlie, $delta] = $this->namedTeams(['Alfa', 'Bravo', 'Charlie', 'Delta']);
+        $league = League::factory()->create(['format' => 'round_robin']);
+        $league->teams()->attach([$alfa->id, $bravo->id, $charlie->id, $delta->id]);
+
+        $this->finishedGame($league, $charlie, $alfa, 1, 0);
+        $this->finishedGame($league, $charlie, $bravo, 1, 0, ['round' => 2]);
+        $this->finishedGame($league, $alfa, $bravo, 1, 0, ['round' => 3]);
+        $this->finishedGame($league, $alfa, $delta, 1, 0, ['round' => 4]);
+        $this->finishedGame($league, $bravo, $delta, 1, 0, ['round' => 5]);
+        $this->finishedGame($league, $delta, $charlie, 2, 0, ['round' => 6]);
+        $this->finishedGame($league, $bravo, $alfa, 1, 0, ['round' => 7]);
+
+        $standings = $this->getJson("/api/leagues/{$league->id}/table")->assertOk()->json('data.standings');
+
+        $this->assertSame([6, 6, 6, 3], array_column($standings, 'points'));
+        $this->assertSame([$charlie->id, $alfa->id, $bravo->id, $delta->id], $this->teamOrder($standings));
+        $this->assertSame([false, true, true, false], array_column($standings, 'tied'));
+    }
+
+    public function test_legacy_league_without_multiple_ties_keeps_the_previous_order(): void
+    {
+        $this->authenticate();
+        $teams = $this->namedTeams(['Zulu', 'Yankee', 'Xray', 'Whiskey', 'Victor', 'Uniform']);
+        [$zulu, $yankee, $xray, $whiskey, $victor, $uniform] = $teams;
+        $league = League::factory()->create(['format' => 'round_robin', 'tiebreakers' => null]);
+        $league->teams()->attach(array_map(fn (Team $team) => $team->id, $teams));
+
+        $this->finishedGame($league, $zulu, $yankee, 3, 0);
+        $this->finishedGame($league, $xray, $whiskey, 2, 2);
+        $this->finishedGame($league, $victor, $uniform, 1, 0);
+        $this->finishedGame($league, $yankee, $xray, 1, 0, ['round' => 2]);
+        $this->finishedGame($league, $whiskey, $victor, 0, 1, ['round' => 2]);
+        $this->finishedGame($league, $uniform, $zulu, 0, 0, ['round' => 2]);
+        $this->finishedGame($league, $xray, $uniform, 2, 1, ['round' => 3]);
+        $cardGame = $this->finishedGame($league, $whiskey, $yankee, 1, 0, ['round' => 3]);
+        $this->finishedGame($league, $zulu, $victor, 0, 0, ['round' => 3, 'status' => 'scheduled', 'home_score' => null, 'away_score' => null]);
+        $this->addCard($league, $cardGame, $whiskey);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/table")->assertOk();
+        $standings = $response->json('data.standings');
+
+        $this->assertSame(
+            [$victor->id, $zulu->id, $xray->id, $whiskey->id, $yankee->id, $uniform->id],
+            $this->teamOrder($standings),
+        );
+        $this->assertSame([6, 4, 4, 4, 3, 1], array_column($standings, 'points'));
+        $this->assertSame(
+            ['team_id' => $zulu->id, 'played' => 2, 'wins' => 1, 'draws' => 1, 'losses' => 0, 'goals_for' => 3, 'goals_against' => 0, 'goal_difference' => 3, 'points' => 4, 'tied' => false],
+            collect($standings[1])->except('team')->all(),
+        );
+        $this->assertSame(['id', 'name', 'nickname', 'logo'], array_keys($standings[1]['team']));
+        $this->assertSame([false, false, false, false, false, false], array_column($standings, 'tied'));
+        $response->assertJsonPath('data.tiebreakers', League::DEFAULT_TIEBREAKERS);
+    }
+
+    public function test_league_with_two_groups_ranks_each_group_with_its_own_games(): void
+    {
+        $this->authenticate();
+        [$alfa, $bravo, $charlie, $delta] = $this->namedTeams(['Alfa', 'Bravo', 'Charlie', 'Delta']);
+        $league = $this->groupLeague([[$alfa, $bravo], [$charlie, $delta]]);
+
+        $this->finishedGame($league, $bravo, $alfa, 2, 1, ['group_number' => 1]);
+        $this->finishedGame($league, $charlie, $delta, 0, 0, ['group_number' => 2]);
+        $this->finishedGame($league, $alfa, $charlie, 4, 0, ['round' => 2, 'group_number' => null]);
+        $this->finishedGame($league, $delta, $alfa, 3, 0, [
+            'round' => null, 'phase' => 'Semifinal', 'phase_order' => 1, 'tie_key' => 'sf-1',
+        ]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/table")->assertOk()->assertJsonCount(2, 'data.groups');
+
+        [$groupA, $groupB] = $response->json('data.groups');
+        $this->assertSame(1, $groupA['group_number']);
+        $this->assertSame(2, $groupB['group_number']);
+        $this->assertSame([$bravo->id, $alfa->id], $this->teamOrder($groupA['standings']));
+        $this->assertSame([1, 1], array_column($groupA['standings'], 'played'));
+        $this->assertSame([$charlie->id, $delta->id], $this->teamOrder($groupB['standings']));
+        $this->assertSame([true, true], array_column($groupB['standings'], 'tied'));
+
+        $general = collect($response->json('data.standings'))->keyBy('team_id');
+        $this->assertSame(2, $general[$alfa->id]['played']);
+        $this->assertSame(3, $general[$alfa->id]['points']);
+        $this->assertSame(0, $general[$delta->id]['goals_for']);
+        $this->assertCount(1, $response->json('data.phases'));
+    }
+
+    public function test_single_group_league_before_the_draw_uses_manual_round_games(): void
+    {
+        $this->authenticate();
+        [$alfa, $bravo, $charlie] = $this->namedTeams(['Alfa', 'Bravo', 'Charlie']);
+        $league = League::factory()->create(['format' => 'round_robin', 'fixture_mode' => 'draw', 'groups_count' => 1]);
+        $league->teams()->attach([$alfa->id, $bravo->id, $charlie->id]);
+
+        $this->finishedGame($league, $bravo, $alfa, 1, 0);
+        $this->finishedGame($league, $charlie, $alfa, 2, 0, ['round' => 2]);
+        $this->finishedGame($league, $bravo, $charlie, 1, 1, ['round' => 3]);
+
+        $response = $this->getJson("/api/public/leagues/{$league->id}/table")->assertOk()->assertJsonCount(1, 'data.groups');
+
+        $group = $response->json('data.groups.0.standings');
+        $this->assertSame([$charlie->id, $bravo->id, $alfa->id], $this->teamOrder($group));
+        $this->assertSame([4, 4, 0], array_column($group, 'points'));
+        $this->assertSame($response->json('data.standings'), $group);
+    }
+
+    public function test_group_without_teams_still_appears(): void
+    {
+        $this->authenticate();
+        [$alfa, $bravo] = $this->namedTeams(['Alfa', 'Bravo']);
+        $league = $this->groupLeague([[$alfa, $bravo], []]);
+
+        $this->getJson("/api/leagues/{$league->id}/table")
+            ->assertOk()
+            ->assertJsonPath('data.groups.1', ['group_number' => 2, 'standings' => []])
+            ->assertJsonCount(2, 'data.groups.0.standings');
+    }
+
+    public function test_knockout_league_table_keeps_only_phases(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'knockout']);
+
+        $this->getJson("/api/leagues/{$league->id}/table")
+            ->assertOk()
+            ->assertJsonPath('data', ['phases' => []]);
     }
 }

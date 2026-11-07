@@ -51,6 +51,19 @@ class TeamRepository
         return $team->load('leagues');
     }
 
+    public function isInDrawnGroup(Team $team, ?string $leagueId = null): bool
+    {
+        $query = $team->leagues()
+            ->wherePivotNotNull('group_number')
+            ->whereHas('games', fn ($q) => $q->whereNotNull('group_number'));
+
+        if ($leagueId !== null) {
+            $query->where('leagues.id', $leagueId);
+        }
+
+        return $query->exists();
+    }
+
     public function removeLeague(Team $team, string $leagueId): Team
     {
         $team->leagues()->detach($leagueId);

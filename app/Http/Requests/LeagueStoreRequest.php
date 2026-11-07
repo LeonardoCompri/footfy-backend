@@ -2,11 +2,15 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\ValidatesLeagueConfiguration;
 use App\Models\League;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 
 class LeagueStoreRequest extends FormRequest
 {
+    use ValidatesLeagueConfiguration;
+
     public function rules(): array
     {
         return [
@@ -17,6 +21,14 @@ class LeagueStoreRequest extends FormRequest
             'season' => ['nullable', 'string', 'max:255'],
             'championship_id' => ['required', 'integer', 'exists:championships,id'],
             'format' => ['sometimes', 'string', 'in:'.implode(',', League::FORMATS)],
+            ...$this->leagueConfigurationRules(),
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            $this->validateLeagueConfiguration($validator, $this->all(), null);
+        });
     }
 }

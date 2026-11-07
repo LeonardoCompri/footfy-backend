@@ -19,6 +19,7 @@ class ChampionshipService
     public function __construct(
         private readonly ChampionshipRepository $repository,
         private readonly LeagueRepository $leagueRepository,
+        private readonly LeagueService $leagueService,
     ) {}
 
     public function index(): Collection
@@ -135,7 +136,7 @@ class ChampionshipService
             if ($leagueId) {
                 $league = $existing->get($leagueId);
                 $league->fill($data);
-                $this->leagueRepository->update($league);
+                $this->leagueService->save($league);
             } else {
                 $this->leagueRepository->store($data);
             }

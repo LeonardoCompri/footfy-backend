@@ -3,8 +3,11 @@
 namespace App\Repositories;
 
 use App\Models\Game;
+use App\Models\GameEvent;
+use App\Models\League;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 class GameRepository
@@ -64,6 +67,145 @@ class GameRepository
     public function destroy(Game $game): ?bool
     {
         return $game->delete();
+    }
+
+    public function drawnGames(League $league): Collection
+    {
+        return $league->games()
+            ->whereNotNull('group_number')
+            ->orderBy('round')
+            ->orderBy('id')
+            ->get(['id', 'league_id', 'home_team_id', 'away_team_id', 'round', 'group_number', 'status']);
+    }
+
+    public function manualRoundGamesSummary(League $league): array
+    {
+        return [
+            'total' => $this->manualRoundGames($league)->count(),
+            'with_results' => $this->manualRoundGames($league)
+                ->where(fn (Builder $q) => $q->where('status', '!=', 'scheduled')->orWhereHas('events'))
+                ->count(),
+        ];
+    }
+
+    public function deleteManualRoundGames(League $league): int
+    {
+        GameEvent::query()->whereIn('game_id', $this->manualRoundGames($league)->select('id'))->delete();
+
+        return $this->manualRoundGames($league)->delete();
+    }
+
+    public function hasStartedDrawnGames(League $league, ?int $round = null): bool
+    {
+        return $league->games()
+            ->whereNotNull('group_number')
+            ->when($round !== null, fn (Builder $q) => $q->where('round', $round))
+            ->where(fn (Builder $q) => $q->where('status', '!=', 'scheduled')->orWhereHas('events'))
+            ->exists();
+    }
+
+    public function insertDrawnGames(array $rows): void
+    {
+        $this->insertRows($rows);
+    }
+
+    public function insertKnockoutGames(array $rows): void
+    {
+        $this->insertRows($rows);
+    }
+
+    public function knockoutGames(League $league): Collection
+    {
+        return $league->games()
+            ->whereNotNull('knockout_stage')
+            ->orderBy('phase_order')
+            ->orderBy('tie_key')
+            ->orderBy('leg')
+            ->get();
+    }
+
+    public function tieGames(Game $game): Collection
+    {
+        return Game::query()
+            ->where('league_id', $game->league_id)
+            ->where('knockout_stage', $game->knockout_stage)
+            ->where('tie_key', $game->tie_key)
+            ->orderBy('leg')
+            ->get();
+    }
+
+    public function hasStartedKnockoutGames(League $league, array $stages): bool
+    {
+        return $league->games()
+            ->whereIn('knockout_stage', $stages)
+            ->where(fn (Builder $q) => $q->where('status', '!=', 'scheduled')->orWhereHas('events'))
+            ->exists();
+    }
+
+    public function deleteKnockoutGames(League $league, array $stages): int
+    {
+        return $league->games()->whereIn('knockout_stage', $stages)->delete();
+    }
+
+    public function pendingDrawnGamesCount(League $league): int
+    {
+        return $league->games()
+            ->whereNotNull('group_number')
+            ->whereNotIn('status', ['finished', 'cancelled'])
+            ->count();
+    }
+
+    public function cancelledGroupGamesCount(League $league): int
+    {
+        return $league->games()
+            ->whereNotNull('round')
+            ->where('status', 'cancelled')
+            ->count();
+    }
+
+    public function manualPhaseGamesSummary(League $league): array
+    {
+        return [
+            'total' => $this->manualPhaseGames($league)->count(),
+            'with_results' => $this->manualPhaseGames($league)
+                ->where(fn (Builder $q) => $q->where('status', '!=', 'scheduled')->orWhereHas('events'))
+                ->count(),
+        ];
+    }
+
+    public function deleteManualPhaseGames(League $league): int
+    {
+        GameEvent::query()->whereIn('game_id', $this->manualPhaseGames($league)->select('id'))->delete();
+
+        return $this->manualPhaseGames($league)->delete();
+    }
+
+    private function insertRows(array $rows): void
+    {
+        $now = now();
+
+        Game::query()->insert(array_map(
+            fn (array $row) => [...$row, 'created_at' => $now, 'updated_at' => $now],
+            $rows,
+        ));
+    }
+
+    private function manualPhaseGames(League $league): HasMany
+    {
+        return $league->games()->whereNull('knockout_stage')->whereNotNull('phase');
+    }
+
+    public function deleteDrawnGames(League $league, ?int $round = null): int
+    {
+        return $league->games()
+            ->whereNotNull('group_number')
+            ->when($round !== null, fn (Builder $q) => $q->where('round', $round))
+            ->delete();
+    }
+
+    private function manualRoundGames(League $league): HasMany
+    {
+        return $league->games()->whereNull('group_number')->whereNotNull('round');
     }
 
     private function applyFilters(Builder $query, array $filters = []): Builder

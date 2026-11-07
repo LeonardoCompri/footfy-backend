@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\ChampionshipLeaguesRules;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -23,5 +24,15 @@ class ChampionshipUpdateRequest extends FormRequest
                 Rule::exists('leagues', 'id')->where('championship_id', $this->route('id')),
             ],
         ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        $this->adjustChampionshipLeaguesToFormat();
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(fn (Validator $validator) => $this->validateChampionshipLeagues($validator));
     }
 }

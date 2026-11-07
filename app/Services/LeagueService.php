@@ -6,6 +6,7 @@ use App\Models\League;
 use App\Repositories\LeagueRepository;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class LeagueService
@@ -59,9 +60,45 @@ class LeagueService
         $league = $this->show($id);
         $league->fill($data);
 
-        $this->repository->update($league);
+        $this->save($league);
 
         return $league;
+    }
+
+    public function save(League $league): void
+    {
+        DB::transaction(function () use ($league) {
+            $this->ensureConfigurationIsEditable($league);
+
+            $clearGroups = $league->isDirty('groups_count')
+                || ($league->isDirty('format') && $league->format === 'knockout')
+                || ($league->isDirty('fixture_mode') && $league->fixture_mode === 'manual');
+
+            $this->repository->update($league);
+
+            if ($clearGroups) {
+                $this->repository->clearGroups($league);
+            }
+        });
+    }
+
+    public function ensureConfigurationIsEditable(League $league): void
+    {
+        if ($league->isDirty(League::STRUCTURE_FIELDS) && $this->repository->hasDrawnRounds($league)) {
+            throw ValidationException::withMessages([
+                'message' => 'O formato, o modo de tabela, os grupos e os turnos da liga não podem ser alterados porque já existem rodadas sorteadas.',
+            ]);
+        }
+
+        if (
+            $league->getOriginal('fixture_mode') === 'draw'
+            && $league->isDirty([...League::KNOCKOUT_FIELDS, ...League::CRITERIA_FIELDS])
+            && $this->repository->hasKnockoutGames($league)
+        ) {
+            throw ValidationException::withMessages([
+                'message' => 'O mata-mata e os critérios de desempate da liga não podem ser alterados porque o mata-mata já foi gerado.',
+            ]);
+        }
     }
 
     public function destroy(string $id): ?bool
