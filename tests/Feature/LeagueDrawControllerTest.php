@@ -186,6 +186,7 @@ class LeagueDrawControllerTest extends TestCase
                 'undo_blocked_reason' => 'Nenhuma rodada foi sorteada.',
                 'can_reset' => false,
                 'reset_blocked_reason' => 'Nenhuma rodada foi sorteada.',
+                'manual_round_games' => ['total' => 0, 'with_results' => 0],
                 'groups' => [
                     ['group_number' => 1, 'byes' => []],
                     ['group_number' => 2, 'byes' => []],
@@ -212,7 +213,7 @@ class LeagueDrawControllerTest extends TestCase
         $this->assertSame([
             'league_id', 'format', 'fixture_mode', 'groups_count', 'group_legs', 'group_size', 'rounds_per_turn',
             'total_rounds', 'drawn_rounds', 'next_round', 'can_draw', 'draw_blocked_reason', 'can_undo',
-            'undo_blocked_reason', 'can_reset', 'reset_blocked_reason', 'groups',
+            'undo_blocked_reason', 'can_reset', 'reset_blocked_reason', 'manual_round_games', 'groups',
         ], array_keys($response->json('data')));
         $this->assertSame(['group_number', 'byes'], array_keys($response->json('data.groups.0')));
 
@@ -398,7 +399,148 @@ class LeagueDrawControllerTest extends TestCase
             ->assertJsonPath('message', 'Todos os times da liga precisam estar em um grupo antes do sorteio.');
     }
 
-    public function test_draw_is_blocked_by_manual_round_games(): void
+    private function singleGroupLeague(int $teams, int $legs): League
+    {
+        $league = League::factory()->create([
+            ...self::HYBRID_DRAW,
+            ...self::ROUND_ROBIN,
+            'groups_count' => 1,
+            'group_legs' => $legs,
+        ]);
+        $league->teams()->attach(Team::factory()->count($teams)->create()->pluck('id'));
+
+        return $league;
+    }
+
+    public static function singleGroupSizes(): array
+    {
+        return [
+            '4 times, 1 turno' => [4, 1, 3],
+            '4 times, 2 turnos' => [4, 2, 6],
+            '5 times, 1 turno' => [5, 1, 5],
+            '5 times, 2 turnos' => [5, 2, 10],
+        ];
+    }
+
+    #[DataProvider('singleGroupSizes')]
+    public function test_single_group_league_resolves_teams_without_group(int $teams, int $legs, int $totalRounds): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->singleGroupLeague($teams, $legs);
+
+        $this->getJson("/api/leagues/{$league->id}/draw")
+            ->assertOk()
+            ->assertJsonPath('data.can_draw', true)
+            ->assertJsonPath('data.draw_blocked_reason', null)
+            ->assertJsonPath('data.group_size', $teams)
+            ->assertJsonPath('data.rounds_per_turn', $teams + $teams % 2 - 1)
+            ->assertJsonPath('data.total_rounds', $totalRounds)
+            ->assertJsonPath('data.next_round', 1);
+    }
+
+    public function test_single_group_draw_saves_group_one_for_every_team(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->singleGroupLeague(5, 1);
+        $first = $league->teams()->orderBy('teams.id')->first();
+        $league->teams()->updateExistingPivot($first->id, ['group_number' => 1]);
+
+        $this->drawRound($league, 1)->assertOk()->assertJsonPath('data.drawn_rounds', 1);
+
+        $this->assertSame(
+            [1, 1, 1, 1, 1],
+            $league->teams()->orderBy('teams.id')->get()->map(fn ($team) => $team->pivot->group_number)->all(),
+        );
+        $this->assertSame(2, Game::where('league_id', $league->id)->where('group_number', 1)->count());
+    }
+
+    public function test_failed_single_group_draw_keeps_groups_unsaved(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->singleGroupLeague(4, 1);
+        [$home, $away] = $league->teams()->orderBy('teams.id')->pluck('teams.id')->all();
+        Game::factory()->create(['league_id' => $league->id, 'home_team_id' => $home, 'away_team_id' => $away, 'round' => 1]);
+
+        $this->drawRound($league, 1)->assertStatus(422);
+
+        $this->assertSame(4, $league->teams()->wherePivotNull('group_number')->count());
+    }
+
+    public function test_team_of_single_group_league_cannot_leave_after_the_draw(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->singleGroupLeague(4, 1);
+        $team = $league->teams()->first();
+
+        $this->deleteJson("/api/teams/{$team->id}/leagues/{$league->id}")->assertOk();
+        $league->teams()->attach($team->id);
+
+        $this->drawRound($league, 1)->assertOk();
+
+        $this->deleteJson("/api/teams/{$team->id}/leagues/{$league->id}")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Não é possível remover o time da liga pois ele está em um grupo com rodadas sorteadas.');
+    }
+
+    public function test_teams_without_group_still_block_leagues_with_many_groups(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->league([2, 2]);
+        $league->teams()->attach(Team::factory()->count(2)->create()->pluck('id'));
+
+        $this->getJson("/api/leagues/{$league->id}/draw")
+            ->assertOk()
+            ->assertJsonPath('data.can_draw', false)
+            ->assertJsonPath('data.draw_blocked_reason', 'Todos os times da liga precisam estar em um grupo antes do sorteio.')
+            ->assertJsonPath('data.group_size', null)
+            ->assertJsonPath('data.total_rounds', null);
+    }
+
+    private function manualGames(League $league): array
+    {
+        [$first, $second, $third, $fourth] = $this->groupTeamIds($league, 1);
+        $game = fn (array $attributes) => Game::factory()->create(['league_id' => $league->id, ...$attributes]);
+
+        $scheduled = $game(['home_team_id' => $first, 'away_team_id' => $second, 'round' => 1]);
+        $finished = $game(['home_team_id' => $third, 'away_team_id' => $fourth, 'round' => 1, 'status' => 'finished', 'home_score' => 2, 'away_score' => 1]);
+        $withEvent = $game(['home_team_id' => $first, 'away_team_id' => $third, 'round' => 2]);
+        $player = Player::factory()->create(['team_id' => $first]);
+        $event = GameEvent::factory()->create(['game_id' => $withEvent->id, 'league_id' => $league->id, 'team_id' => $first, 'player_id' => $player->id]);
+        $knockout = $game(['home_team_id' => $second, 'away_team_id' => $fourth, 'round' => null, 'phase' => 'Final']);
+
+        return compact('scheduled', 'finished', 'withEvent', 'event', 'knockout');
+    }
+
+    public function test_state_reports_manual_round_games(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->league([4], self::ROUND_ROBIN);
+        $this->manualGames($league);
+
+        $this->getJson("/api/leagues/{$league->id}/draw")
+            ->assertOk()
+            ->assertJsonPath('data.manual_round_games', ['total' => 3, 'with_results' => 2])
+            ->assertJsonPath('data.can_draw', true)
+            ->assertJsonPath('data.draw_blocked_reason', null);
+    }
+
+    public function test_draw_without_confirmation_is_blocked_by_manual_round_games(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->league([4], self::ROUND_ROBIN);
+        $this->manualGames($league);
+        $message = 'A liga já tem 3 partidas de rodada cadastradas manualmente; confirme a substituição para sortear.';
+
+        $this->drawRound($league, 1)->assertStatus(422)->assertJsonPath('message', $message);
+        $this->postJson("/api/leagues/{$league->id}/draw/next-round", ['round' => 1, 'replace_manual_rounds' => false])
+            ->assertStatus(422)
+            ->assertJsonPath('message', $message);
+
+        $this->assertSame(4, Game::where('league_id', $league->id)->count());
+        $this->assertSame(0, Game::where('league_id', $league->id)->whereNotNull('group_number')->count());
+    }
+
+    public function test_draw_message_uses_singular_for_one_manual_game(): void
     {
         $this->authenticateAs('master');
         $league = $this->league([4]);
@@ -407,7 +549,112 @@ class LeagueDrawControllerTest extends TestCase
 
         $this->drawRound($league, 1)
             ->assertStatus(422)
-            ->assertJsonPath('message', 'A liga já tem partidas de rodada cadastradas manualmente; remova-as antes de sortear.');
+            ->assertJsonPath('message', 'A liga já tem 1 partida de rodada cadastrada manualmente; confirme a substituição para sortear.');
+    }
+
+    public function test_confirmed_draw_replaces_manual_round_games(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->league([4], self::ROUND_ROBIN);
+        $games = $this->manualGames($league);
+        $other = Game::factory()->create(['round' => 1]);
+
+        $this->postJson("/api/leagues/{$league->id}/draw/next-round", ['round' => 1, 'replace_manual_rounds' => true])
+            ->assertOk()
+            ->assertJsonPath('data.drawn_rounds', 1)
+            ->assertJsonPath('data.next_round', 2)
+            ->assertJsonPath('data.manual_round_games', ['total' => 0, 'with_results' => 0]);
+
+        foreach (['scheduled', 'finished', 'withEvent'] as $key) {
+            $this->assertDatabaseMissing('games', ['id' => $games[$key]->id]);
+        }
+        $this->assertDatabaseMissing('game_events', ['id' => $games['event']->id]);
+        $this->assertSame(0, GameEvent::where('league_id', $league->id)->count());
+        $this->assertDatabaseHas('games', ['id' => $games['knockout']->id, 'phase' => 'Final', 'round' => null]);
+        $this->assertDatabaseHas('games', ['id' => $other->id]);
+        $drawn = Game::where('league_id', $league->id)->whereNotNull('group_number')->get();
+        $this->assertSame([1], $drawn->pluck('round')->unique()->values()->all());
+        $this->assertSame($this->groupTeamIds($league, 1), $drawn->flatMap(fn (Game $game) => [$game->home_team_id, $game->away_team_id])->map(fn ($id) => (int) $id)->sort()->values()->all());
+        $this->assertSame(0, Game::where('league_id', $league->id)->whereNull('group_number')->whereNotNull('round')->count());
+
+        $standings = collect($this->getJson("/api/leagues/{$league->id}/table")->assertOk()->json('data.standings'));
+        $this->assertSame([0], $standings->pluck('played')->unique()->values()->all());
+        $this->assertSame(0, $this->getJson("/api/leagues/{$league->id}/statistics")->json('data.totals.goals'));
+    }
+
+    public function test_replacement_flag_is_ignored_after_the_first_round(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->league([4]);
+        $this->drawRound($league, 1)->assertOk();
+
+        $this->postJson("/api/leagues/{$league->id}/draw/next-round", ['round' => 2, 'replace_manual_rounds' => true])
+            ->assertOk()
+            ->assertJsonPath('data.drawn_rounds', 2);
+
+        [$home, $away] = $this->groupTeamIds($league, 1);
+        $manual = Game::factory()->create(['league_id' => $league->id, 'home_team_id' => $home, 'away_team_id' => $away, 'round' => 3]);
+        $message = 'A liga já tem 1 partida de rodada cadastrada manualmente; remova-a para continuar o sorteio.';
+
+        $this->getJson("/api/leagues/{$league->id}/draw")
+            ->assertJsonPath('data.can_draw', false)
+            ->assertJsonPath('data.draw_blocked_reason', $message)
+            ->assertJsonPath('data.manual_round_games', ['total' => 1, 'with_results' => 0]);
+        $this->postJson("/api/leagues/{$league->id}/draw/next-round", ['round' => 3, 'replace_manual_rounds' => true])
+            ->assertStatus(422)
+            ->assertJsonPath('message', $message);
+
+        $this->assertDatabaseHas('games', ['id' => $manual->id]);
+        $this->assertSame(4, Game::where('league_id', $league->id)->whereNotNull('group_number')->count());
+    }
+
+    public function test_failed_confirmed_draw_keeps_manual_round_games(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->league([4], self::ROUND_ROBIN);
+        $this->manualGames($league);
+
+        $this->postJson("/api/leagues/{$league->id}/draw/next-round", ['round' => 2, 'replace_manual_rounds' => true])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'A próxima rodada a ser sorteada é a 1.');
+
+        $league->forceFill(['fixture_mode' => 'manual'])->save();
+        $this->postJson("/api/leagues/{$league->id}/draw/next-round", ['round' => 1, 'replace_manual_rounds' => true])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'O sorteio de rodadas só está disponível em ligas com sorteio.');
+
+        $this->assertSame(4, Game::where('league_id', $league->id)->count());
+        $this->assertSame(1, GameEvent::where('league_id', $league->id)->count());
+    }
+
+    public function test_replacement_flag_must_be_boolean(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->league([4]);
+
+        $this->postJson("/api/leagues/{$league->id}/draw/next-round", ['round' => 1, 'replace_manual_rounds' => 'talvez'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['replace_manual_rounds']);
+    }
+
+    public function test_replacement_follows_draw_authorization(): void
+    {
+        $own = $this->league([4], self::ROUND_ROBIN);
+        $other = $this->league([4], self::ROUND_ROBIN);
+        $this->manualGames($own);
+        $this->manualGames($other);
+        $payload = ['round' => 1, 'replace_manual_rounds' => true];
+
+        $this->authenticateAs('admin', [$own->id]);
+        $this->getJson("/api/leagues/{$other->id}/draw")->assertStatus(403);
+        $this->postJson("/api/leagues/{$other->id}/draw/next-round", $payload)->assertStatus(403);
+        $this->postJson("/api/leagues/{$own->id}/draw/next-round", $payload)->assertOk()->assertJsonPath('data.drawn_rounds', 1);
+        $this->assertSame(0, Game::where('league_id', $own->id)->whereNull('group_number')->whereNotNull('round')->count());
+
+        $this->authenticateAs('coach', [$other->id]);
+        $this->getJson("/api/leagues/{$other->id}/draw")->assertOk()->assertJsonPath('data.manual_round_games.total', 3);
+        $this->postJson("/api/leagues/{$other->id}/draw/next-round", $payload)->assertStatus(403);
+        $this->assertSame(4, Game::where('league_id', $other->id)->count());
     }
 
     public function test_undo_last_round_returns_pairs_to_the_plan(): void

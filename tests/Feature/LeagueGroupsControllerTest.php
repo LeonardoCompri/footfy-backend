@@ -97,6 +97,24 @@ class LeagueGroupsControllerTest extends TestCase
             ->assertJsonStructure(['data' => ['unassigned' => [['id', 'name', 'nickname', 'logo']]]]);
     }
 
+    public function test_show_groups_of_single_group_league_has_no_unassigned_teams(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->league(4, ['groups_count' => 1, 'qualifiers_per_group' => null, 'knockout_size' => null]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/groups")
+            ->assertOk()
+            ->assertJsonPath('data.unassigned', [])
+            ->assertJsonCount(1, 'data.groups')
+            ->assertJsonPath('data.groups.0.group_number', 1)
+            ->assertJsonCount(4, 'data.groups.0.teams');
+
+        $this->assertEqualsCanonicalizing(
+            $league->teams()->pluck('teams.id')->all(),
+            array_column($response->json('data.groups.0.teams'), 'id'),
+        );
+    }
+
     public function test_show_groups_reports_locked_after_draw(): void
     {
         $this->authenticateAs('master');

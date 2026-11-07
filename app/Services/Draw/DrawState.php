@@ -28,9 +28,9 @@ final class DrawState
         $unassigned = false;
 
         foreach ($teams as $team) {
-            $groupNumber = $team->pivot->group_number === null ? null : (int) $team->pivot->group_number;
+            $groupNumber = $league->resolvedGroupNumber($team->pivot->group_number);
 
-            if ($groupNumber === null || ! array_key_exists($groupNumber, $groups)) {
+            if ($groupNumber === null) {
                 $unassigned = true;
 
                 continue;

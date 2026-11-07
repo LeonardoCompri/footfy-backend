@@ -9,6 +9,8 @@ class Game extends Model
 {
     use HasFactory;
 
+    public ?bool $penaltiesAllowed = null;
+
     protected $fillable = [
         'league_id',
         'home_team_id',
@@ -17,6 +19,8 @@ class Game extends Model
         'match_date',
         'home_score',
         'away_score',
+        'home_penalties',
+        'away_penalties',
         'round',
         'group_number',
         'phase',
@@ -25,6 +29,11 @@ class Game extends Model
         'leg',
         'status',
     ];
+
+    public function isGeneratedKnockout(): bool
+    {
+        return $this->knockout_stage !== null;
+    }
 
     public function league()
     {

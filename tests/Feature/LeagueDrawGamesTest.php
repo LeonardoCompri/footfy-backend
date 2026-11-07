@@ -281,20 +281,24 @@ class LeagueDrawGamesTest extends TestCase
         $this->assertNotNull($games['r1a']->fresh());
     }
 
-    public function test_manual_game_without_round_can_be_created_and_deleted_in_draw_league(): void
+    public function test_draw_league_rejects_manual_phase_games_but_legacy_ones_can_be_deleted(): void
     {
         $league = $this->league([4, 4]);
         $teams = $this->teams($league);
 
-        $response = $this->postJson('/api/games', [
+        $this->postJson('/api/games', [
             'league_id' => $league->id,
             'home_team_id' => $teams[1],
             'away_team_id' => $teams[2],
             'phase' => 'Final',
             'status' => 'scheduled',
-        ])->assertCreated()->assertJsonPath('data.group_number', null);
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.phase.0', 'Em ligas com sorteio, as partidas de mata-mata são geradas pela classificação.');
 
-        $this->deleteJson('/api/games/'.$response->json('data.id'))->assertNoContent();
+        $legacy = Game::factory()->create(['league_id' => $league->id, 'home_team_id' => $teams[1], 'away_team_id' => $teams[2], 'round' => null, 'phase' => 'Final']);
+
+        $this->deleteJson("/api/games/{$legacy->id}")->assertNoContent();
     }
 
     public function test_draw_league_rejects_manual_round_games(): void
@@ -338,6 +342,128 @@ class LeagueDrawGamesTest extends TestCase
         $this->putJson("/api/games/{$game->id}", ['status' => 'finished', 'group_number' => null])->assertOk();
     }
 
+    private function manualRoundGame(League $league, array $teams, ?int $round = 4, ?string $phase = null): Game
+    {
+        return Game::factory()->create([
+            'league_id' => $league->id,
+            'home_team_id' => $teams[1],
+            'away_team_id' => $teams[2],
+            'round' => $round,
+            'phase' => $phase,
+            'match_date' => '2026-11-01 15:00:00',
+            'status' => 'scheduled',
+        ]);
+    }
+
+    private function fullPayload(Game $game, array $changes = []): array
+    {
+        return [
+            'league_id' => $game->league_id,
+            'home_team_id' => $game->home_team_id,
+            'away_team_id' => $game->away_team_id,
+            'stadium_id' => $game->stadium_id,
+            'match_date' => '2026-11-01 15:00:00',
+            'round' => $game->round,
+            'group_number' => null,
+            'phase' => $game->phase,
+            'phase_order' => $game->phase_order,
+            'tie_key' => $game->tie_key,
+            'leg' => $game->leg,
+            'status' => $game->status,
+            ...$changes,
+        ];
+    }
+
+    public function test_manual_round_game_can_be_edited_before_the_draw(): void
+    {
+        $league = $this->league([4]);
+        $teams = $this->teams($league);
+        $game = $this->manualRoundGame($league, $teams);
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+
+        $this->putJson("/api/games/{$game->id}", $this->fullPayload($game, [
+            'match_date' => '2026-11-08 16:00:00',
+            'stadium_id' => $stadium->id,
+            'status' => 'finished',
+        ]))
+            ->assertOk()
+            ->assertJsonPath('data.round', 4)
+            ->assertJsonPath('data.status', 'finished')
+            ->assertJsonPath('data.stadium_id', $stadium->id);
+
+        $this->putJson("/api/games/{$game->id}", $this->fullPayload($game->fresh(), [
+            'home_team_id' => $teams[3],
+            'away_team_id' => $teams[4],
+        ]))->assertOk()->assertJsonPath('data.home_team_id', $teams[3]);
+
+        $this->putJson("/api/games/{$game->id}", ['round' => 4, 'league_id' => $league->id, 'status' => 'scheduled'])->assertOk();
+    }
+
+    public function test_manual_round_game_can_change_round_before_the_draw(): void
+    {
+        $league = $this->league([4]);
+        $game = $this->manualRoundGame($league, $this->teams($league));
+
+        $this->putJson("/api/games/{$game->id}", $this->fullPayload($game, ['round' => 5]))
+            ->assertOk()
+            ->assertJsonPath('data.round', 5);
+    }
+
+    public function test_manual_round_game_cannot_become_a_phase_game_in_draw_league(): void
+    {
+        $league = $this->league([2, 2]);
+        $game = $this->manualRoundGame($league, $this->teams($league));
+
+        $this->putJson("/api/games/{$game->id}", $this->fullPayload($game, ['round' => null, 'phase' => 'Final', 'phase_order' => 1]))
+            ->assertStatus(422)
+            ->assertJsonPath('errors.phase.0', 'Em ligas com sorteio, as partidas de mata-mata são geradas pela classificação.');
+    }
+
+    public function test_game_without_round_cannot_gain_round_in_draw_league(): void
+    {
+        $hybrid = $this->league([2, 2]);
+        $phaseGame = $this->manualRoundGame($hybrid, $this->teams($hybrid), null, 'Final');
+
+        $this->putJson("/api/games/{$phaseGame->id}", $this->fullPayload($phaseGame, ['round' => 3, 'phase' => null]))
+            ->assertStatus(422)
+            ->assertJsonPath('errors.round.0', 'Em ligas com sorteio, as partidas de rodada são criadas pelo sorteio.');
+
+        $roundRobin = $this->league([4]);
+        $withoutRound = $this->manualRoundGame($roundRobin, $this->teams($roundRobin), null);
+
+        $this->putJson("/api/games/{$withoutRound->id}", $this->fullPayload($withoutRound, ['round' => 3]))
+            ->assertStatus(422)
+            ->assertJsonPath('errors.round.0', 'Em ligas com sorteio, as partidas de rodada são criadas pelo sorteio.');
+    }
+
+    public function test_round_game_cannot_move_into_a_draw_league(): void
+    {
+        $league = $this->league([4]);
+        $teams = $this->teams($league);
+        $manual = League::factory()->create();
+        $manual->teams()->attach([$teams[1], $teams[2]]);
+        $game = $this->manualRoundGame($manual, $teams);
+
+        $this->putJson("/api/games/{$game->id}", $this->fullPayload($game, ['league_id' => $league->id]))
+            ->assertStatus(422)
+            ->assertJsonPath('errors.round.0', 'Em ligas com sorteio, as partidas de rodada são criadas pelo sorteio.');
+
+        $this->assertSame($manual->id, $game->fresh()->league_id);
+    }
+
+    public function test_edited_manual_round_game_is_replaced_by_the_first_draw(): void
+    {
+        $league = $this->league([4]);
+        $game = $this->manualRoundGame($league, $this->teams($league));
+
+        $this->putJson("/api/games/{$game->id}", $this->fullPayload($game, ['round' => 5, 'match_date' => '2026-11-15 10:00:00']))->assertOk();
+
+        $this->postJson("/api/leagues/{$league->id}/draw/next-round", ['round' => 1, 'replace_manual_rounds' => true])->assertOk();
+
+        $this->assertModelMissing($game);
+        $this->assertSame(0, Game::where('league_id', $league->id)->whereNull('group_number')->count());
+    }
+
     public function test_manual_leagues_keep_accepting_round_games(): void
     {
         $league = League::factory()->create();
@@ -375,7 +501,7 @@ class LeagueDrawGamesTest extends TestCase
 
     public function test_team_can_join_a_draw_league_before_the_draw(): void
     {
-        $league = $this->league([4]);
+        $league = $this->league([2, 2]);
         $team = Team::factory()->create();
 
         $this->postJson("/api/teams/{$team->id}/leagues", ['league_ids' => [$league->id]])->assertOk();
@@ -383,6 +509,17 @@ class LeagueDrawGamesTest extends TestCase
         $this->drawRound($league, 1)
             ->assertStatus(422)
             ->assertJsonPath('message', 'Todos os times da liga precisam estar em um grupo antes do sorteio.');
+    }
+
+    public function test_team_that_joins_a_single_group_league_enters_the_draw(): void
+    {
+        $league = $this->league([4]);
+        $team = Team::factory()->create();
+
+        $this->postJson("/api/teams/{$team->id}/leagues", ['league_ids' => [$league->id]])->assertOk();
+
+        $this->drawRound($league, 1)->assertOk()->assertJsonPath('data.group_size', 5);
+        $this->assertDatabaseHas('league_team', ['league_id' => $league->id, 'team_id' => $team->id, 'group_number' => 1]);
     }
 
     public function test_round_numbers_are_global_across_groups(): void

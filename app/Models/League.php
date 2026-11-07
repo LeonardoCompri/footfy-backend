@@ -114,6 +114,23 @@ class League extends Model
         return $this->tiebreakers ?? self::DEFAULT_TIEBREAKERS;
     }
 
+    public function resolvedGroupNumber(mixed $pivot): ?int
+    {
+        $groupsCount = max(1, (int) $this->groups_count);
+
+        if ($groupsCount === 1) {
+            return 1;
+        }
+
+        if ($pivot === null || ! is_numeric($pivot)) {
+            return null;
+        }
+
+        $groupNumber = (int) $pivot;
+
+        return $groupNumber >= 1 && $groupNumber <= $groupsCount ? $groupNumber : null;
+    }
+
     public function usesDraw(): bool
     {
         return $this->fixture_mode === 'draw';

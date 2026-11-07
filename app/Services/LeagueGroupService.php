@@ -167,10 +167,10 @@ class LeagueGroupService
         $unassigned = [];
 
         foreach ($teams as $team) {
-            $groupNumber = $team->pivot->group_number;
+            $groupNumber = $league->resolvedGroupNumber($team->pivot->group_number);
 
-            if ($groupNumber !== null && isset($groups[(int) $groupNumber])) {
-                $groups[(int) $groupNumber]['teams'][] = $this->teamSummary($team);
+            if ($groupNumber !== null && isset($groups[$groupNumber])) {
+                $groups[$groupNumber]['teams'][] = $this->teamSummary($team);
             } else {
                 $unassigned[] = $this->teamSummary($team);
             }

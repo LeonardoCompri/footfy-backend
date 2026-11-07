@@ -378,7 +378,7 @@ class LeagueDrawConfigurationTest extends TestCase
         $this->putJson("/api/leagues/{$empty->id}", self::HYBRID_DRAW)->assertOk();
 
         $manual = $this->leagueWithTeams(9);
-        $this->putJson("/api/leagues/{$manual->id}", [...self::HYBRID_DRAW, 'fixture_mode' => 'manual'])->assertOk();
+        $this->putJson("/api/leagues/{$manual->id}", [...self::HYBRID_DRAW, 'fixture_mode' => 'manual', 'groups_count' => 1, 'qualifiers_per_group' => 16, 'knockout_size' => 16])->assertOk();
     }
 
     public function test_team_count_is_only_checked_when_group_fields_change(): void
@@ -431,6 +431,12 @@ class LeagueDrawConfigurationTest extends TestCase
     {
         $league = League::factory()->create(self::HYBRID_DRAW);
         Game::factory()->create(['league_id' => $league->id, 'round' => null, 'phase' => 'Semifinal', 'tie_key' => 'SF1', 'leg' => 1]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['knockout_legs' => 1])->assertOk();
+        $league->refresh()->update(['knockout_legs' => 2]);
+
+        $generated = Game::factory()->create(['league_id' => $league->id, 'round' => null, 'phase' => 'Semifinal', 'tie_key' => 'SF-1', 'leg' => 1]);
+        $generated->forceFill(['knockout_stage' => 'SF'])->save();
 
         foreach ([['knockout_legs' => 1], ['final_legs' => 2], ['third_place' => false], ['tiebreakers' => ['points', 'wins']], ['knockout_tiebreakers' => ['better_campaign']]] as $payload) {
             $this->putJson("/api/leagues/{$league->id}", $payload)

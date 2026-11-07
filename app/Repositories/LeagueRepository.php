@@ -50,7 +50,7 @@ class LeagueRepository
 
     public function hasKnockoutGames(League $league): bool
     {
-        return $league->games()->whereNotNull('phase')->exists();
+        return $league->games()->whereNotNull('knockout_stage')->exists();
     }
 
     public function withDrawnRoundsAmong(array $leagueIds, ?Team $exceptMember = null): Collection
@@ -81,6 +81,13 @@ class LeagueRepository
         foreach ($groupByTeam as $teamId => $groupNumber) {
             $league->teams()->updateExistingPivot($teamId, ['group_number' => $groupNumber]);
         }
+    }
+
+    public function assignAllToSingleGroup(League $league): int
+    {
+        return $league->teams()->newPivotQuery()
+            ->where(fn ($q) => $q->whereNull('group_number')->orWhere('group_number', '!=', 1))
+            ->update(['group_number' => 1]);
     }
 
     public function clearGroups(League $league): int

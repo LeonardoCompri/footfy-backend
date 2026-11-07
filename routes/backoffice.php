@@ -50,6 +50,10 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::post('/{id}/draw/next-round', [LeagueController::class, 'drawNextRound'])->name('draw.next-round')->middleware(['permission:tournament:update', 'access:league']);
         Route::delete('/{id}/draw/last-round', [LeagueController::class, 'undoLastRound'])->name('draw.last-round')->middleware(['permission:tournament:update', 'access:league']);
         Route::delete('/{id}/draw', [LeagueController::class, 'resetDraw'])->name('draw.reset')->middleware(['permission:tournament:update', 'access:league']);
+        Route::get('/{id}/knockout', [LeagueController::class, 'knockout'])->name('knockout')->middleware('access:league');
+        Route::get('/{id}/knockout/preview', [LeagueController::class, 'knockoutPreview'])->name('knockout.preview')->middleware('access:league');
+        Route::post('/{id}/knockout/next-stage', [LeagueController::class, 'knockoutNextStage'])->name('knockout.next-stage')->middleware(['permission:tournament:update', 'access:league']);
+        Route::delete('/{id}/knockout/last-stage', [LeagueController::class, 'undoKnockoutStage'])->name('knockout.last-stage')->middleware(['permission:tournament:update', 'access:league']);
         Route::post('/', [LeagueController::class, 'store'])->name('store')->middleware('role:master');
         Route::put('/{id}', [LeagueController::class, 'update'])->name('update')->middleware(['permission:tournament:update', 'access:league']);
         Route::delete('/{id}', [LeagueController::class, 'destroy'])->name('destroy')->middleware(['role:master', 'throttle:5,1']);

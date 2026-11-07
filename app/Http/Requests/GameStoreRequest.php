@@ -76,6 +76,7 @@ class GameStoreRequest extends FormRequest
         }
 
         $this->rejectManualRoundInDrawLeague($validator, $league, $round);
+        $this->rejectManualPhaseInDrawLeague($validator, $league, $phase);
 
         if ($league->format === 'knockout') {
             if ($round !== null) {

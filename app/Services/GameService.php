@@ -24,6 +24,7 @@ class GameService
     public function __construct(
         private readonly GameRepository $repository,
         private readonly LeagueDrawService $drawService,
+        private readonly LeagueKnockoutService $knockoutService,
     ) {}
 
     public function index(string $leagueId, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
@@ -50,7 +51,7 @@ class GameService
 
     public function show(string $id): Game
     {
-        return $this->find($id, $this->showRelations(backoffice: true));
+        return $this->withPenaltiesAllowed($this->find($id, $this->showRelations(backoffice: true)));
     }
 
     public function publicShow(string $id): Game
@@ -85,9 +86,11 @@ class GameService
             if ($leagueChanged) {
                 $this->repository->syncEventsLeague($game);
             }
+
+            $this->knockoutService->clearStalePenalties($game);
         });
 
-        return $game->load($this->showRelations(backoffice: true));
+        return $this->withPenaltiesAllowed($game->load($this->showRelations(backoffice: true)));
     }
 
     public function refreshScore(int $gameId): void
@@ -100,6 +103,14 @@ class GameService
 
         $game->fill($this->scoreFromEvents($game));
         $this->repository->update($game);
+        $this->knockoutService->clearStalePenalties($game);
+    }
+
+    private function withPenaltiesAllowed(Game $game): Game
+    {
+        $game->penaltiesAllowed = $this->knockoutService->penaltiesAllowed($game);
+
+        return $game;
     }
 
     private function scoreFromEvents(Game $game): array
@@ -153,6 +164,12 @@ class GameService
         if ($game->group_number !== null) {
             throw ValidationException::withMessages([
                 'message' => 'Partidas de rodada sorteada não podem ser excluídas; desfaça a rodada no sorteio.',
+            ]);
+        }
+
+        if ($game->isGeneratedKnockout()) {
+            throw ValidationException::withMessages([
+                'message' => 'Partidas geradas pelo mata-mata não podem ser excluídas; desfaça a fase no mata-mata.',
             ]);
         }
 

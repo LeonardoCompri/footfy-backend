@@ -36,13 +36,29 @@ class LeagueDrawService
         return $this->format($this->state($league));
     }
 
-    public function drawNextRound(string $id, int $round): array
+    public function allRoundsDrawn(League $league): bool
     {
-        return DB::transaction(function () use ($id, $round) {
+        $state = $this->state($league);
+
+        return $state->totalRounds() !== null && $state->drawnRounds() > 0 && $state->nextRound() === null;
+    }
+
+    public function drawNextRound(string $id, int $round, bool $replaceManualRounds = false): array
+    {
+        return DB::transaction(function () use ($id, $round, $replaceManualRounds) {
             $state = $this->state($this->lockLeague($id));
 
             $this->failWhen($this->structureIssue($state));
             $this->ensureIsNextRound($state, $round);
+            $this->persistSingleGroup($state);
+
+            $replacing = $replaceManualRounds && $this->canReplaceManualRounds($state);
+            $manualGames = $this->gameRepository->manualRoundGamesSummary($state->league);
+            $this->failWhen($this->manualRoundsIssue($state, $manualGames['total'], $replacing));
+
+            if ($replacing && $manualGames['total'] > 0) {
+                $this->gameRepository->deleteManualRoundGames($state->league);
+            }
 
             $plans = $this->planRepository->forTurn($state->league, self::FIRST_TURN);
             $rows = [];
@@ -152,6 +168,21 @@ class LeagueDrawService
 
         if ($roundsLeft > 0) {
             $this->planRepository->save($state->league, $groupNumber, self::FIRST_TURN, $completion);
+        }
+    }
+
+    private function persistSingleGroup(DrawState $state): void
+    {
+        if ((int) $state->league->groups_count !== 1) {
+            return;
+        }
+
+        $needsUpdate = $state->teams->contains(
+            fn (Team $team) => $team->pivot->group_number === null || (int) $team->pivot->group_number !== 1,
+        );
+
+        if ($needsUpdate) {
+            $this->leagueRepository->assignAllToSingleGroup($state->league);
         }
     }
 
@@ -272,14 +303,37 @@ class LeagueDrawService
             $state->hasUnassignedTeams => 'Todos os times da liga precisam estar em um grupo antes do sorteio.',
             ! $state->hasEqualGroups => 'Todos os grupos precisam ter o mesmo número de times antes do sorteio.',
             $state->groupSize < 2 => 'Cada grupo precisa ter pelo menos 2 times.',
-            $this->gameRepository->hasManualRoundGames($league) => 'A liga já tem partidas de rodada cadastradas manualmente; remova-as antes de sortear.',
             default => null,
         };
     }
 
-    private function drawIssue(DrawState $state): ?string
+    private function canReplaceManualRounds(DrawState $state): bool
     {
-        return $this->structureIssue($state) ?? ($state->nextRound() === null ? self::ALL_DRAWN : null);
+        return $state->drawnRounds() === 0;
+    }
+
+    private function manualRoundsIssue(DrawState $state, int $total, bool $replacing): ?string
+    {
+        if ($total === 0 || $replacing) {
+            return null;
+        }
+
+        $games = $total === 1
+            ? '1 partida de rodada cadastrada manualmente'
+            : sprintf('%d partidas de rodada cadastradas manualmente', $total);
+
+        if ($this->canReplaceManualRounds($state)) {
+            return sprintf('A liga já tem %s; confirme a substituição para sortear.', $games);
+        }
+
+        return sprintf('A liga já tem %s; %s para continuar o sorteio.', $games, $total === 1 ? 'remova-a' : 'remova-as');
+    }
+
+    private function drawIssue(DrawState $state, int $manualTotal): ?string
+    {
+        return $this->structureIssue($state)
+            ?? $this->manualRoundsIssue($state, $manualTotal, $this->canReplaceManualRounds($state))
+            ?? ($state->nextRound() === null ? self::ALL_DRAWN : null);
     }
 
     private function undoIssue(DrawState $state): ?string
@@ -288,6 +342,10 @@ class LeagueDrawService
 
         if ($lastRound === 0) {
             return self::NOTHING_DRAWN;
+        }
+
+        if ($this->leagueRepository->hasKnockoutGames($state->league)) {
+            return sprintf('A rodada %d não pode ser desfeita porque o mata-mata já foi gerado; desfaça as fases do mata-mata antes.', $lastRound);
         }
 
         if ($this->gameRepository->hasStartedDrawnGames($state->league, $lastRound)) {
@@ -303,6 +361,10 @@ class LeagueDrawService
             return self::NOTHING_DRAWN;
         }
 
+        if ($this->leagueRepository->hasKnockoutGames($state->league)) {
+            return 'O sorteio não pode ser reiniciado porque o mata-mata já foi gerado; desfaça as fases do mata-mata antes.';
+        }
+
         if ($this->gameRepository->hasStartedDrawnGames($state->league)) {
             return 'O sorteio não pode ser reiniciado porque há partidas de grupo que já começaram ou têm eventos.';
         }
@@ -313,7 +375,8 @@ class LeagueDrawService
     private function format(DrawState $state): array
     {
         $league = $state->league;
-        $drawIssue = $this->drawIssue($state);
+        $manualGames = $this->gameRepository->manualRoundGamesSummary($league);
+        $drawIssue = $this->drawIssue($state, $manualGames['total']);
         $undoIssue = $this->undoIssue($state);
         $resetIssue = $this->resetIssue($state);
 
@@ -334,6 +397,7 @@ class LeagueDrawService
             'undo_blocked_reason' => $undoIssue,
             'can_reset' => $resetIssue === null,
             'reset_blocked_reason' => $resetIssue,
+            'manual_round_games' => $manualGames,
             'groups' => array_map(fn (int $groupNumber) => [
                 'group_number' => $groupNumber,
                 'byes' => $this->byes($state, $groupNumber),

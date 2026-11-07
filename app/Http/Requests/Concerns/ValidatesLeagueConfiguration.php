@@ -63,19 +63,30 @@ trait ValidatesLeagueConfiguration
 
     protected function adjustConfigurationToFormat(array $input, ?League $league): array
     {
-        $format = $input['format'] ?? null;
-
-        if (
-            ! $league
-            || ! is_string($format)
-            || $format === $league->format
-            || ! array_key_exists($format, self::FORMAT_ADJUSTMENTS)
-            || $league->games()->whereNotNull('group_number')->exists()
-        ) {
+        if (! $league) {
             return $input;
         }
 
-        return $input + self::FORMAT_ADJUSTMENTS[$format];
+        $format = $input['format'] ?? null;
+        $adjustments = [];
+
+        if (is_string($format) && $format !== $league->format && array_key_exists($format, self::FORMAT_ADJUSTMENTS)) {
+            $adjustments = self::FORMAT_ADJUSTMENTS[$format];
+        }
+
+        if (($input['fixture_mode'] ?? null) === 'manual' && $league->fixture_mode !== 'manual') {
+            $knockoutSize = array_key_exists('knockout_size', $input) ? $input['knockout_size'] : $league->knockout_size;
+            $adjustments += [
+                'groups_count' => 1,
+                'qualifiers_per_group' => is_numeric($knockoutSize) ? (int) $knockoutSize : null,
+            ];
+        }
+
+        if (empty($adjustments) || $this->leagueHasDrawnRounds($league)) {
+            return $input;
+        }
+
+        return $input + $adjustments;
     }
 
     protected function validateLeagueConfiguration(Validator $validator, array $input, ?League $league, string $prefix = ''): void
@@ -96,6 +107,10 @@ trait ValidatesLeagueConfiguration
             default => null,
         };
 
+        if ($config['fixture_mode'] === 'manual' && $config['groups_count'] !== 1 && ! $this->leagueHasDrawnRounds($league)) {
+            $errors['groups_count'] ??= 'Ligas com tabela manual têm um único grupo.';
+        }
+
         $this->validateTiebreakers($config, $errors);
         $this->validateKnockoutTiebreakers($config, $errors);
 
@@ -109,6 +124,11 @@ trait ValidatesLeagueConfiguration
                 'attribute' => $validator->getDisplayableAttribute($key),
             ]));
         }
+    }
+
+    private function leagueHasDrawnRounds(?League $league): bool
+    {
+        return $league !== null && $league->games()->whereNotNull('group_number')->exists();
     }
 
     private function effectiveLeagueConfiguration(array $input, ?League $league): array

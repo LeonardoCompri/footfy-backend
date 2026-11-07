@@ -71,7 +71,8 @@ class LeagueService
             $this->ensureConfigurationIsEditable($league);
 
             $clearGroups = $league->isDirty('groups_count')
-                || ($league->isDirty('format') && $league->format === 'knockout');
+                || ($league->isDirty('format') && $league->format === 'knockout')
+                || ($league->isDirty('fixture_mode') && $league->fixture_mode === 'manual');
 
             $this->repository->update($league);
 
