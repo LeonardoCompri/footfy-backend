@@ -32,6 +32,16 @@ class GameEventTypeRepository
         return $type->events()->exists();
     }
 
+    public function hasScoringType(array $slugs): bool
+    {
+        $slugs = array_values(array_filter($slugs, fn ($slug) => $slug !== null));
+
+        return $slugs !== [] && GameEventType::query()
+            ->whereIn('slug', $slugs)
+            ->whereNotNull('counts_for')
+            ->exists();
+    }
+
     public function maxSortOrder(): int
     {
         return (int) GameEventType::query()->max('sort_order');

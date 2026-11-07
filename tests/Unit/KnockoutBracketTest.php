@@ -122,4 +122,14 @@ class KnockoutBracketTest extends TestCase
 
         $this->assertSame(['R16' => 1, 'QF' => 2, 'SF' => 3, '3P' => 4, 'F' => 5], $orders);
     }
+
+    public function test_later_stages_put_third_place_with_the_final(): void
+    {
+        $this->assertSame(['QF', 'SF', 'F', '3P'], KnockoutBracket::laterStages('R16'));
+        $this->assertSame(['SF', 'F', '3P'], KnockoutBracket::laterStages('QF'));
+        $this->assertSame(['F', '3P'], KnockoutBracket::laterStages('SF'));
+        $this->assertSame([], KnockoutBracket::laterStages('F'));
+        $this->assertSame([], KnockoutBracket::laterStages('3P'));
+        $this->assertSame([], KnockoutBracket::laterStages('XX'));
+    }
 }

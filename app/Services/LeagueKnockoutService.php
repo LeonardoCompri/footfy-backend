@@ -18,6 +18,14 @@ class LeagueKnockoutService
 
     public const GROUP_RESULT_FIELD_LOCKED = 'O campo %s não pode ser alterado porque o mata-mata desta liga já foi gerado.';
 
+    public const KNOCKOUT_RESULTS_LOCKED = 'O resultado desta partida está travado porque %s já %s. Para corrigir, desfaça %s no mata-mata.';
+
+    public const KNOCKOUT_RESULT_FIELD_LOCKED = 'O campo %s não pode ser alterado porque a fase seguinte do mata-mata já foi gerada.';
+
+    public const RESULTS_LOCK_GROUP_STAGE = 'group_stage';
+
+    public const RESULTS_LOCK_NEXT_STAGE = 'next_stage';
+
     private const NOT_ENABLED = 'O mata-mata pela classificação só está disponível em ligas com fase de grupos e sorteio.';
 
     private const NOT_CONFIGURED = 'Configure o mata-mata no regulamento da liga antes de gerar as fases.';
@@ -109,41 +117,24 @@ class LeagueKnockoutService
 
     public function penaltiesIssue(Game $game, array $changes = []): ?string
     {
-        if (! $game->isGeneratedKnockout()) {
-            return self::PENALTIES_NOT_GENERATED;
+        $shootout = $this->shootoutStructure($game, $changes);
+
+        if ($shootout['issue'] !== null) {
+            return $shootout['issue'];
         }
 
-        $league = $this->leagueRepository->show((string) $game->league_id);
-
-        if (! $league || ! $this->isEnabled($league)) {
-            return self::PENALTIES_NOT_GENERATED;
-        }
-
-        $sequence = $league->knockout_tiebreakers ?? [];
-
-        if (end($sequence) !== TieResolver::PENALTIES) {
-            return self::PENALTIES_NOT_IN_RULES;
-        }
-
-        $legs = $this->gameRepository->tieGames($game)
-            ->map(fn (Game $leg) => (int) $leg->id === (int) $game->id
-                ? [...$this->tieResolver->legFromGame($game), ...$changes]
-                : $this->tieResolver->legFromGame($leg))
-            ->all();
-
-        $decisive = $this->tieResolver->decisiveLeg($legs);
-
-        if (! $decisive || (int) $decisive['id'] !== (int) $game->id) {
-            return self::PENALTIES_NOT_DECISIVE;
-        }
-
-        $resolution = $this->tieResolver->resolve($legs, $sequence);
+        $resolution = $this->tieResolver->resolve($shootout['legs'], $shootout['sequence']);
 
         if (! $resolution['finished']) {
             return self::PENALTIES_NOT_FINISHED;
         }
 
         return $resolution['penalties_reachable'] ? null : self::PENALTIES_NOT_LEVEL;
+    }
+
+    public function penaltiesPossible(Game $game): bool
+    {
+        return $this->shootoutStructure($game)['issue'] === null;
     }
 
     public function groupResultsLocked(Game $game): bool
@@ -157,9 +148,53 @@ class LeagueKnockoutService
         return $league !== null && $this->leagueRepository->hasKnockoutGames($league);
     }
 
+    public function knockoutResultsLocked(Game $game): bool
+    {
+        if (! $game->isGeneratedKnockout()) {
+            return false;
+        }
+
+        return $this->gameRepository->hasKnockoutGamesInStages(
+            (int) $game->league_id,
+            KnockoutBracket::laterStages((string) $game->knockout_stage),
+        );
+    }
+
+    public function resultsLock(Game $game): ?string
+    {
+        if ($this->groupResultsLocked($game)) {
+            return self::RESULTS_LOCK_GROUP_STAGE;
+        }
+
+        return $this->knockoutResultsLocked($game) ? self::RESULTS_LOCK_NEXT_STAGE : null;
+    }
+
+    public function knockoutResultsLockedMessage(Game $game): string
+    {
+        $nextStage = KnockoutBracket::laterStages((string) $game->knockout_stage)[0] ?? KnockoutBracket::FINAL;
+        $info = KnockoutBracket::STAGES[$nextStage];
+
+        return sprintf(self::KNOCKOUT_RESULTS_LOCKED, $info['article'], $info['plural'] ? 'foram geradas' : 'foi gerada', $info['article']);
+    }
+
+    public function ensureKnockoutResultsEditable(Game $game): void
+    {
+        if (! $game->isGeneratedKnockout()) {
+            return;
+        }
+
+        $this->leagueRepository->findForUpdate((string) $game->league_id);
+
+        if ($this->knockoutResultsLocked($game)) {
+            $this->failWhen($this->knockoutResultsLockedMessage($game));
+        }
+    }
+
     public function penaltiesAllowed(Game $game): bool
     {
-        return $game->isGeneratedKnockout() && $this->penaltiesIssue($game) === null;
+        return $game->isGeneratedKnockout()
+            && ! $this->knockoutResultsLocked($game)
+            && $this->penaltiesIssue($game) === null;
     }
 
     public function clearStalePenalties(Game $game): void
@@ -182,9 +217,45 @@ class LeagueKnockoutService
         }
 
         if ($this->penaltiesIssue($decisiveGame) !== null) {
+            $this->gameRepository->deletePenaltyKicks($decisiveGame);
             $decisiveGame->fill(['home_penalties' => null, 'away_penalties' => null]);
             $this->gameRepository->update($decisiveGame);
         }
+    }
+
+    private function shootoutStructure(Game $game, array $changes = []): array
+    {
+        $structure = ['issue' => null, 'legs' => [], 'sequence' => []];
+
+        if (! $game->isGeneratedKnockout()) {
+            return [...$structure, 'issue' => self::PENALTIES_NOT_GENERATED];
+        }
+
+        $league = $this->leagueRepository->show((string) $game->league_id);
+
+        if (! $league || ! $this->isEnabled($league)) {
+            return [...$structure, 'issue' => self::PENALTIES_NOT_GENERATED];
+        }
+
+        $sequence = $league->knockout_tiebreakers ?? [];
+
+        if (end($sequence) !== TieResolver::PENALTIES) {
+            return [...$structure, 'issue' => self::PENALTIES_NOT_IN_RULES];
+        }
+
+        $legs = $this->gameRepository->tieGames($game)
+            ->map(fn (Game $leg) => (int) $leg->id === (int) $game->id
+                ? [...$this->tieResolver->legFromGame($game), ...$changes]
+                : $this->tieResolver->legFromGame($leg))
+            ->all();
+
+        $decisive = $this->tieResolver->decisiveLeg($legs);
+
+        if (! $decisive || (int) $decisive['id'] !== (int) $game->id) {
+            return [...$structure, 'issue' => self::PENALTIES_NOT_DECISIVE];
+        }
+
+        return ['issue' => null, 'legs' => $legs, 'sequence' => $sequence];
     }
 
     private function format(League $league): array

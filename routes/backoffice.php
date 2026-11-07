@@ -108,6 +108,7 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::get('/{id}', [GameController::class, 'show'])->name('show')->middleware('access:game');
         Route::post('/', [GameController::class, 'store'])->name('store')->middleware('permission:game:create');
         Route::put('/{id}', [GameController::class, 'update'])->name('update')->middleware(['permission:game:update', 'access:game']);
+        Route::put('/{id}/penalty-kicks', [GameController::class, 'updatePenaltyKicks'])->name('penalty-kicks.update')->middleware(['permission:game:update', 'access:game']);
         Route::delete('/{id}', [GameController::class, 'destroy'])->name('destroy')->middleware(['permission:game:delete', 'access:game']);
     });
 

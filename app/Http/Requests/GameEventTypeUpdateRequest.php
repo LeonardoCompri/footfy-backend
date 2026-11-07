@@ -17,6 +17,7 @@ class GameEventTypeUpdateRequest extends FormRequest
         return [
             'slug' => ['prohibited'],
             'name' => ['sometimes', 'required', 'string', 'max:60'],
+            'abbreviation' => ['sometimes', ...$this->abbreviationRules($this->route('id'))],
             'icon' => ['sometimes', 'required', 'string', 'max:60', 'regex:/^mdi-[a-z0-9-]+$/'],
             'color' => ['sometimes', 'required', 'string', Rule::in(GameEventType::COLORS)],
             'counts_for' => ['sometimes', 'nullable', 'string', Rule::in(GameEventType::COUNTS_FOR)],

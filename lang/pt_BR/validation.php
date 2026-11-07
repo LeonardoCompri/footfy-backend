@@ -158,6 +158,7 @@ return [
     'custom' => [],
 
     'attributes' => [
+        'abbreviation' => 'sigla',
         'active' => 'ativo',
         'allows_assist' => 'permite assistência',
         'away_penalties' => 'pênaltis do visitante',
@@ -189,6 +190,11 @@ return [
         'home_team_id' => 'time mandante',
         'icon' => 'ícone',
         'image' => 'imagem',
+        'kicks' => 'cobranças',
+        'kicks.*' => 'cobrança',
+        'kicks.*.player_id' => 'cobrador',
+        'kicks.*.scored' => 'resultado da cobrança',
+        'kicks.*.team_id' => 'time da cobrança',
         'knockout_legs' => 'jogos por confronto do mata-mata',
         'knockout_size' => 'tamanho do mata-mata',
         'knockout_tiebreakers' => 'desempate do mata-mata',
