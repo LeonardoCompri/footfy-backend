@@ -21,6 +21,7 @@ class GameResource extends JsonResource
             'home_penalties' => $this->home_penalties,
             'away_penalties' => $this->away_penalties,
             'penalties_allowed' => $this->when($this->resource->penaltiesAllowed !== null, fn () => $this->resource->penaltiesAllowed),
+            'results_locked' => $this->when($this->resource->resultsLocked !== null, fn () => $this->resource->resultsLocked),
             'round' => $this->round,
             'group_number' => $this->group_number,
             'phase' => $this->phase,

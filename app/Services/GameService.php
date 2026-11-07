@@ -51,7 +51,7 @@ class GameService
 
     public function show(string $id): Game
     {
-        return $this->withPenaltiesAllowed($this->find($id, $this->showRelations(backoffice: true)));
+        return $this->withBackofficeFlags($this->find($id, $this->showRelations(backoffice: true)));
     }
 
     public function publicShow(string $id): Game
@@ -90,7 +90,7 @@ class GameService
             $this->knockoutService->clearStalePenalties($game);
         });
 
-        return $this->withPenaltiesAllowed($game->load($this->showRelations(backoffice: true)));
+        return $this->withBackofficeFlags($game->load($this->showRelations(backoffice: true)));
     }
 
     public function refreshScore(int $gameId): void
@@ -106,9 +106,10 @@ class GameService
         $this->knockoutService->clearStalePenalties($game);
     }
 
-    private function withPenaltiesAllowed(Game $game): Game
+    private function withBackofficeFlags(Game $game): Game
     {
         $game->penaltiesAllowed = $this->knockoutService->penaltiesAllowed($game);
+        $game->resultsLocked = $this->knockoutService->groupResultsLocked($game);
 
         return $game;
     }

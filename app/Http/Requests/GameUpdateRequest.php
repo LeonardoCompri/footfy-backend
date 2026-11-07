@@ -40,6 +40,7 @@ class GameUpdateRequest extends FormRequest
         $validator->after(function (Validator $validator) {
             $game = $this->route('id') ? Game::find($this->route('id')) : null;
 
+            $this->rejectLockedGroupResultChanges($validator, $game);
             $this->rejectDrawnGameFieldChanges($validator, $game);
 
             $leagueId = $this->input('league_id', $game?->league_id);

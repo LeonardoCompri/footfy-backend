@@ -155,6 +155,14 @@ class GameRepository
             ->count();
     }
 
+    public function cancelledGroupGamesCount(League $league): int
+    {
+        return $league->games()
+            ->whereNotNull('round')
+            ->where('status', 'cancelled')
+            ->count();
+    }
+
     public function manualPhaseGamesSummary(League $league): array
     {
         return [

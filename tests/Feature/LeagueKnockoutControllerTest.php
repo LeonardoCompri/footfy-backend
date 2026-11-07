@@ -6,9 +6,11 @@ use App\Models\Game;
 use App\Models\GameEvent;
 use App\Models\League;
 use App\Models\Player;
+use App\Models\Stadium;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\LeagueDrawService;
+use App\Services\LeagueKnockoutService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -24,6 +26,8 @@ class LeagueKnockoutControllerTest extends TestCase
     private const NOT_ENABLED = 'O mata-mata pela classificação só está disponível em ligas com fase de grupos e sorteio.';
 
     private const PHASE_BLOCKED = 'Em ligas com sorteio, as partidas de mata-mata são geradas pela classificação.';
+
+    private const GROUP_RESULTS_LOCKED = 'Os resultados da fase de grupos estão travados porque o mata-mata já foi gerado. Para corrigir, desfaça o mata-mata.';
 
     private array $ranking = [];
 
@@ -139,6 +143,50 @@ class LeagueKnockoutControllerTest extends TestCase
     private function pairs($games): array
     {
         return $games->map(fn (Game $game) => [$game->tie_key, $game->leg, (int) $game->home_team_id, (int) $game->away_team_id])->all();
+    }
+
+    private function groupGame(League $league, int $group = 1): Game
+    {
+        return Game::where('league_id', $league->id)->where('group_number', $group)->orderBy('round')->firstOrFail();
+    }
+
+    private function fullPayload(Game $game, array $overrides = []): array
+    {
+        return [
+            'league_id' => $game->league_id,
+            'home_team_id' => $game->home_team_id,
+            'away_team_id' => $game->away_team_id,
+            'stadium_id' => $game->stadium_id,
+            'match_date' => $game->match_date,
+            'round' => $game->round,
+            'group_number' => $game->group_number,
+            'phase' => $game->phase,
+            'phase_order' => $game->phase_order,
+            'tie_key' => $game->tie_key,
+            'leg' => $game->leg,
+            'status' => $game->status,
+            ...$overrides,
+        ];
+    }
+
+    private function eventFor(Game $game, array $attributes = []): GameEvent
+    {
+        $player = Player::factory()->create(['team_id' => $game->home_team_id]);
+
+        return GameEvent::factory()->create([
+            'game_id' => $game->id,
+            'league_id' => $game->league_id,
+            'team_id' => $game->home_team_id,
+            'player_id' => $player->id,
+            'type' => 'goal',
+            'minute' => 10,
+            ...$attributes,
+        ]);
+    }
+
+    private function fieldLocked(string $attribute): string
+    {
+        return sprintf(LeagueKnockoutService::GROUP_RESULT_FIELD_LOCKED, $attribute);
     }
 
     public function test_state_is_disabled_outside_hybrid_draw_leagues(): void
@@ -710,5 +758,204 @@ class LeagueKnockoutControllerTest extends TestCase
 
         $this->getJson('/api/leagues/999/knockout')->assertStatus(422)->assertJsonPath('message', 'Liga não encontrada!');
         $this->postJson('/api/leagues/999/knockout/next-stage', ['stage' => 'SF'])->assertStatus(422)->assertJsonPath('message', 'Liga não encontrada!');
+    }
+
+    public function test_group_results_are_editable_while_the_knockout_is_not_generated(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->readyLeague(2, 3, 2);
+        $game = $this->groupGame($league);
+
+        $this->getJson("/api/games/{$game->id}")->assertOk()->assertJsonPath('data.results_locked', false);
+        $this->assertArrayNotHasKey('results_locked', $this->getJson("/api/games?league_id={$league->id}")->json('data.0'));
+        $this->assertArrayNotHasKey('results_locked', $this->getJson("/api/public/games/{$game->id}")->json('data'));
+
+        $this->putJson("/api/games/{$game->id}", $this->fullPayload($game, ['status' => 'in_progress']))
+            ->assertOk()
+            ->assertJsonPath('data.status', 'in_progress')
+            ->assertJsonPath('data.results_locked', false);
+
+        $player = Player::factory()->create(['team_id' => $game->home_team_id]);
+        $awayPlayer = Player::factory()->create(['team_id' => $game->away_team_id]);
+        $eventId = $this->postJson('/api/game-events', [
+            'game_id' => $game->id,
+            'team_id' => $game->home_team_id,
+            'player_id' => $player->id,
+            'type' => 'goal',
+            'minute' => 5,
+        ])->assertCreated()->json('data.id');
+
+        $this->putJson("/api/game-events/{$eventId}", ['team_id' => $game->away_team_id, 'player_id' => $awayPlayer->id, 'type' => 'yellow_card'])->assertOk();
+        $this->deleteJson("/api/game-events/{$eventId}")->assertStatus(204);
+    }
+
+    public function test_group_game_fields_are_locked_after_the_knockout_is_generated(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->readyLeague(2, 3, 2);
+        $game = $this->groupGame($league);
+        $this->generate($league, 'SF')->assertOk();
+
+        $this->getJson("/api/games/{$game->id}")->assertOk()->assertJsonPath('data.results_locked', true);
+
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+        $this->putJson("/api/games/{$game->id}", $this->fullPayload($game, ['match_date' => '2026-12-01 16:00:00', 'stadium_id' => $stadium->id]))
+            ->assertOk()
+            ->assertJsonPath('data.stadium_id', $stadium->id)
+            ->assertJsonPath('data.status', 'finished')
+            ->assertJsonPath('data.results_locked', true);
+        $this->putJson("/api/games/{$game->id}", ['match_date' => null, 'stadium_id' => null])->assertOk();
+
+        $third = collect($this->ranking[1])->first(fn (int $id) => ! in_array($id, [(int) $game->home_team_id, (int) $game->away_team_id], true));
+        $otherLeague = League::factory()->create(['format' => 'round_robin']);
+
+        foreach ([
+            'status' => ['cancelled', 'status'],
+            'home_team_id' => [$third, 'time mandante'],
+            'away_team_id' => [$third, 'time visitante'],
+            'league_id' => [$otherLeague->id, 'liga'],
+            'round' => [$game->round + 1, 'rodada'],
+        ] as $field => [$value, $attribute]) {
+            $this->putJson("/api/games/{$game->id}", $this->fullPayload($game->fresh(), [$field => $value]))
+                ->assertStatus(422)
+                ->assertJsonPath("errors.{$field}.0", $this->fieldLocked($attribute));
+        }
+
+        $this->putJson("/api/games/{$game->id}", ['round' => null])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.round.0', $this->fieldLocked('rodada'));
+
+        $fresh = $game->fresh();
+        $this->assertSame([$game->home_team_id, $game->away_team_id, $game->league_id, $game->round, 'finished'], [$fresh->home_team_id, $fresh->away_team_id, $fresh->league_id, $fresh->round, $fresh->status]);
+
+        $semifinal = $this->stageGames($league, 'SF')->first();
+        $this->getJson("/api/games/{$semifinal->id}")->assertJsonPath('data.results_locked', false);
+        $this->putJson("/api/games/{$semifinal->id}", ['status' => 'in_progress'])->assertOk();
+        $response = $this->putJson("/api/games/{$semifinal->id}", ['home_team_id' => $this->team(1, 3)])->assertStatus(422);
+        $this->assertSame('O campo time mandante não pode ser alterado em partidas geradas pelo mata-mata.', $response->json('errors.home_team_id.0'));
+    }
+
+    public function test_group_game_events_are_locked_after_the_knockout_is_generated(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->readyLeague(2, 3, 2);
+        $game = $this->groupGame($league);
+        $otherGroupGame = $this->groupGame($league, 2);
+        $this->generate($league, 'SF')->assertOk();
+        $semifinal = $this->stageGames($league, 'SF')->first();
+
+        $event = $this->eventFor($game);
+        $player = Player::factory()->create(['team_id' => $game->home_team_id]);
+        $awayPlayer = Player::factory()->create(['team_id' => $game->away_team_id]);
+        $assistant = Player::factory()->create(['team_id' => $game->home_team_id]);
+
+        $this->postJson('/api/game-events', [
+            'game_id' => $game->id,
+            'team_id' => $game->home_team_id,
+            'player_id' => $player->id,
+            'type' => 'goal',
+        ])->assertStatus(422)->assertJsonPath('message', self::GROUP_RESULTS_LOCKED);
+
+        $this->putJson("/api/game-events/{$event->id}", ['player_id' => $player->id, 'related_player_id' => $assistant->id, 'minute' => 33])
+            ->assertOk()
+            ->assertJsonPath('data.player_id', $player->id)
+            ->assertJsonPath('data.minute', 33);
+        $this->putJson("/api/game-events/{$event->id}", [
+            'game_id' => $game->id,
+            'team_id' => $game->home_team_id,
+            'player_id' => $player->id,
+            'type' => 'goal',
+            'related_player_id' => null,
+            'minute' => 40,
+        ])->assertOk();
+
+        $otherPlayer = Player::factory()->create(['team_id' => $otherGroupGame->home_team_id]);
+        $semifinalPlayer = Player::factory()->create(['team_id' => $semifinal->home_team_id]);
+
+        foreach ([
+            ['team_id' => $game->away_team_id, 'player_id' => $awayPlayer->id],
+            ['type' => 'yellow_card'],
+            ['game_id' => $otherGroupGame->id, 'team_id' => $otherGroupGame->home_team_id, 'player_id' => $otherPlayer->id],
+            ['game_id' => $semifinal->id, 'team_id' => $semifinal->home_team_id, 'player_id' => $semifinalPlayer->id],
+        ] as $payload) {
+            $this->putJson("/api/game-events/{$event->id}", $payload)
+                ->assertStatus(422)
+                ->assertJsonPath('message', self::GROUP_RESULTS_LOCKED);
+        }
+
+        $semifinalEvent = $this->eventFor($semifinal);
+        $this->putJson("/api/game-events/{$semifinalEvent->id}", ['game_id' => $game->id, 'team_id' => $game->home_team_id, 'player_id' => $player->id])
+            ->assertStatus(422)
+            ->assertJsonPath('message', self::GROUP_RESULTS_LOCKED);
+        $this->assertSame($semifinal->id, $semifinalEvent->fresh()->game_id);
+
+        $this->deleteJson("/api/game-events/{$event->id}")
+            ->assertStatus(422)
+            ->assertJsonPath('message', self::GROUP_RESULTS_LOCKED);
+
+        $fresh = $event->fresh();
+        $this->assertSame([$game->id, $game->home_team_id, 'goal'], [$fresh->game_id, $fresh->team_id, $fresh->type]);
+
+        $this->postJson('/api/game-events', [
+            'game_id' => $semifinal->id,
+            'team_id' => $semifinal->home_team_id,
+            'player_id' => $semifinalPlayer->id,
+            'type' => 'goal',
+        ])->assertCreated();
+        $this->putJson("/api/game-events/{$semifinalEvent->id}", ['type' => 'yellow_card'])->assertOk();
+        $this->deleteJson("/api/game-events/{$semifinalEvent->id}")->assertStatus(204);
+    }
+
+    public function test_group_results_unlock_after_undoing_the_whole_knockout(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->readyLeague(2, 3, 2);
+        $game = $this->groupGame($league);
+        $this->generate($league, 'SF')->assertOk();
+        $semis = $this->stageGames($league, 'SF');
+        $this->play($semis[0], 1, 0);
+        $this->play($semis[1], 2, 0);
+        $this->generate($league, 'F')->assertOk();
+
+        $this->deleteJson("/api/leagues/{$league->id}/knockout/last-stage", ['stage' => 'F'])->assertOk();
+        $this->getJson("/api/games/{$game->id}")->assertJsonPath('data.results_locked', true);
+        $this->putJson("/api/games/{$game->id}", ['status' => 'cancelled'])->assertStatus(422);
+
+        $semis->each(fn (Game $semi) => $semi->fresh()->update(['status' => 'scheduled', 'home_score' => null, 'away_score' => null]));
+        $this->deleteJson("/api/leagues/{$league->id}/knockout/last-stage", ['stage' => 'SF'])->assertOk();
+
+        $this->getJson("/api/games/{$game->id}")->assertJsonPath('data.results_locked', false);
+        $this->putJson("/api/games/{$game->id}", ['status' => 'cancelled'])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'cancelled')
+            ->assertJsonPath('data.results_locked', false);
+
+        $player = Player::factory()->create(['team_id' => $game->home_team_id]);
+        $this->postJson('/api/game-events', [
+            'game_id' => $game->id,
+            'team_id' => $game->home_team_id,
+            'player_id' => $player->id,
+            'type' => 'goal',
+        ])->assertCreated();
+    }
+
+    public function test_state_counts_cancelled_group_games(): void
+    {
+        $this->authenticateAs('master');
+        $league = $this->readyLeague(2, 3, 2);
+
+        $this->state($league)->assertJsonPath('data.cancelled_group_games', 0);
+
+        $this->groupGame($league)->update(['status' => 'cancelled']);
+        $this->groupGame($league, 2)->update(['status' => 'cancelled']);
+
+        $this->state($league)->assertJsonPath('data.cancelled_group_games', 2);
+        $this->generate($league, 'SF')->assertOk()->assertJsonPath('data.cancelled_group_games', 2);
+        $this->stageGames($league, 'SF')->first()->update(['status' => 'cancelled']);
+        $this->state($league)->assertJsonPath('data.cancelled_group_games', 2);
+
+        $manual = League::factory()->create(['format' => 'round_robin']);
+        Game::factory()->create(['league_id' => $manual->id, 'round' => 1, 'status' => 'cancelled']);
+        $this->state($manual)->assertJsonPath('data.enabled', false)->assertJsonPath('data.cancelled_group_games', 0);
     }
 }

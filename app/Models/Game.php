@@ -11,6 +11,8 @@ class Game extends Model
 
     public ?bool $penaltiesAllowed = null;
 
+    public ?bool $resultsLocked = null;
+
     protected $fillable = [
         'league_id',
         'home_team_id',

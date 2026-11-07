@@ -4,11 +4,14 @@ namespace App\Http\Requests\Concerns;
 
 use App\Models\Game;
 use App\Models\League;
+use App\Services\LeagueKnockoutService;
 use Illuminate\Contracts\Validation\Validator;
 
 trait ValidatesDrawnGames
 {
     private const DRAWN_GAME_LOCKED_FIELDS = ['league_id', 'round', 'group_number', 'phase', 'phase_order', 'tie_key', 'leg'];
+
+    private const GROUP_RESULT_LOCKED_FIELDS = ['status', 'home_team_id', 'away_team_id', 'league_id', 'round'];
 
     private const KNOCKOUT_GAME_LOCKED_FIELDS = ['league_id', 'home_team_id', 'away_team_id', 'round', 'group_number', 'phase', 'phase_order', 'tie_key', 'leg'];
 
@@ -74,6 +77,19 @@ trait ValidatesDrawnGames
         if ($becomesRound) {
             $this->rejectManualRoundInDrawLeague($validator, $league, $finalRound);
         }
+    }
+
+    protected function rejectLockedGroupResultChanges(Validator $validator, ?Game $game): void
+    {
+        if (! $game || ! $this->hasAny(self::GROUP_RESULT_LOCKED_FIELDS)) {
+            return;
+        }
+
+        if (! app(LeagueKnockoutService::class)->groupResultsLocked($game)) {
+            return;
+        }
+
+        $this->rejectLockedFieldChanges($validator, $game, self::GROUP_RESULT_LOCKED_FIELDS, LeagueKnockoutService::GROUP_RESULT_FIELD_LOCKED);
     }
 
     protected function rejectDrawnGameFieldChanges(Validator $validator, ?Game $game): void

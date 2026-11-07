@@ -14,6 +14,10 @@ use Illuminate\Validation\ValidationException;
 
 class LeagueKnockoutService
 {
+    public const GROUP_RESULTS_LOCKED = 'Os resultados da fase de grupos estão travados porque o mata-mata já foi gerado. Para corrigir, desfaça o mata-mata.';
+
+    public const GROUP_RESULT_FIELD_LOCKED = 'O campo %s não pode ser alterado porque o mata-mata desta liga já foi gerado.';
+
     private const NOT_ENABLED = 'O mata-mata pela classificação só está disponível em ligas com fase de grupos e sorteio.';
 
     private const NOT_CONFIGURED = 'Configure o mata-mata no regulamento da liga antes de gerar as fases.';
@@ -142,6 +146,17 @@ class LeagueKnockoutService
         return $resolution['penalties_reachable'] ? null : self::PENALTIES_NOT_LEVEL;
     }
 
+    public function groupResultsLocked(Game $game): bool
+    {
+        if ($game->round === null) {
+            return false;
+        }
+
+        $league = $this->leagueRepository->show((string) $game->league_id);
+
+        return $league !== null && $this->leagueRepository->hasKnockoutGames($league);
+    }
+
     public function penaltiesAllowed(Game $game): bool
     {
         return $game->isGeneratedKnockout() && $this->penaltiesIssue($game) === null;
@@ -203,6 +218,7 @@ class LeagueKnockoutService
             'can_undo' => $undoIssue === null,
             'undo_blocked_reason' => $undoIssue,
             'manual_phase_games' => $manualGames,
+            'cancelled_group_games' => $this->isEnabled($league) ? $this->gameRepository->cancelledGroupGamesCount($league) : 0,
             'awaiting_penalties' => $this->awaitingPenalties($context),
         ];
     }

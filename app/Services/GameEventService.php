@@ -18,6 +18,7 @@ class GameEventService
     public function __construct(
         private readonly GameEventRepository $repository,
         private readonly GameService $gameService,
+        private readonly LeagueKnockoutService $knockoutService,
     ) {}
 
     public function index(?string $type = null, ?string $gameId = null): Collection
@@ -47,6 +48,7 @@ class GameEventService
         $game = Game::find($data['game_id']);
         $this->ensureUserHasAccessToLeagues([$game->league_id]);
         $data['league_id'] = $game->league_id;
+        $this->ensureGroupResultsEditable($game);
 
         return DB::transaction(function () use ($data, $game) {
             $event = $this->repository->store($data);
@@ -70,6 +72,7 @@ class GameEventService
     public function update(array $data, string $id): GameEvent
     {
         $event = $this->show($id);
+        $game = null;
 
         if (isset($data['game_id'])) {
             $game = Game::find($data['game_id']);
@@ -77,8 +80,17 @@ class GameEventService
             $data['league_id'] = $game->league_id;
         }
 
+        $previousGame = $event->game;
         $previousGameId = $event->game_id;
         $event->fill($data);
+
+        if ($event->isDirty(['game_id', 'team_id', 'type'])) {
+            $this->ensureGroupResultsEditable($previousGame);
+
+            if ($event->isDirty('game_id')) {
+                $this->ensureGroupResultsEditable($game);
+            }
+        }
 
         DB::transaction(function () use ($event, $previousGameId) {
             $this->repository->update($event);
@@ -91,6 +103,7 @@ class GameEventService
     public function destroy(string $id): ?bool
     {
         $event = $this->show($id);
+        $this->ensureGroupResultsEditable($event->game);
 
         return DB::transaction(function () use ($event) {
             $deleted = $this->repository->destroy($event);
@@ -98,6 +111,13 @@ class GameEventService
 
             return $deleted;
         });
+    }
+
+    private function ensureGroupResultsEditable(?Game $game): void
+    {
+        if ($game && $this->knockoutService->groupResultsLocked($game)) {
+            throw ValidationException::withMessages(['message' => LeagueKnockoutService::GROUP_RESULTS_LOCKED]);
+        }
     }
 
     private function refreshScores(array $gameIds): void
