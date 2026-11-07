@@ -2,16 +2,18 @@
 
 namespace App\Http\Requests;
 
+use App\Http\Requests\Concerns\ValidatesDrawnGames;
 use App\Http\Requests\Concerns\ValidatesGameTeams;
 use App\Models\Game;
 use App\Models\League;
 use App\Models\Stadium;
+use App\Services\LeagueKnockoutService;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 
 class GameUpdateRequest extends FormRequest
 {
-    use ValidatesGameTeams;
+    use ValidatesDrawnGames, ValidatesGameTeams;
 
     public function rules(): array
     {
@@ -22,11 +24,14 @@ class GameUpdateRequest extends FormRequest
             'stadium_id' => ['nullable', 'integer', 'exists:stadiums,id'],
             'match_date' => ['nullable', 'date'],
             'round' => ['nullable', 'integer', 'min:1'],
+            'group_number' => ['sometimes', 'nullable', 'integer'],
             'phase' => ['nullable', 'string', 'max:255'],
             'phase_order' => ['nullable', 'integer', 'min:1'],
             'tie_key' => ['nullable', 'string', 'max:255'],
             'leg' => ['nullable', 'integer', 'in:1,2'],
             'status' => ['sometimes', 'string', 'in:scheduled,in_progress,finished,cancelled'],
+            'home_penalties' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:99'],
+            'away_penalties' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:99'],
         ];
     }
 
@@ -34,6 +39,9 @@ class GameUpdateRequest extends FormRequest
     {
         $validator->after(function (Validator $validator) {
             $game = $this->route('id') ? Game::find($this->route('id')) : null;
+
+            $this->rejectLockedGroupResultChanges($validator, $game);
+            $this->rejectDrawnGameFieldChanges($validator, $game);
 
             $leagueId = $this->input('league_id', $game?->league_id);
             $stadiumId = $this->input('stadium_id', $game?->stadium_id);
@@ -50,7 +58,59 @@ class GameUpdateRequest extends FormRequest
             $this->validateTeams($validator, $game, $league);
             $this->validateRoundAndPhase($validator, $game, $league);
             $this->validateTieKey($validator, $game);
+
+            if ($this->hasAny(['round', 'league_id'])) {
+                $this->rejectGameBecomingManualRound($validator, $league, $game);
+            }
+
+            if ($this->hasAny(['phase', 'league_id'])) {
+                $this->rejectGameBecomingManualPhase($validator, $league, $game);
+            }
+
+            $this->validatePenalties($validator, $game);
         });
+    }
+
+    private function validatePenalties(Validator $validator, ?Game $game): void
+    {
+        if (! $game || ! $this->hasAny(['home_penalties', 'away_penalties'])) {
+            return;
+        }
+
+        if ($validator->errors()->hasAny(['home_penalties', 'away_penalties', 'status'])) {
+            return;
+        }
+
+        $home = $this->has('home_penalties') ? $this->input('home_penalties') : $game->home_penalties;
+        $away = $this->has('away_penalties') ? $this->input('away_penalties') : $game->away_penalties;
+
+        if ($home === null && $away === null) {
+            return;
+        }
+
+        if ($home === null || $away === null) {
+            $validator->errors()->add('home_penalties', 'Informe os pênaltis dos dois times.');
+
+            return;
+        }
+
+        if ((int) $home === (int) $away) {
+            $validator->errors()->add('home_penalties', 'A disputa de pênaltis não pode terminar empatada.');
+
+            return;
+        }
+
+        if ((string) $home === (string) $game->home_penalties && (string) $away === (string) $game->away_penalties) {
+            return;
+        }
+
+        $issue = app(LeagueKnockoutService::class)->penaltiesIssue($game, [
+            'status' => $this->input('status', $game->status),
+        ]);
+
+        if ($issue !== null) {
+            $validator->errors()->add('home_penalties', $issue);
+        }
     }
 
     private function validateTeams(Validator $validator, ?Game $game, ?League $league): void

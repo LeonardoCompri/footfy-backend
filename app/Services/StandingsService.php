@@ -6,159 +6,220 @@ use App\Models\Game;
 use App\Models\League;
 use App\Models\Team;
 use App\Repositories\StandingsRepository;
+use App\Services\Knockout\TieResolver;
+use App\Services\Standings\StandingsSorter;
 use Illuminate\Support\Collection;
 
 class StandingsService
 {
-    public function __construct(private readonly StandingsRepository $repository) {}
+    public function __construct(
+        private readonly StandingsRepository $repository,
+        private readonly StandingsSorter $sorter,
+        private readonly TieResolver $tieResolver,
+    ) {}
 
     public function build(League $league): array
     {
         $result = [];
+        $seeds = [];
 
         if (in_array($league->format, ['round_robin', 'hybrid'], true)) {
-            $result['standings'] = $this->standings((int) $league->id);
+            ['result' => $result, 'seeding' => $seeding] = $this->groupStage($league);
+            $seeds = $this->seedMap($seeding);
         }
 
         if (in_array($league->format, ['knockout', 'hybrid'], true)) {
-            $result['phases'] = $this->phases((int) $league->id);
+            $result['phases'] = $this->phases($league, $seeds);
         }
 
         return $result;
     }
 
-    private function standings(int $leagueId): array
+    public function seeding(League $league): array
     {
-        $teams = $this->repository->leagueTeams($leagueId);
-        $aggregates = $this->repository->groupStageAggregates($leagueId)->keyBy('team_id');
+        return $this->groupStage($league)['seeding'];
+    }
 
-        $rows = $teams->map(function ($team) use ($aggregates) {
-            $stats = $aggregates->get($team->id);
+    public function seedMap(array $seeding): array
+    {
+        $seeds = [];
 
-            $played = (int) ($stats->played ?? 0);
-            $wins = (int) ($stats->wins ?? 0);
-            $draws = (int) ($stats->draws ?? 0);
-            $losses = (int) ($stats->losses ?? 0);
-            $goalsFor = (int) ($stats->goals_for ?? 0);
-            $goalsAgainst = (int) ($stats->goals_against ?? 0);
+        foreach ($seeding as $row) {
+            $seeds[(int) $row['team_id']] = (int) $row['seed'];
+        }
+
+        return $seeds;
+    }
+
+    private function groupStage(League $league): array
+    {
+        $leagueId = (int) $league->id;
+        $tiebreakers = $league->effectiveTiebreakers();
+        $teams = $this->repository->leagueTeams($leagueId)->all();
+        $games = $this->repository->groupStageGames($leagueId)->map(fn ($game) => [
+            'id' => (int) $game->id,
+            'home_team_id' => (int) $game->home_team_id,
+            'away_team_id' => (int) $game->away_team_id,
+            'home_score' => $game->home_score === null ? null : (int) $game->home_score,
+            'away_score' => $game->away_score === null ? null : (int) $game->away_score,
+            'status' => $game->status,
+            'group_number' => $game->group_number === null ? null : (int) $game->group_number,
+        ])->all();
+        $cards = $this->repository->groupStageCards($leagueId)->all();
+
+        $standings = $this->table($teams, $games, $cards, $tiebreakers);
+        $groupsCount = max(1, (int) $league->groups_count);
+
+        if ($groupsCount === 1) {
+            $groups = [['group_number' => 1, 'standings' => $standings]];
+        } else {
+            $groupByTeam = [];
+            foreach ($teams as $team) {
+                $groupByTeam[(int) $team->id] = $league->resolvedGroupNumber($team->group_number);
+            }
+
+            $groups = array_map(fn (int $groupNumber) => [
+                'group_number' => $groupNumber,
+                'standings' => $this->table(
+                    array_values(array_filter($teams, fn (Team $team) => $groupByTeam[(int) $team->id] === $groupNumber)),
+                    array_values(array_filter($games, fn (array $game) => $this->isGroupGame($game, $groupNumber, $groupByTeam))),
+                    $cards,
+                    $tiebreakers,
+                ),
+            ], range(1, $groupsCount));
+        }
+
+        return [
+            'result' => ['standings' => $standings, 'groups' => $groups, 'tiebreakers' => $tiebreakers],
+            'seeding' => $this->seedingFromGroups($groups, $this->cardTotals($games, $cards), $tiebreakers),
+        ];
+    }
+
+    private function seedingFromGroups(array $groups, array $cards, array $tiebreakers): array
+    {
+        $byPosition = [];
+
+        foreach ($groups as $group) {
+            foreach (array_values($group['standings']) as $index => $row) {
+                $byPosition[$index + 1][] = [...$row, 'group_number' => $group['group_number'], 'position' => $index + 1];
+            }
+        }
+
+        ksort($byPosition);
+        $criteria = array_values(array_diff($tiebreakers, ['head_to_head']));
+        $seeding = [];
+
+        foreach ($byPosition as $rows) {
+            foreach ($this->sorter->sort($rows, $criteria, [], $cards) as $row) {
+                $seeding[] = [
+                    'team_id' => (int) $row['team_id'],
+                    'team' => $row['team'],
+                    'group_number' => $row['group_number'],
+                    'position' => $row['position'],
+                    'seed' => count($seeding) + 1,
+                ];
+            }
+        }
+
+        return $seeding;
+    }
+
+    private function cardTotals(array $games, array $cardRows): array
+    {
+        $gameIds = array_flip(array_column($games, 'id'));
+        $cards = [];
+
+        foreach ($cardRows as $cardRow) {
+            if (isset($gameIds[(int) $cardRow->game_id])) {
+                $teamId = (int) $cardRow->team_id;
+                $cards[$teamId][$cardRow->card] = ($cards[$teamId][$cardRow->card] ?? 0) + (int) $cardRow->total;
+            }
+        }
+
+        return $cards;
+    }
+
+    private function isGroupGame(array $game, int $groupNumber, array $groupByTeam): bool
+    {
+        if ($game['group_number'] !== null) {
+            return $game['group_number'] === $groupNumber;
+        }
+
+        return ($groupByTeam[$game['home_team_id']] ?? null) === $groupNumber
+            && ($groupByTeam[$game['away_team_id']] ?? null) === $groupNumber;
+    }
+
+    private function table(array $teams, array $games, array $cardRows, array $tiebreakers): array
+    {
+        $finished = array_values(array_filter($games, fn (array $game) => $game['status'] === 'finished'
+            && $game['home_score'] !== null
+            && $game['away_score'] !== null));
+
+        $stats = [];
+        foreach ($finished as $game) {
+            $this->addResult($stats, $game['home_team_id'], $game['home_score'], $game['away_score']);
+            $this->addResult($stats, $game['away_team_id'], $game['away_score'], $game['home_score']);
+        }
+
+        $cards = $this->cardTotals($games, $cardRows);
+
+        $rows = array_map(function (Team $team) use ($stats) {
+            $row = $stats[(int) $team->id] ?? [];
+            $goalsFor = $row['goals_for'] ?? 0;
+            $goalsAgainst = $row['goals_against'] ?? 0;
+            $wins = $row['wins'] ?? 0;
+            $draws = $row['draws'] ?? 0;
 
             return [
                 'team_id' => $team->id,
                 'team' => ['id' => $team->id, 'name' => $team->name, 'nickname' => $team->nickname, 'logo' => $team->logoUrl()],
-                'played' => $played,
+                'played' => $row['played'] ?? 0,
                 'wins' => $wins,
                 'draws' => $draws,
-                'losses' => $losses,
+                'losses' => $row['losses'] ?? 0,
                 'goals_for' => $goalsFor,
                 'goals_against' => $goalsAgainst,
                 'goal_difference' => $goalsFor - $goalsAgainst,
-                'points' => (int) ($stats->points ?? 0),
+                'points' => $wins * 3 + $draws,
             ];
-        })->all();
+        }, $teams);
 
-        return $this->sortStandings($rows, $leagueId);
+        return $this->sorter->sort($rows, $tiebreakers, $finished, $cards);
     }
 
-    private function sortStandings(array $rows, int $leagueId): array
+    private function addResult(array &$stats, int $teamId, int $scored, int $conceded): void
     {
-        usort($rows, fn ($a, $b) => $this->comparePrimaryCriteria($b, $a));
+        $row = $stats[$teamId] ?? ['played' => 0, 'wins' => 0, 'draws' => 0, 'losses' => 0, 'goals_for' => 0, 'goals_against' => 0];
 
-        $cardCounts = $this->repository->groupStageCardCounts($leagueId);
+        $row['played']++;
+        $row['goals_for'] += $scored;
+        $row['goals_against'] += $conceded;
+        $row[match ($scored <=> $conceded) {
+            1 => 'wins',
+            0 => 'draws',
+            -1 => 'losses',
+        }]++;
 
-        $sorted = [];
-        $count = count($rows);
-        $i = 0;
-
-        while ($i < $count) {
-            $j = $i;
-            while ($j + 1 < $count && $this->comparePrimaryCriteria($rows[$i], $rows[$j + 1]) === 0) {
-                $j++;
-            }
-
-            $bucket = array_slice($rows, $i, $j - $i + 1);
-
-            if (count($bucket) === 2) {
-                $bucket = $this->breakTieByHeadToHead($bucket, $leagueId);
-            }
-
-            if (count($bucket) > 1) {
-                $bucket = $this->breakTieByCardsAndId($bucket, $cardCounts);
-            }
-
-            array_push($sorted, ...$bucket);
-            $i = $j + 1;
-        }
-
-        return $sorted;
+        $stats[$teamId] = $row;
     }
 
-    private function comparePrimaryCriteria(array $a, array $b): int
+    private function phases(League $league, array $seeds): array
     {
-        return [$a['points'], $a['wins'], $a['goal_difference'], $a['goals_for']]
-            <=> [$b['points'], $b['wins'], $b['goal_difference'], $b['goals_for']];
-    }
-
-    private function breakTieByHeadToHead(array $bucket, int $leagueId): array
-    {
-        [$teamA, $teamB] = $bucket;
-        $games = $this->repository->headToHeadGames($leagueId, $teamA['team_id'], $teamB['team_id']);
-
-        if ($games->isEmpty()) {
-            return $bucket;
-        }
-
-        $points = [$teamA['team_id'] => 0, $teamB['team_id'] => 0];
-
-        foreach ($games as $game) {
-            if ($game->home_score === $game->away_score) {
-                $points[$game->home_team_id] += 1;
-                $points[$game->away_team_id] += 1;
-
-                continue;
-            }
-
-            $winnerId = $game->home_score > $game->away_score ? $game->home_team_id : $game->away_team_id;
-            $points[$winnerId] += 3;
-        }
-
-        if ($points[$teamA['team_id']] === $points[$teamB['team_id']]) {
-            return $bucket;
-        }
-
-        return $points[$teamA['team_id']] > $points[$teamB['team_id']] ? [$teamA, $teamB] : [$teamB, $teamA];
-    }
-
-    private function breakTieByCardsAndId(array $bucket, array $cardCounts): array
-    {
-        usort($bucket, function ($a, $b) use ($cardCounts) {
-            $cardsA = $cardCounts[$a['team_id']] ?? 0;
-            $cardsB = $cardCounts[$b['team_id']] ?? 0;
-
-            if ($cardsA !== $cardsB) {
-                return $cardsA <=> $cardsB;
-            }
-
-            return $a['team_id'] <=> $b['team_id'];
-        });
-
-        return $bucket;
-    }
-
-    private function phases(int $leagueId): array
-    {
-        $games = $this->repository->knockoutGames($leagueId);
+        $games = $this->repository->knockoutGames((int) $league->id);
+        $sequence = $league->usesDraw() ? ($league->knockout_tiebreakers ?? []) : [];
 
         $phases = $games
             ->groupBy(fn (Game $game) => ($game->phase_order ?? 'null').'|'.$game->phase)
-            ->map(function (Collection $phaseGames) {
+            ->map(function (Collection $phaseGames) use ($sequence, $seeds) {
                 $first = $phaseGames->first();
 
                 return [
                     'phase' => $first->phase,
                     'phase_order' => $first->phase_order,
+                    'stage' => $first->knockout_stage,
                     'ties' => $phaseGames
                         ->groupBy(fn (Game $game) => $game->tie_key ?? ('game-'.$game->id))
-                        ->map(fn (Collection $tieGames) => $this->buildTie($tieGames))
+                        ->map(fn (Collection $tieGames) => $this->buildTie($tieGames, $sequence, $seeds))
                         ->values()
                         ->all(),
                 ];
@@ -171,15 +232,56 @@ class StandingsService
             ->all();
     }
 
-    private function buildTie(Collection $tieGames): array
+    private function buildTie(Collection $tieGames, array $sequence, array $seeds): array
     {
         $legs = $tieGames->sortBy('leg')->values();
+        $generated = $legs->every(fn (Game $game) => $game->isGeneratedKnockout());
 
         $teamIds = $legs
             ->flatMap(fn (Game $game) => [$game->home_team_id, $game->away_team_id])
             ->unique()
             ->values();
 
+        $teamSummaries = [];
+        foreach ($legs as $game) {
+            $teamSummaries[$game->home_team_id] ??= $this->teamSummary($game->homeTeam, $game->home_team_id);
+            $teamSummaries[$game->away_team_id] ??= $this->teamSummary($game->awayTeam, $game->away_team_id);
+        }
+
+        $resolution = $generated
+            ? $this->tieResolver->resolve($legs->map(fn (Game $game) => $this->tieResolver->legFromGame($game))->all(), $sequence, $seeds)
+            : $this->manualTieResolution($legs, $teamIds);
+
+        return [
+            'tie_key' => $legs->first()->tie_key,
+            'decided' => $resolution['finished'],
+            'winner_team_id' => $resolution['winner_team_id'],
+            'decided_by' => $resolution['decided_by'],
+            'awaiting_penalties' => $resolution['awaiting_penalties'],
+            'decisive_game_id' => $resolution['decisive_game_id'],
+            'home_penalties' => $resolution['home_penalties'],
+            'away_penalties' => $resolution['away_penalties'],
+            'teams' => $teamIds->map(fn ($teamId) => array_merge(
+                $teamSummaries[$teamId],
+                ['aggregate_score' => $resolution['aggregate'][$teamId] ?? 0]
+            ))->values()->all(),
+            'legs' => $legs->map(fn (Game $game) => [
+                'id' => $game->id,
+                'leg' => $game->leg,
+                'home_team_id' => $game->home_team_id,
+                'away_team_id' => $game->away_team_id,
+                'home_score' => $game->home_score,
+                'away_score' => $game->away_score,
+                'home_penalties' => $game->home_penalties,
+                'away_penalties' => $game->away_penalties,
+                'status' => $game->status,
+                'match_date' => $game->match_date,
+            ])->values()->all(),
+        ];
+    }
+
+    private function manualTieResolution(Collection $legs, Collection $teamIds): array
+    {
         $isTwoLegged = $legs->contains(fn (Game $game) => $game->leg !== null);
         $decided = $isTwoLegged
             ? collect([1, 2])->every(fn (int $leg) => $legs->contains(
@@ -188,12 +290,8 @@ class StandingsService
             : $legs->every(fn (Game $game) => $this->isLegFinished($game));
 
         $aggregate = $teamIds->mapWithKeys(fn ($teamId) => [$teamId => 0])->all();
-        $teamSummaries = [];
 
         foreach ($legs as $game) {
-            $teamSummaries[$game->home_team_id] ??= $this->teamSummary($game->homeTeam, $game->home_team_id);
-            $teamSummaries[$game->away_team_id] ??= $this->teamSummary($game->awayTeam, $game->away_team_id);
-
             if (! $this->isLegFinished($game)) {
                 continue;
             }
@@ -211,23 +309,14 @@ class StandingsService
         }
 
         return [
-            'tie_key' => $legs->first()->tie_key,
-            'decided' => $decided,
+            'finished' => $decided,
             'winner_team_id' => $winnerId,
-            'teams' => $teamIds->map(fn ($teamId) => array_merge(
-                $teamSummaries[$teamId],
-                ['aggregate_score' => $aggregate[$teamId]]
-            ))->values()->all(),
-            'legs' => $legs->map(fn (Game $game) => [
-                'id' => $game->id,
-                'leg' => $game->leg,
-                'home_team_id' => $game->home_team_id,
-                'away_team_id' => $game->away_team_id,
-                'home_score' => $game->home_score,
-                'away_score' => $game->away_score,
-                'status' => $game->status,
-                'match_date' => $game->match_date,
-            ])->values()->all(),
+            'decided_by' => $winnerId === null ? null : 'aggregate',
+            'awaiting_penalties' => false,
+            'decisive_game_id' => null,
+            'home_penalties' => null,
+            'away_penalties' => null,
+            'aggregate' => $aggregate,
         ];
     }
 
