@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Models\Game;
 use App\Models\GameEvent;
+use App\Models\GamePenaltyKick;
 use App\Models\League;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -57,6 +58,27 @@ class GameRepository
             ->groupBy('game_events.team_id', 'game_event_types.counts_for')
             ->selectRaw('game_events.team_id as team_id, game_event_types.counts_for as counts_for, COUNT(*) as total')
             ->get();
+    }
+
+    public function replacePenaltyKicks(Game $game, array $kicks): void
+    {
+        $this->deletePenaltyKicks($game);
+
+        if ($kicks === []) {
+            return;
+        }
+
+        $now = now();
+
+        GamePenaltyKick::query()->insert(array_map(
+            fn (array $kick) => [...$kick, 'game_id' => $game->id, 'created_at' => $now, 'updated_at' => $now],
+            $kicks,
+        ));
+    }
+
+    public function deletePenaltyKicks(Game $game): int
+    {
+        return $game->penaltyKicks()->delete();
     }
 
     public function syncEventsLeague(Game $game): int
@@ -132,6 +154,14 @@ class GameRepository
             ->where('tie_key', $game->tie_key)
             ->orderBy('leg')
             ->get();
+    }
+
+    public function hasKnockoutGamesInStages(int $leagueId, array $stages): bool
+    {
+        return $stages !== [] && Game::query()
+            ->where('league_id', $leagueId)
+            ->whereIn('knockout_stage', $stages)
+            ->exists();
     }
 
     public function hasStartedKnockoutGames(League $league, array $stages): bool

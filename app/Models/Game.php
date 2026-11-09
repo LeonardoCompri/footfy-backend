@@ -11,7 +11,11 @@ class Game extends Model
 
     public ?bool $penaltiesAllowed = null;
 
+    public ?bool $penaltiesPossible = null;
+
     public ?bool $resultsLocked = null;
+
+    public ?string $resultsLock = null;
 
     protected $fillable = [
         'league_id',
@@ -60,5 +64,10 @@ class Game extends Model
     public function events()
     {
         return $this->hasMany(GameEvent::class);
+    }
+
+    public function penaltyKicks()
+    {
+        return $this->hasMany(GamePenaltyKick::class);
     }
 }

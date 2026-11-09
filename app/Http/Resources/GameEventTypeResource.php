@@ -13,6 +13,7 @@ class GameEventTypeResource extends JsonResource
             'id' => $this->id,
             'slug' => $this->slug,
             'name' => $this->name,
+            'abbreviation' => $this->abbreviation,
             'icon' => $this->icon,
             'color' => $this->color,
             'counts_for' => $this->counts_for,

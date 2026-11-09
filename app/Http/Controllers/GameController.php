@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\GameIndexRequest;
+use App\Http\Requests\GamePenaltyKicksRequest;
 use App\Http\Requests\GameStoreRequest;
 use App\Http\Requests\GameUpdateRequest;
 use App\Http\Resources\GameResource;
@@ -93,6 +94,21 @@ class GameController extends Controller
         try {
             $data = $request->validated();
             $response = $this->service->update($data, $id);
+
+            return response()->json(['data' => new GameResource($response)]);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    public function updatePenaltyKicks(GamePenaltyKicksRequest $request, string $id): JsonResponse
+    {
+        try {
+            $response = $this->service->updatePenaltyKicks($request->validated('kicks'), $id);
 
             return response()->json(['data' => new GameResource($response)]);
         } catch (ValidationException $ex) {

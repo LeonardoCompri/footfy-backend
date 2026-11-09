@@ -69,6 +69,7 @@ class GameEventTypeControllerTest extends TestCase
             'id' => $inactive->id,
             'slug' => 'antigo',
             'name' => $inactive->name,
+            'abbreviation' => null,
             'icon' => 'mdi-star',
             'color' => 'grey',
             'counts_for' => null,
@@ -77,6 +78,10 @@ class GameEventTypeControllerTest extends TestCase
             'sort_order' => 0,
             'active' => false,
         ]);
+        $this->assertSame(
+            [null, 'G', null, 'GC', 'CA', 'CV'],
+            array_column($response->json('data'), 'abbreviation')
+        );
         $response->assertJsonPath('data.1.counts_for', 'team')
             ->assertJsonPath('data.1.allows_assist', true)
             ->assertJsonPath('data.2.id', $sameOrder->id);
@@ -163,6 +168,12 @@ class GameEventTypeControllerTest extends TestCase
             'assistência em cartão' => [['allows_assist' => true, 'card' => 'red'], 'allows_assist'],
             'ordem negativa' => [['sort_order' => -1], 'sort_order'],
             'ativo não booleano' => [['active' => 'sim'], 'active'],
+            'sigla longa' => [['abbreviation' => 'ABCD'], 'abbreviation'],
+            'sigla repetida' => [['abbreviation' => 'GC'], 'abbreviation'],
+            'sigla repetida em minúscula' => [['abbreviation' => 'gc'], 'abbreviation'],
+            'sigla com símbolo' => [['abbreviation' => 'G!'], 'abbreviation'],
+            'sigla com espaço' => [['abbreviation' => 'P D'], 'abbreviation'],
+            'sigla não texto' => [['abbreviation' => ['PD']], 'abbreviation'],
         ];
     }
 
@@ -176,6 +187,64 @@ class GameEventTypeControllerTest extends TestCase
             ->assertJsonValidationErrors($field);
 
         $this->assertSame(4, GameEventType::count());
+    }
+
+    public function test_master_creates_type_with_abbreviation_in_uppercase(): void
+    {
+        $this->authenticateAs();
+
+        $this->postJson('/api/event-types', $this->payload(['abbreviation' => 'pdé']))
+            ->assertCreated()
+            ->assertJsonPath('data.abbreviation', 'PDÉ');
+
+        $this->assertDatabaseHas('game_event_types', ['slug' => 'penalty_saved', 'abbreviation' => 'PDÉ']);
+    }
+
+    public function test_abbreviation_is_optional_on_create(): void
+    {
+        $this->authenticateAs();
+
+        $this->postJson('/api/event-types', $this->payload())
+            ->assertCreated()
+            ->assertJsonPath('data.abbreviation', null);
+        $this->postJson('/api/event-types', $this->payload(['slug' => 'outro', 'abbreviation' => null]))
+            ->assertCreated()
+            ->assertJsonPath('data.abbreviation', null);
+    }
+
+    public function test_master_updates_abbreviation_of_type_in_use(): void
+    {
+        $this->authenticateAs();
+        GameEvent::factory()->create(['type' => 'goal']);
+        $goal = GameEventType::where('slug', 'goal')->firstOrFail();
+
+        $this->putJson("/api/event-types/{$goal->id}", ['abbreviation' => 'gl'])
+            ->assertOk()
+            ->assertJsonPath('data.abbreviation', 'GL');
+        $this->putJson("/api/event-types/{$goal->id}", ['abbreviation' => 'GL', 'name' => 'Gol'])
+            ->assertOk()
+            ->assertJsonPath('data.abbreviation', 'GL');
+        $this->putJson("/api/event-types/{$goal->id}", ['name' => 'Gol de placa'])
+            ->assertOk()
+            ->assertJsonPath('data.abbreviation', 'GL');
+        $this->putJson("/api/event-types/{$goal->id}", ['abbreviation' => null])
+            ->assertOk()
+            ->assertJsonPath('data.abbreviation', null);
+    }
+
+    public function test_update_rejects_abbreviation_of_another_type(): void
+    {
+        $this->authenticateAs();
+        $goal = GameEventType::where('slug', 'goal')->firstOrFail();
+
+        $this->putJson("/api/event-types/{$goal->id}", ['abbreviation' => 'cv'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('abbreviation');
+        $this->putJson("/api/event-types/{$goal->id}", ['abbreviation' => 'GOLS'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('abbreviation');
+
+        $this->assertDatabaseHas('game_event_types', ['id' => $goal->id, 'abbreviation' => 'G']);
     }
 
     public function test_slug_cannot_be_changed(): void

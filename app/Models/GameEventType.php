@@ -26,6 +26,7 @@ class GameEventType extends Model
     protected $fillable = [
         'slug',
         'name',
+        'abbreviation',
         'icon',
         'color',
         'counts_for',

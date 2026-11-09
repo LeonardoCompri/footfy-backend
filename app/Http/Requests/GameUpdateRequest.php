@@ -7,13 +7,14 @@ use App\Http\Requests\Concerns\ValidatesGameTeams;
 use App\Models\Game;
 use App\Models\League;
 use App\Models\Stadium;
-use App\Services\LeagueKnockoutService;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 
 class GameUpdateRequest extends FormRequest
 {
     use ValidatesDrawnGames, ValidatesGameTeams;
+
+    private const PENALTIES_FROM_KICKS = 'O placar dos pênaltis vem das cobranças; registre a disputa de pênaltis da partida.';
 
     public function rules(): array
     {
@@ -30,8 +31,6 @@ class GameUpdateRequest extends FormRequest
             'tie_key' => ['nullable', 'string', 'max:255'],
             'leg' => ['nullable', 'integer', 'in:1,2'],
             'status' => ['sometimes', 'string', 'in:scheduled,in_progress,finished,cancelled'],
-            'home_penalties' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:99'],
-            'away_penalties' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:99'],
         ];
     }
 
@@ -41,6 +40,7 @@ class GameUpdateRequest extends FormRequest
             $game = $this->route('id') ? Game::find($this->route('id')) : null;
 
             $this->rejectLockedGroupResultChanges($validator, $game);
+            $this->rejectLockedKnockoutResultChanges($validator, $game);
             $this->rejectDrawnGameFieldChanges($validator, $game);
 
             $leagueId = $this->input('league_id', $game?->league_id);
@@ -67,49 +67,24 @@ class GameUpdateRequest extends FormRequest
                 $this->rejectGameBecomingManualPhase($validator, $league, $game);
             }
 
-            $this->validatePenalties($validator, $game);
+            $this->rejectPenaltiesChange($validator, $game);
         });
     }
 
-    private function validatePenalties(Validator $validator, ?Game $game): void
+    private function rejectPenaltiesChange(Validator $validator, ?Game $game): void
     {
-        if (! $game || ! $this->hasAny(['home_penalties', 'away_penalties'])) {
-            return;
-        }
+        foreach (['home_penalties', 'away_penalties'] as $field) {
+            if (! $this->has($field)) {
+                continue;
+            }
 
-        if ($validator->errors()->hasAny(['home_penalties', 'away_penalties', 'status'])) {
-            return;
-        }
+            $value = $this->input($field);
 
-        $home = $this->has('home_penalties') ? $this->input('home_penalties') : $game->home_penalties;
-        $away = $this->has('away_penalties') ? $this->input('away_penalties') : $game->away_penalties;
+            if (! is_array($value) && (string) $value === (string) $game?->getAttribute($field)) {
+                continue;
+            }
 
-        if ($home === null && $away === null) {
-            return;
-        }
-
-        if ($home === null || $away === null) {
-            $validator->errors()->add('home_penalties', 'Informe os pênaltis dos dois times.');
-
-            return;
-        }
-
-        if ((int) $home === (int) $away) {
-            $validator->errors()->add('home_penalties', 'A disputa de pênaltis não pode terminar empatada.');
-
-            return;
-        }
-
-        if ((string) $home === (string) $game->home_penalties && (string) $away === (string) $game->away_penalties) {
-            return;
-        }
-
-        $issue = app(LeagueKnockoutService::class)->penaltiesIssue($game, [
-            'status' => $this->input('status', $game->status),
-        ]);
-
-        if ($issue !== null) {
-            $validator->errors()->add('home_penalties', $issue);
+            $validator->errors()->add($field, self::PENALTIES_FROM_KICKS);
         }
     }
 
