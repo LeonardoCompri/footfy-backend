@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Game;
 use App\Repositories\GameRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
+use App\Services\Knockout\ShootoutResolver;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -15,9 +16,9 @@ class GameService
 {
     use EnsuresLeagueAccess;
 
-    private const SHOW_RELATIONS = ['homeTeam', 'awayTeam', 'stadium', 'events.player', 'events.relatedPlayer'];
+    private const SHOW_RELATIONS = ['homeTeam', 'awayTeam', 'stadium', 'events.player', 'events.relatedPlayer', 'penaltyKicks.player'];
 
-    private const BACKOFFICE_RELATIONS = ['homeTeam.players', 'awayTeam.players'];
+    private const BACKOFFICE_RELATIONS = ['league.championship', 'homeTeam.players', 'awayTeam.players'];
 
     private const STATUSES_WITH_SCORE = ['in_progress', 'finished'];
 
@@ -25,6 +26,7 @@ class GameService
         private readonly GameRepository $repository,
         private readonly LeagueDrawService $drawService,
         private readonly LeagueKnockoutService $knockoutService,
+        private readonly ShootoutResolver $shootoutResolver,
     ) {}
 
     public function index(string $leagueId, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
@@ -72,7 +74,13 @@ class GameService
         $recalculateScore = $this->shouldRecalculateScore($game);
         $drawnPairingChanged = $this->changesDrawnPairing($game);
 
-        DB::transaction(function () use ($game, $leagueChanged, $recalculateScore, $drawnPairingChanged) {
+        $statusChanged = $game->isDirty('status');
+
+        DB::transaction(function () use ($game, $leagueChanged, $recalculateScore, $drawnPairingChanged, $statusChanged) {
+            if ($statusChanged) {
+                $this->knockoutService->ensureKnockoutResultsEditable($game);
+            }
+
             if ($drawnPairingChanged) {
                 $this->drawService->ensureTeamChangeKeepsSchedule($game);
             }
@@ -88,6 +96,39 @@ class GameService
             }
 
             $this->knockoutService->clearStalePenalties($game);
+        });
+
+        return $this->withBackofficeFlags($game->load($this->showRelations(backoffice: true)));
+    }
+
+    public function updatePenaltyKicks(array $kicks, string $id): Game
+    {
+        $current = $this->find($id);
+
+        $game = DB::transaction(function () use ($kicks, $id, $current) {
+            $this->knockoutService->ensureKnockoutResultsEditable($current);
+            $game = $this->repository->findForUpdate((int) $id);
+
+            if ($kicks !== []) {
+                $issue = $this->knockoutService->penaltiesIssue($game);
+
+                if ($issue !== null) {
+                    throw ValidationException::withMessages(['message' => $issue]);
+                }
+            }
+
+            $rows = array_map(fn (array $kick, int $index) => [
+                'team_id' => (int) $kick['team_id'],
+                'player_id' => (int) $kick['player_id'],
+                'order' => $index + 1,
+                'scored' => (bool) $kick['scored'],
+            ], $kicks, array_keys($kicks));
+
+            $this->repository->replacePenaltyKicks($game, $rows);
+            $game->fill($this->penaltiesFromKicks($game, $rows));
+            $this->repository->update($game);
+
+            return $game;
         });
 
         return $this->withBackofficeFlags($game->load($this->showRelations(backoffice: true)));
@@ -109,9 +150,22 @@ class GameService
     private function withBackofficeFlags(Game $game): Game
     {
         $game->penaltiesAllowed = $this->knockoutService->penaltiesAllowed($game);
-        $game->resultsLocked = $this->knockoutService->groupResultsLocked($game);
+        $game->penaltiesPossible = $this->knockoutService->penaltiesPossible($game);
+        $game->resultsLock = $this->knockoutService->resultsLock($game);
+        $game->resultsLocked = $game->resultsLock !== null;
 
         return $game;
+    }
+
+    private function penaltiesFromKicks(Game $game, array $kicks): array
+    {
+        if ($kicks === []) {
+            return ['home_penalties' => null, 'away_penalties' => null];
+        }
+
+        $result = $this->shootoutResolver->resolve($kicks, (int) $game->home_team_id, (int) $game->away_team_id);
+
+        return ['home_penalties' => $result['home'], 'away_penalties' => $result['away']];
     }
 
     private function scoreFromEvents(Game $game): array
@@ -181,8 +235,13 @@ class GameService
     {
         return [
             'events' => fn ($query) => $query->latestMinuteFirst(),
+            'penaltyKicks' => fn ($query) => $query->inShootoutOrder(),
             ...self::SHOW_RELATIONS,
-            ...($backoffice ? self::BACKOFFICE_RELATIONS : []),
+            ...($backoffice ? [
+                ...self::BACKOFFICE_RELATIONS,
+                'homeTeam.technicalCommitteeMembers' => fn ($query) => $query->headCoaches(),
+                'awayTeam.technicalCommitteeMembers' => fn ($query) => $query->headCoaches(),
+            ] : []),
         ];
     }
 

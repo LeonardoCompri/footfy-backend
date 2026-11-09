@@ -92,6 +92,15 @@ trait ValidatesDrawnGames
         $this->rejectLockedFieldChanges($validator, $game, self::GROUP_RESULT_LOCKED_FIELDS, LeagueKnockoutService::GROUP_RESULT_FIELD_LOCKED);
     }
 
+    protected function rejectLockedKnockoutResultChanges(Validator $validator, ?Game $game): void
+    {
+        if (! $game || ! $this->has('status') || ! app(LeagueKnockoutService::class)->knockoutResultsLocked($game)) {
+            return;
+        }
+
+        $this->rejectLockedFieldChanges($validator, $game, ['status'], LeagueKnockoutService::KNOCKOUT_RESULT_FIELD_LOCKED);
+    }
+
     protected function rejectDrawnGameFieldChanges(Validator $validator, ?Game $game): void
     {
         if (! $game) {

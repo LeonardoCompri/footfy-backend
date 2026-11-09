@@ -2,12 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\Championship;
 use App\Models\Game;
 use App\Models\GameEvent;
 use App\Models\League;
 use App\Models\Player;
 use App\Models\Stadium;
 use App\Models\Team;
+use App\Models\TechnicalCommitteeMember;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -486,6 +488,105 @@ class GameControllerTest extends TestCase
         $response->assertJsonPath('data.homeTeam.id', $game->home_team_id);
         $this->assertArrayNotHasKey('players', $response->json('data.homeTeam'));
         $this->assertArrayNotHasKey('players', $response->json('data.awayTeam'));
+    }
+
+    public function test_show_returns_league_with_championship(): void
+    {
+        $this->authenticate();
+        $championship = Championship::factory()->create(['name' => 'Campeonato Brasileiro']);
+        $league = League::factory()->create(['name' => 'Série A 2026', 'championship_id' => $championship->id]);
+        $game = Game::factory()->create(['league_id' => $league->id]);
+
+        $this->getJson("/api/games/{$game->id}")
+            ->assertOk()
+            ->assertJsonPath('data.league', [
+                'id' => $league->id,
+                'name' => 'Série A 2026',
+                'championship' => ['id' => $championship->id, 'name' => 'Campeonato Brasileiro'],
+            ]);
+    }
+
+    public function test_show_returns_league_without_championship_as_null(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['name' => 'Liga antiga', 'championship_id' => null]);
+        $game = Game::factory()->create(['league_id' => $league->id]);
+
+        $this->getJson("/api/games/{$game->id}")
+            ->assertOk()
+            ->assertJsonPath('data.league', ['id' => $league->id, 'name' => 'Liga antiga', 'championship' => null]);
+    }
+
+    public function test_show_returns_only_head_coaches_of_each_team(): void
+    {
+        $this->authenticate();
+        $game = Game::factory()->create();
+        TechnicalCommitteeMember::factory()->create(['team_id' => $game->home_team_id, 'role' => 'Auxiliar Técnico']);
+        $headCoach = TechnicalCommitteeMember::factory()->create(['team_id' => $game->home_team_id, 'role' => 'Treinador', 'name' => 'Carlos Lima']);
+        $secondCoach = TechnicalCommitteeMember::factory()->create(['team_id' => $game->home_team_id, 'role' => 'Treinador']);
+        TechnicalCommitteeMember::factory()->create(['team_id' => $game->away_team_id, 'role' => 'Preparador Físico']);
+        TechnicalCommitteeMember::factory()->create(['role' => 'Treinador', 'team_id' => Team::factory()->create()->id]);
+
+        $response = $this->getJson("/api/games/{$game->id}")->assertOk();
+
+        $this->assertSame([$headCoach->id, $secondCoach->id], array_column($response->json('data.homeTeam.technicalCommitteeMembers'), 'id'));
+        $response->assertJsonPath('data.homeTeam.technicalCommitteeMembers.0.name', 'Carlos Lima')
+            ->assertJsonPath('data.homeTeam.technicalCommitteeMembers.0.role', 'Treinador')
+            ->assertJsonPath('data.homeTeam.technicalCommitteeMembers.0.team_id', $game->home_team_id)
+            ->assertJsonPath('data.awayTeam.technicalCommitteeMembers', []);
+    }
+
+    public function test_update_response_includes_league_and_head_coaches_of_the_new_team(): void
+    {
+        $this->authenticate();
+        $game = Game::factory()->create(['status' => 'scheduled']);
+        $newAway = Team::factory()->create();
+        $game->league->teams()->attach([$game->home_team_id, $newAway->id]);
+        $coach = TechnicalCommitteeMember::factory()->create(['team_id' => $newAway->id, 'role' => 'Treinador']);
+
+        $this->putJson("/api/games/{$game->id}", ['away_team_id' => $newAway->id])
+            ->assertOk()
+            ->assertJsonPath('data.league.id', $game->league_id)
+            ->assertJsonPath('data.awayTeam.technicalCommitteeMembers.0.id', $coach->id);
+    }
+
+    public function test_show_loads_league_and_head_coaches_with_fixed_number_of_queries(): void
+    {
+        $user = $this->authenticate();
+        $countQueries = function (Game $game) use ($user): int {
+            Sanctum::actingAs($user->fresh());
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->getJson("/api/games/{$game->id}")->assertOk();
+            $log = DB::getQueryLog();
+            DB::disableQueryLog();
+
+            return count(array_filter($log, fn ($q) => str_contains($q['query'], 'from "technical_committee_members"') || str_contains($q['query'], 'from "championships"')));
+        };
+
+        $small = Game::factory()->create(['league_id' => League::factory()->create(['championship_id' => Championship::factory()->create()->id])->id]);
+        TechnicalCommitteeMember::factory()->create(['team_id' => $small->home_team_id, 'role' => 'Treinador']);
+        $large = Game::factory()->create(['league_id' => League::factory()->create(['championship_id' => Championship::factory()->create()->id])->id]);
+        TechnicalCommitteeMember::factory()->count(5)->create(['team_id' => $large->home_team_id, 'role' => 'Treinador']);
+        TechnicalCommitteeMember::factory()->count(5)->create(['team_id' => $large->away_team_id, 'role' => 'Treinador']);
+
+        $this->assertSame(3, $countQueries($small));
+        $this->assertSame(3, $countQueries($large));
+    }
+
+    public function test_public_show_and_index_do_not_include_league_nor_coaches(): void
+    {
+        $this->authenticate();
+        $game = Game::factory()->create();
+        TechnicalCommitteeMember::factory()->create(['team_id' => $game->home_team_id, 'role' => 'Treinador']);
+
+        $public = $this->getJson("/api/public/games/{$game->id}")->assertOk()->json('data');
+        $this->assertArrayNotHasKey('league', $public);
+        $this->assertArrayNotHasKey('technicalCommitteeMembers', $public['homeTeam']);
+
+        $listed = $this->getJson("/api/games?league_id={$game->league_id}")->assertOk()->json('data.0');
+        $this->assertArrayNotHasKey('league', $listed);
+        $this->assertArrayNotHasKey('technicalCommitteeMembers', $listed['homeTeam']);
     }
 
     public function test_index_includes_teams_and_stadium_but_not_events(): void

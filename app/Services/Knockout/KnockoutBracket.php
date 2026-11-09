@@ -28,6 +28,19 @@ final class KnockoutBracket
         return self::MAIN_STAGES;
     }
 
+    public static function laterStages(string $stage): array
+    {
+        $index = array_search($stage, self::MAIN_STAGES, true);
+
+        if ($index === false) {
+            return [];
+        }
+
+        $later = array_slice(self::MAIN_STAGES, $index + 1);
+
+        return $later === [] ? [] : [...$later, self::THIRD_PLACE];
+    }
+
     public function steps(int $size, bool $thirdPlace): array
     {
         $steps = [];

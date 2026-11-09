@@ -4,6 +4,7 @@ namespace App\Http\Requests\Concerns;
 
 use App\Models\GameEventType;
 use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Validation\Rule;
 
 trait ValidatesGameEventTypeFlags
 {
@@ -28,9 +29,28 @@ trait ValidatesGameEventTypeFlags
         }
     }
 
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->input('abbreviation'))) {
+            $this->merge(['abbreviation' => mb_strtoupper($this->input('abbreviation'))]);
+        }
+    }
+
+    protected function abbreviationRules(?string $ignoreId = null): array
+    {
+        return [
+            'nullable',
+            'string',
+            'max:3',
+            'regex:/^[\pL\pN]+$/u',
+            Rule::unique('game_event_types', 'abbreviation')->ignore($ignoreId),
+        ];
+    }
+
     protected function flagMessages(): array
     {
         return [
+            'abbreviation.regex' => 'A sigla deve ter apenas letras e números.',
             'slug.regex' => 'O identificador deve ter apenas letras minúsculas, números e _.',
             'icon.regex' => 'O ícone deve ser um nome do Material Design Icons (ex.: mdi-soccer).',
             'color.in' => 'A cor informada não está entre as cores do tema.',

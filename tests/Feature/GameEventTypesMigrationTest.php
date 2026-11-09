@@ -7,6 +7,7 @@ use App\Models\GameEventType;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class GameEventTypesMigrationTest extends TestCase
@@ -30,6 +31,41 @@ class GameEventTypesMigrationTest extends TestCase
             ['slug' => 'yellow_card', 'name' => 'Cartão amarelo', 'icon' => 'mdi-card', 'color' => 'card-yellow', 'counts_for' => null, 'allows_assist' => false, 'card' => 'yellow', 'sort_order' => 3, 'active' => true],
             ['slug' => 'red_card', 'name' => 'Cartão vermelho', 'icon' => 'mdi-card', 'color' => 'card-red', 'counts_for' => null, 'allows_assist' => false, 'card' => 'red', 'sort_order' => 4, 'active' => true],
         ], $types);
+    }
+
+    private function abbreviationMigration(): object
+    {
+        return require database_path('migrations/2026_11_07_000002_add_abbreviation_to_game_event_types_table.php');
+    }
+
+    public function test_migration_fills_the_abbreviation_of_the_default_types(): void
+    {
+        $this->assertSame(
+            ['goal' => 'G', 'own_goal' => 'GC', 'yellow_card' => 'CA', 'red_card' => 'CV'],
+            GameEventType::orderBy('sort_order')->pluck('abbreviation', 'slug')->all()
+        );
+    }
+
+    public function test_abbreviation_migration_fills_only_the_default_types(): void
+    {
+        $this->abbreviationMigration()->down();
+        $this->assertFalse(Schema::hasColumn('game_event_types', 'abbreviation'));
+        $custom = GameEventType::factory()->create(['slug' => 'penalty_miss']);
+
+        $this->abbreviationMigration()->up();
+
+        $this->assertNull($custom->fresh()->abbreviation);
+        $this->assertSame('G', GameEventType::where('slug', 'goal')->value('abbreviation'));
+        $this->assertSame('CV', GameEventType::where('slug', 'red_card')->value('abbreviation'));
+    }
+
+    public function test_abbreviation_is_unique_but_may_be_missing_in_many_types(): void
+    {
+        GameEventType::factory()->count(2)->create(['abbreviation' => null]);
+
+        $this->expectException(QueryException::class);
+
+        GameEventType::factory()->create(['abbreviation' => 'G']);
     }
 
     public function test_legacy_event_type_becomes_inactive_neutral_type(): void

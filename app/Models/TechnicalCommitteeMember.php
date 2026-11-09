@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class TechnicalCommitteeMember extends Model
 {
     use HasFactory;
+
+    public const HEAD_COACH_ROLE = 'Treinador';
 
     public const ROLES = [
         ['value' => 'Treinador', 'title' => 'Treinador'],
@@ -35,5 +38,10 @@ class TechnicalCommitteeMember extends Model
     public function team()
     {
         return $this->belongsTo(Team::class);
+    }
+
+    public function scopeHeadCoaches(Builder $query): Builder
+    {
+        return $query->where('role', self::HEAD_COACH_ROLE)->orderBy('id');
     }
 }
