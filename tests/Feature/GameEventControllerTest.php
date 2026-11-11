@@ -801,11 +801,13 @@ class GameEventControllerTest extends TestCase
             ->assertJsonPath('data.player', [
                 'id' => $scenario['player']->id,
                 'name' => $scenario['player']->name,
+                'number' => $scenario['player']->number,
                 'removed' => false,
             ])
             ->assertJsonPath('data.related_player', [
                 'id' => $scenario['teammate']->id,
                 'name' => $scenario['teammate']->name,
+                'number' => $scenario['teammate']->number,
                 'removed' => false,
             ]);
     }
@@ -823,6 +825,7 @@ class GameEventControllerTest extends TestCase
             ->assertJsonPath('data.0.player', [
                 'id' => $scenario['player']->id,
                 'name' => $scenario['player']->name,
+                'number' => $scenario['player']->number,
                 'removed' => true,
             ])
             ->assertJsonPath('data.0.related_player', null);
@@ -839,7 +842,9 @@ class GameEventControllerTest extends TestCase
         $this->putJson("/api/game-events/{$event->id}", ['minute' => 55])
             ->assertOk()
             ->assertJsonPath('data.minute', 55)
+            ->assertJsonPath('data.player.number', $scenario['player']->number)
             ->assertJsonPath('data.player.removed', true)
+            ->assertJsonPath('data.related_player.number', $scenario['teammate']->number)
             ->assertJsonPath('data.related_player.removed', true);
 
         $this->putJson("/api/game-events/{$event->id}", [

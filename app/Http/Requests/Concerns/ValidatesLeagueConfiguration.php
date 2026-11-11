@@ -58,6 +58,7 @@ trait ValidatesLeagueConfiguration
             "{$prefix}tiebreakers.*" => ['string', Rule::in(League::TIEBREAKERS)],
             "{$prefix}knockout_tiebreakers" => ['nullable', 'list'],
             "{$prefix}knockout_tiebreakers.*" => ['string', Rule::in(League::knockoutTiebreakerValues())],
+            "{$prefix}max_players_per_team" => ['sometimes', 'integer', 'min:'.League::MIN_PLAYERS_PER_TEAM, 'max:'.League::MAX_PLAYERS_PER_TEAM],
         ];
     }
 
@@ -91,6 +92,8 @@ trait ValidatesLeagueConfiguration
 
     protected function validateLeagueConfiguration(Validator $validator, array $input, ?League $league, string $prefix = ''): void
     {
+        $this->validatePlayerLimitReduction($validator, $input, $league, $prefix);
+
         foreach (array_keys(self::CONFIGURATION_DEFAULTS) as $field) {
             if ($validator->errors()->has("{$prefix}{$field}") || $validator->errors()->has("{$prefix}{$field}.*")) {
                 return;
@@ -123,6 +126,36 @@ trait ValidatesLeagueConfiguration
             $validator->errors()->add($key, $message ?? __('validation.required', [
                 'attribute' => $validator->getDisplayableAttribute($key),
             ]));
+        }
+    }
+
+    private function validatePlayerLimitReduction(Validator $validator, array $input, ?League $league, string $prefix): void
+    {
+        $key = "{$prefix}max_players_per_team";
+
+        if (! $league || ! array_key_exists('max_players_per_team', $input) || $validator->errors()->has($key)) {
+            return;
+        }
+
+        $limit = (int) $input['max_players_per_team'];
+
+        if ($limit >= $league->max_players_per_team) {
+            return;
+        }
+
+        $largestTeam = $league->teams()
+            ->withCount('players')
+            ->orderByDesc('players_count')
+            ->orderBy('teams.name')
+            ->first();
+
+        if ($largestTeam && $largestTeam->players_count > $limit) {
+            $validator->errors()->add($key, sprintf(
+                'Não é possível reduzir o limite para %d: o time %s tem %d atletas.',
+                $limit,
+                $largestTeam->name,
+                $largestTeam->players_count,
+            ));
         }
     }
 

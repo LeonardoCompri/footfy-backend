@@ -37,6 +37,7 @@ class GameResource extends JsonResource
             'league' => $this->whenLoaded('league', fn () => [
                 'id' => $this->league->id,
                 'name' => $this->league->name,
+                'max_players_per_team' => $this->league->max_players_per_team,
                 'championship' => $this->league->championship ? [
                     'id' => $this->league->championship->id,
                     'name' => $this->league->championship->name,

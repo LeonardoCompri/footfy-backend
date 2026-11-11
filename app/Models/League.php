@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -30,6 +31,7 @@ class League extends Model
         'third_place',
         'tiebreakers',
         'knockout_tiebreakers',
+        'max_players_per_team',
     ];
 
     public const FORMATS = ['round_robin', 'knockout', 'hybrid'];
@@ -39,6 +41,10 @@ class League extends Model
     public const KNOCKOUT_SIZES = [2, 4, 8, 16];
 
     public const MAX_GROUPS = 16;
+
+    public const MIN_PLAYERS_PER_TEAM = 11;
+
+    public const MAX_PLAYERS_PER_TEAM = 35;
 
     public const TIEBREAKERS = [
         'points',
@@ -87,6 +93,7 @@ class League extends Model
         'groups_count' => 1,
         'group_legs' => 1,
         'third_place' => false,
+        'max_players_per_team' => self::MAX_PLAYERS_PER_TEAM,
     ];
 
     protected function casts(): array
@@ -101,6 +108,7 @@ class League extends Model
             'third_place' => 'boolean',
             'tiebreakers' => 'array',
             'knockout_tiebreakers' => 'array',
+            'max_players_per_team' => 'integer',
         ];
     }
 
@@ -129,6 +137,13 @@ class League extends Model
         $groupNumber = (int) $pivot;
 
         return $groupNumber >= 1 && $groupNumber <= $groupsCount ? $groupNumber : null;
+    }
+
+    public function scopeNotEnded(Builder $query): void
+    {
+        $query->where(fn (Builder $q) => $q
+            ->whereNull('leagues.end_date')
+            ->orWhere('leagues.end_date', '>=', today()->toDateString()));
     }
 
     public function usesDraw(): bool
