@@ -10,7 +10,6 @@ use App\Http\Resources\GameResource;
 use App\Services\GameService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
