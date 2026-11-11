@@ -14,6 +14,7 @@ use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\LinksUsersToLeagues;
@@ -525,5 +526,256 @@ class LeagueControllerTest extends TestCase
         $this->authenticateAs($role, [$league->id]);
 
         $this->getJson("/api/leagues/{$league->id}")->assertOk();
+    }
+
+    private function leagueWithRoster(int $rosterCount, array $leagueAttributes = [], string $teamName = 'Alfa FC'): League
+    {
+        $league = League::factory()->create(['end_date' => null, ...$leagueAttributes]);
+        $team = Team::factory()->create(['name' => $teamName]);
+        $team->leagues()->attach($league->id);
+        Player::factory()->count($rosterCount)->create(['team_id' => $team->id]);
+
+        return $league;
+    }
+
+    public function test_new_league_defaults_to_35_players_per_team(): void
+    {
+        $this->authenticate();
+        $championship = Championship::factory()->create();
+
+        $response = $this->postJson('/api/leagues', ['name' => 'Série A', 'championship_id' => $championship->id]);
+
+        $response->assertCreated()->assertJsonPath('data.max_players_per_team', 35);
+        $this->assertDatabaseHas('leagues', ['id' => $response->json('data.id'), 'max_players_per_team' => 35]);
+    }
+
+    public function test_existing_leagues_receive_35_players_per_team_from_migration(): void
+    {
+        $migration = require database_path('migrations/2026_11_10_000000_add_max_players_per_team_to_leagues_table.php');
+        $migration->down();
+        $leagueId = DB::table('leagues')->insertGetId(['name' => 'Liga antiga']);
+
+        $migration->up();
+
+        $this->assertDatabaseHas('leagues', ['id' => $leagueId, 'max_players_per_team' => 35]);
+    }
+
+    public function test_store_accepts_max_players_per_team(): void
+    {
+        $this->authenticate();
+        $championship = Championship::factory()->create();
+
+        $this->postJson('/api/leagues', [
+            'name' => 'Série B',
+            'championship_id' => $championship->id,
+            'max_players_per_team' => 25,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('data.max_players_per_team', 25);
+    }
+
+    public function test_show_returns_max_players_per_team(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['max_players_per_team' => 28]);
+
+        $this->getJson("/api/leagues/{$league->id}")
+            ->assertOk()
+            ->assertJsonPath('data.max_players_per_team', 28);
+    }
+
+    #[DataProvider('playerLimitValues')]
+    public function test_update_validates_max_players_per_team_range(mixed $value, int $status): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+
+        $response = $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => $value]);
+
+        $response->assertStatus($status);
+
+        if ($status === 422) {
+            $response->assertJsonValidationErrors('max_players_per_team');
+            $this->assertSame(35, $league->fresh()->max_players_per_team);
+        } else {
+            $response->assertJsonPath('data.max_players_per_team', $value);
+        }
+    }
+
+    public static function playerLimitValues(): array
+    {
+        return [
+            'abaixo do mínimo' => [10, 422],
+            'mínimo' => [11, 200],
+            'máximo' => [35, 200],
+            'acima do máximo' => [36, 422],
+            'nulo' => [null, 422],
+            'texto' => ['abc', 422],
+            'lista' => [[20], 422],
+        ];
+    }
+
+    public function test_range_error_uses_readable_attribute_name(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 10])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.max_players_per_team.0', 'O campo limite de jogadores por time deve ser no mínimo 11.');
+    }
+
+    public function test_limit_can_go_back_up_from_25_to_30(): void
+    {
+        $this->authenticate();
+        $league = $this->leagueWithRoster(25, ['max_players_per_team' => 25]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 30])
+            ->assertOk()
+            ->assertJsonPath('data.max_players_per_team', 30);
+    }
+
+    public function test_reducing_limit_below_roster_is_blocked_citing_the_team(): void
+    {
+        $this->authenticate();
+        $league = $this->leagueWithRoster(32);
+
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 30])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.max_players_per_team.0', 'Não é possível reduzir o limite para 30: o time Alfa FC tem 32 atletas.');
+
+        $this->assertSame(35, $league->fresh()->max_players_per_team);
+    }
+
+    public function test_reduction_error_cites_the_largest_team_of_the_league(): void
+    {
+        $this->authenticate();
+        $league = $this->leagueWithRoster(31);
+        $largest = Team::factory()->create(['name' => 'Beta EC']);
+        $largest->leagues()->attach($league->id);
+        Player::factory()->count(33)->create(['team_id' => $largest->id]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 30])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.max_players_per_team.0', 'Não é possível reduzir o limite para 30: o time Beta EC tem 33 atletas.');
+    }
+
+    public function test_reducing_limit_to_exact_roster_size_is_allowed(): void
+    {
+        $this->authenticate();
+        $league = $this->leagueWithRoster(30);
+
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 30])
+            ->assertOk()
+            ->assertJsonPath('data.max_players_per_team', 30);
+    }
+
+    public function test_reduction_does_not_count_removed_players(): void
+    {
+        $this->authenticate();
+        $league = $this->leagueWithRoster(32);
+        $league->teams()->first()->players()->limit(2)->get()->each->delete();
+
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 30])->assertOk();
+    }
+
+    public function test_reduction_ignores_players_of_teams_outside_the_league(): void
+    {
+        $this->authenticate();
+        $league = $this->leagueWithRoster(20);
+        Player::factory()->count(32)->create(['team_id' => Team::factory()->create()->id]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 30])->assertOk();
+    }
+
+    public function test_resending_or_raising_limit_with_team_already_above_it_is_allowed(): void
+    {
+        $this->authenticate();
+        $league = $this->leagueWithRoster(32, ['max_players_per_team' => 30]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 30])->assertOk();
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 31])->assertOk();
+    }
+
+    public function test_limit_can_change_on_league_with_drawn_rounds(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'round_robin', 'fixture_mode' => 'draw', 'end_date' => null]);
+        Game::factory()->create(['league_id' => $league->id, 'round' => 1, 'group_number' => 1]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 30])
+            ->assertOk()
+            ->assertJsonPath('data.max_players_per_team', 30);
+    }
+
+    public function test_admin_can_update_limit_of_own_league(): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAsAdmin([$league->id]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 30])
+            ->assertOk()
+            ->assertJsonPath('data.max_players_per_team', 30);
+    }
+
+    public function test_coach_cannot_update_limit(): void
+    {
+        $league = League::factory()->create();
+        $this->authenticateAs('coach', [$league->id]);
+
+        $this->putJson("/api/leagues/{$league->id}", ['max_players_per_team' => 30])->assertForbidden();
+
+        $this->assertSame(35, $league->fresh()->max_players_per_team);
+    }
+
+    public function test_championship_form_saves_limit_of_new_and_existing_leagues(): void
+    {
+        $this->authenticate();
+        $championship = Championship::factory()->create();
+        $league = League::factory()->create(['championship_id' => $championship->id]);
+
+        $response = $this->putJson("/api/championships/{$championship->id}", [
+            'leagues' => [
+                ['id' => $league->id, 'name' => $league->name, 'max_players_per_team' => 30],
+                ['name' => 'Série B', 'max_players_per_team' => 22],
+                ['name' => 'Série C'],
+            ],
+        ]);
+
+        $response->assertOk();
+        $this->assertSame(30, $league->fresh()->max_players_per_team);
+        $this->assertDatabaseHas('leagues', ['name' => 'Série B', 'max_players_per_team' => 22]);
+        $this->assertDatabaseHas('leagues', ['name' => 'Série C', 'max_players_per_team' => 35]);
+    }
+
+    public function test_championship_form_validates_limit_range(): void
+    {
+        $this->authenticate();
+
+        $response = $this->postJson('/api/championships', [
+            'name' => 'Copa',
+            'leagues' => [['name' => 'Série A', 'max_players_per_team' => 36]],
+        ]);
+
+        $response->assertStatus(422);
+        $this->assertArrayHasKey('leagues.0.max_players_per_team', $response->json('errors'));
+    }
+
+    public function test_championship_form_blocks_reduction_below_roster(): void
+    {
+        $this->authenticate();
+        $championship = Championship::factory()->create();
+        $league = $this->leagueWithRoster(32, ['championship_id' => $championship->id]);
+
+        $response = $this->putJson("/api/championships/{$championship->id}", [
+            'leagues' => [['id' => $league->id, 'name' => $league->name, 'max_players_per_team' => 30]],
+        ]);
+
+        $response->assertStatus(422);
+        $this->assertSame(
+            'Não é possível reduzir o limite para 30: o time Alfa FC tem 32 atletas.',
+            $response->json('errors')['leagues.0.max_players_per_team'][0],
+        );
+        $this->assertSame(35, $league->fresh()->max_players_per_team);
     }
 }

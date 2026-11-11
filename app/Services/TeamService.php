@@ -163,7 +163,35 @@ class TeamService
         $this->ensureUserHasAccessToLeagues($leagueIds);
         $this->ensureLeaguesAcceptNewTeams($leagueIds, $team);
 
-        return $this->repository->syncLeagues($team, $leagueIds);
+        return DB::transaction(function () use ($team, $leagueIds) {
+            $this->repository->findForUpdate($team->id);
+            $this->ensureRosterFitsNewLeagues($team, $leagueIds);
+
+            return $this->repository->syncLeagues($team, $leagueIds);
+        });
+    }
+
+    private function ensureRosterFitsNewLeagues(Team $team, array $leagueIds): void
+    {
+        $league = $this->leagueRepository->strictestActiveAmongNotLinkedTo($leagueIds, $team);
+
+        if (! $league) {
+            return;
+        }
+
+        $rosterCount = $this->repository->rosterCount($team);
+
+        if ($rosterCount > $league->max_players_per_team) {
+            throw ValidationException::withMessages([
+                'message' => sprintf(
+                    'O time %s tem %d atletas, acima do limite de %d por time da liga %s.',
+                    $team->name,
+                    $rosterCount,
+                    $league->max_players_per_team,
+                    $league->name,
+                ),
+            ]);
+        }
     }
 
     private function ensureLeaguesAcceptNewTeams(array $leagueIds, ?Team $team = null): void

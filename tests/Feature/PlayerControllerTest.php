@@ -932,4 +932,214 @@ class PlayerControllerTest extends TestCase
         $this->assertDatabaseHas('game_events', ['id' => $event->id, 'player_id' => $player->id]);
         $this->assertDatabaseHas('players', ['id' => $player->id]);
     }
+
+    private function teamWithRoster(int $rosterCount, int $limit = 35, ?string $endDate = null, string $teamName = 'Alfa FC', string $leagueName = 'Série A'): Team
+    {
+        $team = Team::factory()->create(['name' => $teamName]);
+        $team->leagues()->attach(League::factory()->create([
+            'name' => $leagueName,
+            'end_date' => $endDate,
+            'max_players_per_team' => $limit,
+        ])->id);
+        Player::factory()->count($rosterCount)->create(['team_id' => $team->id]);
+
+        return $team;
+    }
+
+    private function newPlayerPayload(Team $team, array $overrides = []): array
+    {
+        return ['team_id' => $team->id, 'name' => 'Atleta Novo', 'position' => 'ATA', ...$overrides];
+    }
+
+    public function test_store_is_blocked_when_team_reached_the_limit(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(30, 30);
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'O time Alfa FC já tem 30 atletas e o limite da liga Série A é de 30 por time.');
+
+        $this->assertDatabaseMissing('players', ['name' => 'Atleta Novo']);
+    }
+
+    public function test_store_is_allowed_below_the_limit(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(29, 30);
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))->assertCreated();
+    }
+
+    public function test_store_is_blocked_for_team_already_above_the_limit(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(32, 30);
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'O time Alfa FC já tem 32 atletas e o limite da liga Série A é de 30 por time.');
+    }
+
+    public function test_store_does_not_count_removed_players(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(30, 30);
+        $team->players()->first()->delete();
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))->assertCreated();
+    }
+
+    public function test_coach_is_also_blocked_at_the_limit(): void
+    {
+        $team = $this->teamWithRoster(30, 30);
+        $user = User::factory()->create(['team_id' => $team->id]);
+        $user->assignRole('coach');
+        Sanctum::actingAs($user);
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))->assertStatus(422);
+    }
+
+    public function test_restoring_by_document_is_blocked_at_the_limit(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(30, 30);
+        $removed = Player::factory()->create(['team_id' => Team::factory()->create()->id, 'document' => '12312312312']);
+        $removed->delete();
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team, ['document' => '12312312312']))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'O time Alfa FC já tem 30 atletas e o limite da liga Série A é de 30 por time.');
+
+        $this->assertSoftDeleted('players', ['id' => $removed->id]);
+    }
+
+    public function test_restoring_by_document_is_allowed_below_the_limit(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(29, 30);
+        $removed = Player::factory()->create(['team_id' => $team->id, 'document' => '12312312312']);
+        $removed->delete();
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team, ['document' => '12312312312']))
+            ->assertCreated()
+            ->assertJsonPath('data.id', $removed->id);
+    }
+
+    public function test_transfer_to_full_team_is_blocked(): void
+    {
+        $this->authenticate();
+        $destination = $this->teamWithRoster(30, 30);
+        $origin = Team::factory()->create();
+        $player = Player::factory()->create(['team_id' => $origin->id]);
+
+        $this->putJson("/api/players/{$player->id}", ['team_id' => $destination->id])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'O time Alfa FC já tem 30 atletas e o limite da liga Série A é de 30 por time.');
+
+        $this->assertDatabaseHas('players', ['id' => $player->id, 'team_id' => $origin->id]);
+    }
+
+    public function test_transfer_to_team_with_room_is_allowed(): void
+    {
+        $this->authenticate();
+        $destination = $this->teamWithRoster(29, 30);
+        $player = Player::factory()->create(['team_id' => Team::factory()->create()->id]);
+
+        $this->putJson("/api/players/{$player->id}", ['team_id' => $destination->id])
+            ->assertOk()
+            ->assertJsonPath('data.team_id', $destination->id);
+    }
+
+    public function test_player_without_team_entering_a_full_team_is_blocked(): void
+    {
+        $this->authenticate();
+        $destination = $this->teamWithRoster(30, 30);
+        $player = Player::factory()->create(['team_id' => null]);
+
+        $this->putJson("/api/players/{$player->id}", ['team_id' => $destination->id])->assertStatus(422);
+    }
+
+    public function test_editing_player_of_team_above_the_limit_is_allowed(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(32, 30);
+        $player = $team->players()->first();
+
+        $this->putJson("/api/players/{$player->id}", ['position' => 'LAT'])
+            ->assertOk()
+            ->assertJsonPath('data.position', 'LAT');
+
+        $this->putJson("/api/players/{$player->id}", ['team_id' => (string) $team->id, 'name' => 'Nome Editado'])
+            ->assertOk()
+            ->assertJsonPath('data.name', 'Nome Editado');
+    }
+
+    public function test_effective_limit_is_the_smallest_among_linked_leagues(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(25, 35);
+        $team->leagues()->attach(League::factory()->create([
+            'name' => 'Copa Regional',
+            'end_date' => null,
+            'max_players_per_team' => 25,
+        ])->id);
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'O time Alfa FC já tem 25 atletas e o limite da liga Copa Regional é de 25 por time.');
+    }
+
+    public function test_ended_league_is_ignored_in_the_effective_limit(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(25, 25, now()->subDay()->toDateString());
+        $team->leagues()->attach(League::factory()->create([
+            'end_date' => null,
+            'max_players_per_team' => 30,
+        ])->id);
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))->assertCreated();
+    }
+
+    public function test_team_with_only_ended_leagues_has_no_limit(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(25, 25, now()->subDay()->toDateString());
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))->assertCreated();
+    }
+
+    public function test_team_without_leagues_has_no_limit(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create();
+        Player::factory()->count(36)->create(['team_id' => $team->id]);
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))->assertCreated();
+    }
+
+    public function test_league_ending_today_still_counts(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(25, 25, now()->toDateString());
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))->assertStatus(422);
+    }
+
+    public function test_league_with_future_end_date_counts(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(25, 25, now()->addMonth()->toDateString());
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))->assertStatus(422);
+    }
+
+    public function test_league_without_end_date_counts(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithRoster(25, 25);
+
+        $this->postJson('/api/players', $this->newPlayerPayload($team))->assertStatus(422);
+    }
 }

@@ -66,6 +66,17 @@ class LeagueRepository
             ->get(['id', 'name']);
     }
 
+    public function strictestActiveAmongNotLinkedTo(array $leagueIds, Team $team): ?League
+    {
+        return League::query()
+            ->whereIn('id', $leagueIds)
+            ->notEnded()
+            ->whereDoesntHave('teams', fn ($teams) => $teams->where('teams.id', $team->id))
+            ->orderBy('max_players_per_team')
+            ->orderBy('id')
+            ->first();
+    }
+
     public function teamIds(League $league): array
     {
         return $league->teams()->pluck('teams.id')->map(fn ($id) => (int) $id)->all();

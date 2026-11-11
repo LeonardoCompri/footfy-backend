@@ -502,6 +502,7 @@ class GameControllerTest extends TestCase
             ->assertJsonPath('data.league', [
                 'id' => $league->id,
                 'name' => 'Série A 2026',
+                'max_players_per_team' => 35,
                 'championship' => ['id' => $championship->id, 'name' => 'Campeonato Brasileiro'],
             ]);
     }
@@ -514,7 +515,7 @@ class GameControllerTest extends TestCase
 
         $this->getJson("/api/games/{$game->id}")
             ->assertOk()
-            ->assertJsonPath('data.league', ['id' => $league->id, 'name' => 'Liga antiga', 'championship' => null]);
+            ->assertJsonPath('data.league', ['id' => $league->id, 'name' => 'Liga antiga', 'max_players_per_team' => 35, 'championship' => null]);
     }
 
     public function test_show_returns_only_head_coaches_of_each_team(): void
@@ -1507,8 +1508,8 @@ class GameControllerTest extends TestCase
 
         $this->getJson("/api/games/{$game->id}")
             ->assertOk()
-            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'removed' => true])
-            ->assertJsonPath('data.events.0.related_player', ['id' => $assist->id, 'name' => $assist->name, 'removed' => true]);
+            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'number' => $scorer->number, 'removed' => true])
+            ->assertJsonPath('data.events.0.related_player', ['id' => $assist->id, 'name' => $assist->name, 'number' => $assist->number, 'removed' => true]);
     }
 
     public function test_public_show_includes_removed_player_and_assist_in_events(): void
@@ -1517,8 +1518,39 @@ class GameControllerTest extends TestCase
 
         $this->getJson("/api/public/games/{$game->id}")
             ->assertOk()
-            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'removed' => true])
-            ->assertJsonPath('data.events.0.related_player', ['id' => $assist->id, 'name' => $assist->name, 'removed' => true]);
+            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'number' => $scorer->number, 'removed' => true])
+            ->assertJsonPath('data.events.0.related_player', ['id' => $assist->id, 'name' => $assist->name, 'number' => $assist->number, 'removed' => true]);
+    }
+
+    public function test_public_show_exposes_only_summary_fields_of_event_players(): void
+    {
+        [$game, $scorer, $assist] = $this->gameWithRemovedScorerAndAssist();
+
+        $response = $this->getJson("/api/public/games/{$game->id}")->assertOk();
+
+        $this->assertSame(['id', 'name', 'number', 'removed'], array_keys($response->json('data.events.0.player')));
+        $this->assertSame(['id', 'name', 'number', 'removed'], array_keys($response->json('data.events.0.related_player')));
+        $this->assertStringNotContainsString($scorer->document, $response->getContent());
+        $this->assertStringNotContainsString($assist->document, $response->getContent());
+    }
+
+    public function test_event_player_number_is_null_when_player_has_no_number(): void
+    {
+        $this->authenticate();
+        $game = $this->gameWithTeamsInLeague(League::factory()->create());
+        $scorer = Player::factory()->create(['team_id' => $game->home_team_id, 'number' => null]);
+        GameEvent::create([
+            'game_id' => $game->id,
+            'league_id' => $game->league_id,
+            'team_id' => $game->home_team_id,
+            'player_id' => $scorer->id,
+            'type' => 'goal',
+            'minute' => 12,
+        ]);
+
+        $this->getJson("/api/games/{$game->id}")
+            ->assertOk()
+            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'number' => null, 'removed' => false]);
     }
 
     public function test_update_changing_league_returns_events_with_player(): void
@@ -1529,7 +1561,7 @@ class GameControllerTest extends TestCase
 
         $this->putJson("/api/games/{$game->id}", ['league_id' => $newLeague->id])
             ->assertOk()
-            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'removed' => false])
+            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'number' => $scorer->number, 'removed' => false])
             ->assertJsonPath('data.events.1.player.id', $scorer->id)
             ->assertJsonPath('data.events.0.related_player', null);
     }
@@ -1586,7 +1618,29 @@ class GameControllerTest extends TestCase
         $this->putJson("/api/games/{$game->id}", ['match_date' => '2026-12-01 16:00:00'])
             ->assertOk()
             ->assertJsonCount(2, 'data.events')
-            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'removed' => false])
+            ->assertJsonPath('data.events.0.player', ['id' => $scorer->id, 'name' => $scorer->name, 'number' => $scorer->number, 'removed' => false])
             ->assertJsonPath('data.events.0.related_player', null);
+    }
+
+    public function test_show_returns_max_players_per_team_in_league(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['max_players_per_team' => 30]);
+        $game = Game::factory()->create(['league_id' => $league->id]);
+
+        $this->getJson("/api/games/{$game->id}")
+            ->assertOk()
+            ->assertJsonPath('data.league.max_players_per_team', 30);
+    }
+
+    public function test_update_returns_max_players_per_team_in_league(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['max_players_per_team' => 25]);
+        $game = Game::factory()->create(['league_id' => $league->id]);
+
+        $this->putJson("/api/games/{$game->id}", ['status' => 'scheduled'])
+            ->assertOk()
+            ->assertJsonPath('data.league.max_players_per_team', 25);
     }
 }

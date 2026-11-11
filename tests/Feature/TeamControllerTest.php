@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\League;
+use App\Models\Player;
 use App\Models\Team;
 use App\Models\User;
 use App\Repositories\TeamRepository;
@@ -1039,5 +1040,99 @@ class TeamControllerTest extends TestCase
             ->assertJsonPath('data.nickname', 'NEW');
         $this->postJson('/api/teams', ['name' => 'Novo Time'])->assertCreated();
         $this->deleteJson("/api/teams/{$team->id}")->assertStatus(204);
+    }
+
+    private function teamWithPlayers(int $count, string $name = 'Alfa FC'): Team
+    {
+        $team = Team::factory()->create(['name' => $name]);
+        Player::factory()->count($count)->create(['team_id' => $team->id]);
+
+        return $team;
+    }
+
+    public function test_linking_team_above_the_league_limit_is_blocked(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithPlayers(31);
+        $league = League::factory()->create(['name' => 'Série A', 'end_date' => null, 'max_players_per_team' => 30]);
+
+        $this->postJson("/api/teams/{$team->id}/leagues", ['league_ids' => [$league->id]])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'O time Alfa FC tem 31 atletas, acima do limite de 30 por time da liga Série A.');
+
+        $this->assertDatabaseMissing('league_team', ['team_id' => $team->id, 'league_id' => $league->id]);
+    }
+
+    public function test_linking_team_exactly_at_the_league_limit_is_allowed(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithPlayers(30);
+        $league = League::factory()->create(['end_date' => null, 'max_players_per_team' => 30]);
+
+        $this->postJson("/api/teams/{$team->id}/leagues", ['league_ids' => [$league->id]])->assertOk();
+
+        $this->assertDatabaseHas('league_team', ['team_id' => $team->id, 'league_id' => $league->id]);
+    }
+
+    public function test_keeping_existing_link_of_team_above_the_limit_is_allowed(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithPlayers(32);
+        $league = League::factory()->create(['end_date' => null, 'max_players_per_team' => 30]);
+        $team->leagues()->attach($league->id);
+
+        $this->postJson("/api/teams/{$team->id}/leagues", ['league_ids' => [$league->id]])
+            ->assertOk()
+            ->assertJsonCount(1, 'data.leagues');
+    }
+
+    public function test_only_new_links_are_checked_against_the_limit(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithPlayers(32);
+        $existing = League::factory()->create(['end_date' => null, 'max_players_per_team' => 30]);
+        $team->leagues()->attach($existing->id);
+        $new = League::factory()->create(['end_date' => null, 'max_players_per_team' => 35]);
+
+        $this->postJson("/api/teams/{$team->id}/leagues", ['league_ids' => [$existing->id, $new->id]])
+            ->assertOk()
+            ->assertJsonCount(2, 'data.leagues');
+    }
+
+    public function test_one_new_league_over_the_limit_blocks_the_whole_request(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithPlayers(32);
+        $allowed = League::factory()->create(['end_date' => null, 'max_players_per_team' => 35]);
+        $blocked = League::factory()->create(['name' => 'Copa', 'end_date' => null, 'max_players_per_team' => 30]);
+
+        $this->postJson("/api/teams/{$team->id}/leagues", ['league_ids' => [$allowed->id, $blocked->id]])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'O time Alfa FC tem 32 atletas, acima do limite de 30 por time da liga Copa.');
+
+        $this->assertDatabaseMissing('league_team', ['team_id' => $team->id]);
+    }
+
+    public function test_linking_does_not_count_removed_players(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithPlayers(31);
+        $team->players()->first()->delete();
+        $league = League::factory()->create(['end_date' => null, 'max_players_per_team' => 30]);
+
+        $this->postJson("/api/teams/{$team->id}/leagues", ['league_ids' => [$league->id]])->assertOk();
+    }
+
+    public function test_linking_to_ended_league_ignores_the_limit(): void
+    {
+        $this->authenticate();
+        $team = $this->teamWithPlayers(31);
+        $league = League::factory()->create([
+            'start_date' => now()->subMonth()->toDateString(),
+            'end_date' => now()->subDay()->toDateString(),
+            'max_players_per_team' => 30,
+        ]);
+
+        $this->postJson("/api/teams/{$team->id}/leagues", ['league_ids' => [$league->id]])->assertOk();
     }
 }
