@@ -2,6 +2,7 @@
 
 namespace App\Repositories;
 
+use App\Models\League;
 use App\Models\Team;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -32,6 +33,25 @@ class TeamRepository
         $with['leagues'] = fn ($q) => $leagueIds === null ? $q : $q->whereIn('leagues.id', $leagueIds);
 
         return Team::with($with)->find($id);
+    }
+
+    public function findForUpdate(int|string $id): ?Team
+    {
+        return Team::query()->lockForUpdate()->find($id);
+    }
+
+    public function rosterCount(Team $team): int
+    {
+        return $team->players()->count();
+    }
+
+    public function strictestActiveLeague(Team $team): ?League
+    {
+        return $team->leagues()
+            ->notEnded()
+            ->orderBy('leagues.max_players_per_team')
+            ->orderBy('leagues.id')
+            ->first();
     }
 
     public function update(Team $team): bool

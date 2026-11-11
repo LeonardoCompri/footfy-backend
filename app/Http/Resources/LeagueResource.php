@@ -27,6 +27,7 @@ class LeagueResource extends JsonResource
             'third_place' => $this->third_place,
             'tiebreakers' => $this->tiebreakers,
             'knockout_tiebreakers' => $this->knockout_tiebreakers,
+            'max_players_per_team' => $this->max_players_per_team,
             'championship' => new ChampionshipResource($this->whenLoaded('championship')),
             'teams' => TeamResource::collection($this->whenLoaded('teams')),
             'games' => GameResource::collection($this->whenLoaded('games')),

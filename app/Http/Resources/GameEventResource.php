@@ -31,6 +31,7 @@ class GameEventResource extends JsonResource
         return [
             'id' => $player->id,
             'name' => $player->name,
+            'number' => $player->number,
             'removed' => $player->trashed(),
         ];
     }
