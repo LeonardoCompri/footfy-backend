@@ -37,6 +37,8 @@ class GameController extends Controller
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
+            log_error($th);
+
             return response()->json([
                 'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
@@ -52,6 +54,8 @@ class GameController extends Controller
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
+            log_error($th);
+
             return response()->json([
                 'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
@@ -68,6 +72,8 @@ class GameController extends Controller
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
+            log_error($th);
+
             return response()->json([
                 'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
@@ -83,6 +89,8 @@ class GameController extends Controller
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
+            log_error($th);
+
             return response()->json([
                 'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
@@ -99,6 +107,8 @@ class GameController extends Controller
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
+            log_error($th);
+
             return response()->json([
                 'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
@@ -114,6 +124,8 @@ class GameController extends Controller
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
+            log_error($th);
+
             return response()->json([
                 'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
@@ -129,6 +141,8 @@ class GameController extends Controller
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
+            log_error($th);
+
             return response()->json([
                 'message' => 'Houve um erro no servidor, tente novamente!',
             ], 500);
