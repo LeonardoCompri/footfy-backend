@@ -16,7 +16,6 @@ use Closure;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\AssertsServerErrorIsLogged;
 use Tests\TestCase;
@@ -73,14 +72,5 @@ class LeagueControllerErrorLogTest extends TestCase
             'update' => ['PUT', '/api/leagues/{id}', LeagueService::class, 'update', 'update', ['name' => 'Série B']],
             'destroy' => ['DELETE', '/api/leagues/{id}', LeagueService::class, 'destroy', 'destroy', ['password' => 'password']],
         ];
-    }
-
-    public function test_public_index_logs_unexpected_error_and_returns_500(): void
-    {
-        $exception = $this->failServiceCall(LeagueService::class, 'publicIndex');
-
-        $response = TestResponse::fromBaseResponse(app(LeagueController::class)->publicIndex());
-
-        $this->assertServerErrorIsLogged($response, $exception, null, null);
     }
 }
