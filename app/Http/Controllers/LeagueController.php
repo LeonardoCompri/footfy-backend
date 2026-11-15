@@ -49,21 +49,6 @@ class LeagueController extends Controller
         }
     }
 
-    public function publicIndex(): JsonResponse
-    {
-        try {
-            $response = $this->service->publicIndex();
-
-            return response()->json(['data' => LeagueResource::collection($response)]);
-        } catch (Throwable $th) {
-            log_error($th);
-
-            return response()->json([
-                'message' => 'Houve um erro no servidor, tente novamente!',
-            ], 500);
-        }
-    }
-
     public function publicShow(string $id): JsonResponse
     {
         try {

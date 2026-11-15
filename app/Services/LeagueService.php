@@ -23,11 +23,6 @@ class LeagueService
         return $this->repository->index($user->leagueIds(), ['championship']);
     }
 
-    public function publicIndex(): Collection
-    {
-        return $this->repository->index(null, ['championship']);
-    }
-
     public function store(array $data): League
     {
         return $this->repository->store($data);
