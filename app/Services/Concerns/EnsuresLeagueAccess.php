@@ -33,9 +33,7 @@ trait EnsuresLeagueAccess
         }
 
         $leagueIds = $user->leagueIds();
-        $hasAccess = $teamId !== null && Team::whereKey($teamId)
-            ->whereHas('leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
-            ->exists();
+        $hasAccess = $teamId !== null && Team::whereKey($teamId)->inLeagues($leagueIds)->exists();
 
         if (! $hasAccess) {
             throw ValidationException::withMessages(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);

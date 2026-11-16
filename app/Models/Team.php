@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class Team extends Model
@@ -18,6 +21,16 @@ class Team extends Model
         'created_at',
         'updated_at',
     ];
+
+    public static function idsInLeagues(array $leagueIds): QueryBuilder
+    {
+        return DB::table('league_team')->select('team_id')->whereIn('league_id', $leagueIds);
+    }
+
+    public function scopeInLeagues(Builder $query, array $leagueIds): void
+    {
+        $query->whereIn('teams.id', self::idsInLeagues($leagueIds));
+    }
 
     public function logoUrl(): ?string
     {

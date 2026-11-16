@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
@@ -92,10 +93,11 @@ class User extends Authenticatable
             return $this->leagues();
         }
 
-        return League::query()->whereHas('teams', fn ($teams) => $teams->where(fn ($q) => $q
-            ->where('teams.id', $this->team_id)
-            ->orWhereHas('players', fn ($players) => $players->where('players.user_id', $this->id))
-        ));
+        return League::query()->whereIn('leagues.id', DB::table('league_team')
+            ->select('league_id')
+            ->where(fn ($q) => $q
+                ->where('team_id', $this->team_id)
+                ->orWhereIn('team_id', Player::where('user_id', $this->id)->select('team_id'))));
     }
 
     public function scopeInLeagues(Builder $query, array $leagueIds): void
@@ -103,17 +105,17 @@ class User extends Authenticatable
         $teamScoped = fn ($q) => $q
             ->whereHas('roles', fn ($r) => $r->whereIn('name', self::TEAM_SCOPED_ROLES))
             ->whereDoesntHave('roles', fn ($r) => $r->whereIn('name', self::LEAGUE_SCOPED_ROLES));
-        $inLeagues = fn ($l) => $l->whereIn('leagues.id', $leagueIds);
+        $teamIds = Team::idsInLeagues($leagueIds);
 
         $query->where(fn ($q) => $q
             ->where(fn ($direct) => $direct
                 ->whereNot($teamScoped)
-                ->whereHas('leagues', $inLeagues))
+                ->whereIn('users.id', DB::table('user_leagues')->select('user_id')->whereIn('league_id', $leagueIds)))
             ->orWhere(fn ($derived) => $derived
                 ->where($teamScoped)
                 ->where(fn ($team) => $team
-                    ->whereHas('team.leagues', $inLeagues)
-                    ->orWhereHas('player.team.leagues', $inLeagues)))
+                    ->whereIn('users.team_id', $teamIds)
+                    ->orWhereIn('users.id', Player::whereIn('team_id', $teamIds)->select('user_id'))))
         );
     }
 }

@@ -12,7 +12,7 @@ class TeamRepository
     {
         $query = Team::query();
         if ($leagueIds !== null) {
-            $query->whereHas('leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds));
+            $query->inLeagues($leagueIds);
         }
 
         return $query->get();
