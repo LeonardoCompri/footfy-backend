@@ -6,6 +6,7 @@ use App\Models\Game;
 use App\Models\GameEvent;
 use App\Models\GamePenaltyKick;
 use App\Models\League;
+use App\Repositories\Concerns\BuildsListings;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -13,6 +14,8 @@ use Illuminate\Pagination\LengthAwarePaginator;
 
 class GameRepository
 {
+    use BuildsListings;
+
     public function index(string $leagueId, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
         $query = Game::query()->with(['homeTeam', 'awayTeam', 'stadium'])->where('league_id', $leagueId);
@@ -20,14 +23,7 @@ class GameRepository
         $query = $this->applyFilters($query, $filters);
         $query = $this->orderedForListing($query);
 
-        if ($paginate) {
-            $page = $filters['page'] ?? 1;
-            $per_page = $filters['per_page'] ?? 20;
-
-            return $query->paginate(perPage: (int) $per_page, page: (int) $page);
-        }
-
-        return $query->get();
+        return $this->getOrPaginate($query, $filters, $paginate);
     }
 
     public function store(array $data): Game

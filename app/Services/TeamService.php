@@ -9,6 +9,7 @@ use App\Services\Concerns\EnsuresLeagueAccess;
 use App\Services\Concerns\HandlesImageUpload;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -23,12 +24,12 @@ class TeamService
         private readonly LeagueRepository $leagueRepository,
     ) {}
 
-    public function index(?string $leagueId = null): Collection
+    public function index(?string $leagueId = null, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
         $user = Auth::user();
 
         if ($user->isMaster()) {
-            return $this->repository->index($leagueId !== null ? [$leagueId] : null);
+            return $this->repository->index($leagueId !== null ? [$leagueId] : null, $filters, $paginate);
         }
 
         $leagueIds = $user->leagueIds();
@@ -41,7 +42,7 @@ class TeamService
             $leagueIds = [$leagueId];
         }
 
-        return $this->repository->index($leagueIds);
+        return $this->repository->index($leagueIds, $filters, $paginate);
     }
 
     public function store(array $data): Team

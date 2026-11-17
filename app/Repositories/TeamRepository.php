@@ -4,18 +4,25 @@ namespace App\Repositories;
 
 use App\Models\League;
 use App\Models\Team;
+use App\Repositories\Concerns\BuildsListings;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class TeamRepository
 {
-    public function index(?array $leagueIds = null): Collection
+    use BuildsListings;
+
+    public function index(?array $leagueIds = null, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
         $query = Team::query();
         if ($leagueIds !== null) {
             $query->inLeagues($leagueIds);
         }
 
-        return $query->get();
+        $this->searchByName($query, $filters);
+        $this->sortListing($query, $filters, $paginate);
+
+        return $this->getOrPaginate($query, $filters, $paginate);
     }
 
     public function store(array $data): Team

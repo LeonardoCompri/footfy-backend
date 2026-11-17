@@ -922,6 +922,24 @@ class GameControllerTest extends TestCase
             ->assertJsonPath('meta.last_page', 3);
     }
 
+    public function test_index_reads_page_size_limits_from_config(): void
+    {
+        config(['footfy.pagination.per_page' => 4, 'footfy.pagination.max_per_page' => 6]);
+        $this->authenticate();
+        $league = League::factory()->create();
+        Game::factory()->count(10)->create(['league_id' => $league->id]);
+
+        $this->getJson("/api/games?league_id={$league->id}")
+            ->assertOk()
+            ->assertJsonCount(4, 'data')
+            ->assertJsonPath('meta.per_page', 4)
+            ->assertJsonPath('meta.last_page', 3);
+
+        $this->getJson("/api/games?league_id={$league->id}&per_page=7")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('per_page');
+    }
+
     public function test_index_page_beyond_last_returns_empty_data_with_consistent_meta(): void
     {
         $this->authenticate();

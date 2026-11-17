@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\PlayerIndexRequest;
 use App\Http\Requests\PlayerStoreRequest;
 use App\Http\Requests\PlayerUpdateRequest;
 use App\Http\Resources\PlayerResource;
@@ -14,12 +15,14 @@ class PlayerController extends Controller
 {
     public function __construct(private readonly PlayerService $service) {}
 
-    public function index(): JsonResponse
+    public function index(PlayerIndexRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index();
+            $response = $this->service->index($request->validated(), $request->wantsPagination());
 
-            return response()->json(['data' => PlayerResource::collection($response)]);
+            return $this->listResponse($response, PlayerResource::class);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             log_error($th);
 
