@@ -39,6 +39,11 @@ class GameService
         return $this->repository->index($leagueId, $filters, $paginate);
     }
 
+    public function publicIndex(string $leagueId, array $filters = []): LengthAwarePaginator
+    {
+        return $this->repository->index($leagueId, $filters, paginate: true);
+    }
+
     public function store(array $data): Game
     {
         $this->ensureUserHasAccessToLeagues([$data['league_id']]);

@@ -23,9 +23,9 @@ class LeagueRepository
         return League::create($data);
     }
 
-    public function show(string $id, array $with = []): ?League
+    public function show(string $id, array $with = [], array $counts = []): ?League
     {
-        return League::with($with)->find($id);
+        return League::with($with)->withCount($counts)->find($id);
     }
 
     public function findForUpdate(string $id): ?League

@@ -5,13 +5,16 @@ namespace App\Http\Controllers;
 use App\Http\Requests\LeagueDestroyRequest;
 use App\Http\Requests\LeagueDrawNextRoundRequest;
 use App\Http\Requests\LeagueDrawRoundRequest;
+use App\Http\Requests\LeagueGamesRequest;
 use App\Http\Requests\LeagueGroupsRequest;
 use App\Http\Requests\LeagueKnockoutNextStageRequest;
 use App\Http\Requests\LeagueKnockoutStageRequest;
 use App\Http\Requests\LeagueStoreRequest;
 use App\Http\Requests\LeagueUpdateRequest;
+use App\Http\Resources\GameResource;
 use App\Http\Resources\LeagueResource;
 use App\Services\DashboardService;
+use App\Services\GameService;
 use App\Services\LeagueDrawService;
 use App\Services\LeagueGroupService;
 use App\Services\LeagueKnockoutService;
@@ -32,6 +35,7 @@ class LeagueController extends Controller
         private readonly LeagueGroupService $groupService,
         private readonly LeagueDrawService $drawService,
         private readonly LeagueKnockoutService $knockoutService,
+        private readonly GameService $gameService,
     ) {}
 
     public function index(): JsonResponse
@@ -127,6 +131,24 @@ class LeagueController extends Controller
             $response = $this->statisticsService->build($league);
 
             return response()->json(['data' => $response], 200, [], JSON_PRESERVE_ZERO_FRACTION);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
+        } catch (Throwable $th) {
+            log_error($th);
+
+            return response()->json([
+                'message' => 'Houve um erro no servidor, tente novamente!',
+            ], 500);
+        }
+    }
+
+    public function publicGames(LeagueGamesRequest $request, string $id): JsonResponse
+    {
+        try {
+            $league = $this->service->show($id);
+            $response = $this->gameService->publicIndex((string) $league->id, $request->validated());
+
+            return $this->listResponse($response, GameResource::class);
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
