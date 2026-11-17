@@ -41,6 +41,11 @@ class GameRepository
         return $game->save();
     }
 
+    public function existsInLeagues(int|string $id, array $leagueIds): bool
+    {
+        return Game::query()->whereKey($id)->whereIn('league_id', $leagueIds)->exists();
+    }
+
     public function findForUpdate(int $id): ?Game
     {
         return Game::query()->lockForUpdate()->find($id);

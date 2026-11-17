@@ -6,8 +6,9 @@ use App\Models\Game;
 use App\Models\GameEvent;
 use App\Repositories\GameEventRepository;
 use App\Repositories\GameEventTypeRepository;
+use App\Repositories\GameRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -21,28 +22,28 @@ class GameEventService
         private readonly GameService $gameService,
         private readonly LeagueKnockoutService $knockoutService,
         private readonly GameEventTypeRepository $eventTypeRepository,
+        private readonly GameRepository $gameRepository,
     ) {}
 
-    public function index(?string $type = null, ?string $gameId = null): Collection
+    public function index(array $filters = []): LengthAwarePaginator
     {
         $user = Auth::user();
-        if ($user->isMaster()) {
-            return $this->repository->index($gameId ? [$gameId] : null, $type);
-        }
-        $leagueIds = $user->leagueIds();
-        $gameIds = Game::whereIn('league_id', $leagueIds)
-            ->pluck('id')
-            ->toArray();
+        $leagueIds = $user->isMaster() ? null : $user->leagueIds();
 
-        if ($gameId !== null) {
-            if (! in_array((int) $gameId, $gameIds)) {
-                throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa partida.']);
-            }
-
-            $gameIds = [$gameId];
+        if (filled($filters['league_id'] ?? null)) {
+            $this->ensureUserHasAccessToLeagues([$filters['league_id']]);
         }
 
-        return $this->repository->index($gameIds, $type);
+        if (filled($filters['team_id'] ?? null)) {
+            $this->ensureUserHasAccessToTeam($filters['team_id'], 'Você não tem acesso a esse time.');
+        }
+
+        if ($leagueIds !== null && filled($filters['game_id'] ?? null)
+            && ! $this->gameRepository->existsInLeagues($filters['game_id'], $leagueIds)) {
+            throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa partida.']);
+        }
+
+        return $this->repository->index($filters, $leagueIds);
     }
 
     public function store(array $data): GameEvent
