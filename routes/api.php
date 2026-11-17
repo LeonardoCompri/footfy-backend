@@ -12,6 +12,7 @@ Route::prefix('/public')->name('public.')->middleware(['public_route'])->where([
     Route::get('/leagues/{id}', [LeagueController::class, 'publicShow'])->name('leagues.show');
     Route::get('/leagues/{id}/table', [LeagueController::class, 'publicTable'])->name('leagues.table');
     Route::get('/leagues/{id}/statistics', [LeagueController::class, 'publicStatistics'])->name('leagues.statistics');
+    Route::get('/leagues/{id}/games', [LeagueController::class, 'publicGames'])->name('leagues.games');
     Route::get('/teams/{id}', [TeamController::class, 'publicShow'])->name('teams.show');
     Route::get('/players/{id}', [PlayerController::class, 'publicShow'])->name('players.show');
     Route::get('/games/{id}', [GameController::class, 'publicShow'])->name('games.show');

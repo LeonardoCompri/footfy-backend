@@ -15,6 +15,7 @@ class ChampionshipResource extends JsonResource
             'name' => $this->name,
             'image' => $this->image ? Storage::disk('public')->url($this->image) : null,
             'leagues' => LeagueResource::collection($this->whenLoaded('leagues')),
+            'leagues_count' => $this->whenCounted('leagues'),
         ];
     }
 }

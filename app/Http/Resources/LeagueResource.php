@@ -32,6 +32,9 @@ class LeagueResource extends JsonResource
             'teams' => TeamResource::collection($this->whenLoaded('teams')),
             'games' => GameResource::collection($this->whenLoaded('games')),
             'stadiums' => StadiumResource::collection($this->whenLoaded('stadiums')),
+            'teams_count' => $this->whenCounted('teams'),
+            'games_count' => $this->whenCounted('games'),
+            'stadiums_count' => $this->whenCounted('stadiums'),
         ];
     }
 }
