@@ -3,23 +3,31 @@
 namespace App\Repositories;
 
 use App\Models\GameEvent;
-use Illuminate\Database\Eloquent\Collection;
+use App\Repositories\Concerns\BuildsListings;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class GameEventRepository
 {
+    use BuildsListings;
+
     private const WITH = ['player', 'relatedPlayer'];
 
-    public function index(?array $gameIds = null, ?string $type = null): Collection
+    public function index(array $filters = [], ?array $leagueIds = null): LengthAwarePaginator
     {
-        $query = GameEvent::query()->with(self::WITH);
-        if ($gameIds !== null) {
-            $query->whereIn('game_id', $gameIds);
-        }
-        if ($type !== null) {
-            $query->where('type', $type);
+        $query = GameEvent::query()
+            ->with(self::WITH)
+            ->when($leagueIds !== null, fn (Builder $q) => $q->whereIn('league_id', $leagueIds));
+
+        foreach (['league_id', 'game_id', 'team_id', 'type'] as $column) {
+            $query->when(filled($filters[$column] ?? null), fn (Builder $q) => $q->where($column, $filters[$column]));
         }
 
-        return $query->latestMinuteFirst()->get();
+        $query->when(filled($filters['player_id'] ?? null), fn (Builder $q) => $q->where(fn (Builder $q) => $q
+            ->where('player_id', $filters['player_id'])
+            ->orWhere('related_player_id', $filters['player_id'])));
+
+        return $this->getOrPaginate($query->latestMinuteFirst(), $filters, paginate: true);
     }
 
     public function store(array $data): GameEvent

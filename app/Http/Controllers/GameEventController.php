@@ -18,9 +18,9 @@ class GameEventController extends Controller
     public function index(GameEventIndexRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index($request->validated('type'), $request->validated('game_id'));
+            $response = $this->service->index($request->validated());
 
-            return response()->json(['data' => GameEventResource::collection($response)]);
+            return $this->listResponse($response, GameEventResource::class);
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
