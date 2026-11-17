@@ -25,15 +25,7 @@ class GameController extends Controller
 
             $data = $this->service->index($leagueId, $filters, paginate: true);
 
-            return response()->json([
-                'data' => GameResource::collection($data->items()),
-                'meta' => [
-                    'current_page' => $data->currentPage(),
-                    'per_page' => $data->perPage(),
-                    'total' => $data->total(),
-                    'last_page' => $data->lastPage(),
-                ],
-            ]);
+            return $this->listResponse($data, GameResource::class);
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {

@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\LeagueFilterRequest;
+use App\Http\Requests\TeamIndexRequest;
 use App\Http\Requests\TeamLeaguesRequest;
 use App\Http\Requests\TeamStoreRequest;
 use App\Http\Requests\TeamUpdateRequest;
 use App\Http\Resources\TeamResource;
 use App\Services\TeamService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Arr;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -16,12 +18,15 @@ class TeamController extends Controller
 {
     public function __construct(private readonly TeamService $service) {}
 
-    public function index(LeagueFilterRequest $request): JsonResponse
+    public function index(TeamIndexRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index($request->validated('league_id'));
+            $filters = $request->validated();
+            $leagueId = Arr::pull($filters, 'league_id');
 
-            return response()->json(['data' => TeamResource::collection($response)]);
+            $response = $this->service->index($leagueId, $filters, $request->wantsPagination());
+
+            return $this->listResponse($response, TeamResource::class);
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {

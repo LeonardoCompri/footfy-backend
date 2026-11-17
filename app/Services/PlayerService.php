@@ -3,12 +3,12 @@
 namespace App\Services;
 
 use App\Models\Player;
-use App\Models\Team;
 use App\Repositories\PlayerRepository;
 use App\Repositories\TeamRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -17,21 +17,24 @@ class PlayerService
 {
     use EnsuresLeagueAccess;
 
+    private const DOCUMENT_LIKE_SEARCH = '/^[\d.\-\s]+$/';
+
     public function __construct(
         private readonly PlayerRepository $repository,
         private readonly TeamRepository $teamRepository,
     ) {}
 
-    public function index(): Collection
+    public function index(array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
         $user = Auth::user();
-        if ($user->isMaster()) {
-            return $this->repository->index(null);
-        }
-        $leagueIds = $user->leagueIds();
-        $teamIds = Team::inLeagues($leagueIds)->pluck('id')->toArray();
 
-        return $this->repository->index($teamIds);
+        if (filled($filters['team_id'] ?? null)) {
+            $this->ensureUserHasAccessToTeam($filters['team_id'], 'Você não tem acesso a esse time.');
+        }
+
+        $filters['document_search'] = $this->documentSearch($filters['search'] ?? null);
+
+        return $this->repository->index($user->isMaster() ? null : $user->leagueIds(), $filters, $paginate);
     }
 
     public function store(array $data): Player
@@ -164,5 +167,16 @@ class PlayerService
         }
 
         $this->ensureUserHasAccessToTeam($teamId);
+    }
+
+    private function documentSearch(?string $search): ?string
+    {
+        if (blank($search) || ! preg_match(self::DOCUMENT_LIKE_SEARCH, $search)) {
+            return null;
+        }
+
+        $digits = preg_replace('/\D/', '', $search);
+
+        return $digits === '' ? null : $digits;
     }
 }

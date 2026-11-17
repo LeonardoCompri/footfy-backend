@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\TechnicalCommitteeMemberIndexRequest;
 use App\Http\Requests\TechnicalCommitteeMemberStoreRequest;
 use App\Http\Requests\TechnicalCommitteeMemberUpdateRequest;
 use App\Http\Resources\TechnicalCommitteeMemberResource;
@@ -14,12 +15,14 @@ class TechnicalCommitteeMemberController extends Controller
 {
     public function __construct(private readonly TechnicalCommitteeMemberService $service) {}
 
-    public function index(): JsonResponse
+    public function index(TechnicalCommitteeMemberIndexRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index();
+            $response = $this->service->index($request->validated(), $request->wantsPagination());
 
-            return response()->json(['data' => TechnicalCommitteeMemberResource::collection($response)]);
+            return $this->listResponse($response, TechnicalCommitteeMemberResource::class);
+        } catch (ValidationException $ex) {
+            return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {
             log_error($th);
 

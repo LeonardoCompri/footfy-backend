@@ -24,8 +24,10 @@ trait EnsuresLeagueAccess
         }
     }
 
-    protected function ensureUserHasAccessToTeam(int|string|null $teamId): void
-    {
+    protected function ensureUserHasAccessToTeam(
+        int|string|null $teamId,
+        string $message = 'Você não tem acesso a uma ou mais ligas informadas.',
+    ): void {
         $user = Auth::user();
 
         if ($user->isMaster()) {
@@ -36,7 +38,7 @@ trait EnsuresLeagueAccess
         $hasAccess = $teamId !== null && Team::whereKey($teamId)->inLeagues($leagueIds)->exists();
 
         if (! $hasAccess) {
-            throw ValidationException::withMessages(['message' => 'Você não tem acesso a uma ou mais ligas informadas.']);
+            throw ValidationException::withMessages(['message' => $message]);
         }
     }
 }
