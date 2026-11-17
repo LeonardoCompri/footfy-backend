@@ -2,19 +2,32 @@
 
 namespace App\Repositories;
 
+use App\Models\Team;
 use App\Models\TechnicalCommitteeMember;
+use App\Repositories\Concerns\BuildsListings;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class TechnicalCommitteeMemberRepository
 {
-    public function index(?array $teamIds = null): Collection
+    use BuildsListings;
+
+    public function index(?array $leagueIds = null, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
         $query = TechnicalCommitteeMember::query();
-        if ($teamIds !== null) {
-            $query->whereIn('team_id', $teamIds);
+        if ($leagueIds !== null) {
+            $query->whereIn('team_id', Team::idsInLeagues($leagueIds));
         }
 
-        return $query->get();
+        $query->when(filled($filters['team_id'] ?? null), function (Builder $q) use ($filters) {
+            $q->where('team_id', $filters['team_id']);
+        });
+
+        $this->searchByName($query, $filters);
+        $this->sortListing($query, $filters, $paginate);
+
+        return $this->getOrPaginate($query, $filters, $paginate);
     }
 
     public function store(array $data): TechnicalCommitteeMember

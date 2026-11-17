@@ -2,11 +2,11 @@
 
 namespace App\Services;
 
-use App\Models\Team;
 use App\Models\TechnicalCommitteeMember;
 use App\Repositories\TechnicalCommitteeMemberRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
@@ -16,16 +16,15 @@ class TechnicalCommitteeMemberService
 
     public function __construct(private readonly TechnicalCommitteeMemberRepository $repository) {}
 
-    public function index(): Collection
+    public function index(array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
         $user = Auth::user();
-        if ($user->isMaster()) {
-            return $this->repository->index(null);
-        }
-        $leagueIds = $user->leagueIds();
-        $teamIds = Team::inLeagues($leagueIds)->pluck('id')->toArray();
 
-        return $this->repository->index($teamIds);
+        if (filled($filters['team_id'] ?? null)) {
+            $this->ensureUserHasAccessToTeam($filters['team_id'], 'Você não tem acesso a esse time.');
+        }
+
+        return $this->repository->index($user->isMaster() ? null : $user->leagueIds(), $filters, $paginate);
     }
 
     public function store(array $data): TechnicalCommitteeMember
