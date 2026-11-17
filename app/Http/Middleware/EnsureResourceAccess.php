@@ -28,14 +28,12 @@ class EnsureResourceAccess
 
         $hasAccess = match ($type) {
             'league' => in_array((int) $id, $leagueIds),
-            'team' => Team::whereKey($id)
-                ->whereHas('leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
-                ->exists(),
+            'team' => Team::whereKey($id)->inLeagues($leagueIds)->exists(),
             'player' => Player::whereKey($id)
-                ->whereHas('team.leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
+                ->whereIn('team_id', Team::idsInLeagues($leagueIds))
                 ->exists(),
             'technical_committee_member' => TechnicalCommitteeMember::whereKey($id)
-                ->whereHas('team.leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
+                ->whereIn('team_id', Team::idsInLeagues($leagueIds))
                 ->exists(),
             'stadium' => Stadium::whereKey($id)
                 ->whereIn('league_id', $leagueIds)
@@ -48,7 +46,7 @@ class EnsureResourceAccess
                 ->exists(),
             'player_write' => match (true) {
                 $user->hasRole('admin') => Player::whereKey($id)
-                    ->whereHas('team.leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
+                    ->whereIn('team_id', Team::idsInLeagues($leagueIds))
                     ->exists(),
                 $user->isCoach() => $user->team_id !== null
                     && Player::whereKey($id)->where('team_id', $user->team_id)->exists(),

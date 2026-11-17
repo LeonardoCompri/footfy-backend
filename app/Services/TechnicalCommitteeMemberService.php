@@ -23,9 +23,7 @@ class TechnicalCommitteeMemberService
             return $this->repository->index(null);
         }
         $leagueIds = $user->leagueIds();
-        $teamIds = Team::whereHas('leagues', fn ($q) => $q->whereIn('leagues.id', $leagueIds))
-            ->pluck('id')
-            ->toArray();
+        $teamIds = Team::inLeagues($leagueIds)->pluck('id')->toArray();
 
         return $this->repository->index($teamIds);
     }
