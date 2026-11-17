@@ -6,6 +6,7 @@ use App\Http\Controllers\LeagueController;
 use App\Models\Championship;
 use App\Models\League;
 use App\Services\DashboardService;
+use App\Services\GameService;
 use App\Services\LeagueDrawService;
 use App\Services\LeagueGroupService;
 use App\Services\LeagueKnockoutService;
@@ -55,6 +56,7 @@ class LeagueControllerErrorLogTest extends TestCase
             'publicTable' => ['GET', '/api/public/leagues/{id}/table', StandingsService::class, 'build', 'publicTable'],
             'statistics' => ['GET', '/api/leagues/{id}/statistics', StatisticsService::class, 'build', 'statistics'],
             'publicStatistics' => ['GET', '/api/public/leagues/{id}/statistics', StatisticsService::class, 'build', 'publicStatistics'],
+            'publicGames' => ['GET', '/api/public/leagues/{id}/games', GameService::class, 'publicIndex', 'publicGames'],
             'dashboard' => ['GET', '/api/leagues/{id}/dashboard', DashboardService::class, 'build', 'dashboard'],
             'groups' => ['GET', '/api/leagues/{id}/groups', LeagueGroupService::class, 'build', 'groups'],
             'updateGroups' => ['PUT', '/api/leagues/{id}/groups', LeagueGroupService::class, 'assign', 'updateGroups', ['groups' => [['team_id' => 1, 'group_number' => 1]]]],
