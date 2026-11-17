@@ -391,7 +391,7 @@ class LeagueControllerTest extends TestCase
         $league = League::factory()->create(['championship_id' => $championship->id]);
         $team = Team::factory()->create();
         $league->teams()->attach($team->id);
-        $game = Game::factory()->create(['league_id' => $league->id]);
+        Game::factory()->create(['league_id' => $league->id]);
         $stadium = Stadium::factory()->create(['league_id' => $league->id]);
 
         $response = $this->getJson("/api/public/leagues/{$league->id}");
@@ -400,8 +400,9 @@ class LeagueControllerTest extends TestCase
             ->assertJsonPath('data.id', $league->id)
             ->assertJsonPath('data.championship.id', $championship->id)
             ->assertJsonPath('data.teams.0.id', $team->id)
-            ->assertJsonPath('data.games.0.id', $game->id)
-            ->assertJsonPath('data.stadiums.0.id', $stadium->id);
+            ->assertJsonPath('data.stadiums.0.id', $stadium->id)
+            ->assertJsonPath('data.games_count', 1)
+            ->assertJsonMissingPath('data.games');
     }
 
     public function test_guest_show_via_public_route_returns_error_when_not_found(): void
