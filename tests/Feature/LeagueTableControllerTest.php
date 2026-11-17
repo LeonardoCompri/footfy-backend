@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\Championship;
 use App\Models\Game;
 use App\Models\GameEvent;
 use App\Models\League;
 use App\Models\Player;
+use App\Models\Stadium;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -757,5 +759,68 @@ class LeagueTableControllerTest extends TestCase
         $this->getJson("/api/leagues/{$league->id}/table")
             ->assertOk()
             ->assertJsonPath('data', ['phases' => []]);
+    }
+
+    private function leagueWithEveryRelation(): League
+    {
+        $championship = Championship::factory()->create();
+        [$alfa, $bravo, $charlie, $delta] = $this->namedTeams(['Alfa', 'Bravo', 'Charlie', 'Delta']);
+        $league = $this->groupLeague([[$alfa, $bravo], [$charlie, $delta]], ['championship_id' => $championship->id]);
+        $stadium = Stadium::factory()->create(['league_id' => $league->id]);
+
+        $game = $this->finishedGame($league, $alfa, $bravo, 2, 1, ['group_number' => 1, 'stadium_id' => $stadium->id]);
+        $this->finishedGame($league, $charlie, $delta, 0, 0, ['group_number' => 2]);
+        $this->addCard($league, $game, $bravo);
+        $this->finishedGame($league, $alfa, $charlie, 1, 0, [
+            'round' => null, 'phase' => 'Final', 'phase_order' => 1, 'tie_key' => 'final-1', 'leg' => null,
+        ]);
+
+        return $league;
+    }
+
+    private function sqlOf(string $url): array
+    {
+        $queries = [];
+        DB::listen(function ($query) use (&$queries) {
+            $queries[] = strtolower(str_replace(['"', '`'], '', $query->sql));
+        });
+
+        $this->getJson($url)->assertOk();
+
+        return $queries;
+    }
+
+    public function test_public_table_returns_the_same_response_as_the_admin_route(): void
+    {
+        $league = $this->leagueWithEveryRelation();
+
+        $publicResponse = $this->getJson("/api/public/leagues/{$league->id}/table")->assertOk();
+
+        $this->authenticate();
+        $adminResponse = $this->getJson("/api/leagues/{$league->id}/table")->assertOk();
+
+        $this->assertNotEmpty($publicResponse->json('data.groups'));
+        $this->assertNotEmpty($publicResponse->json('data.phases'));
+        $this->assertSame($adminResponse->getContent(), $publicResponse->getContent());
+    }
+
+    public function test_public_table_does_not_load_the_league_relations(): void
+    {
+        $league = $this->leagueWithEveryRelation();
+
+        $queries = $this->sqlOf("/api/public/leagues/{$league->id}/table");
+
+        foreach ($queries as $sql) {
+            $this->assertStringNotContainsString('from championships', $sql);
+            $this->assertStringNotContainsString('from stadiums', $sql);
+            $this->assertStringNotContainsString('league_id in (', $sql);
+        }
+    }
+
+    public function test_public_table_of_missing_league_returns_unprocessable(): void
+    {
+        $this->getJson('/api/public/leagues/999/table')
+            ->assertStatus(422)
+            ->assertExactJson(['message' => 'Liga não encontrada!']);
     }
 }

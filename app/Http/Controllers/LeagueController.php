@@ -87,7 +87,7 @@ class LeagueController extends Controller
     public function publicTable(string $id): JsonResponse
     {
         try {
-            $league = $this->service->publicShow($id);
+            $league = $this->service->show($id);
             $response = $this->standingsService->build($league);
 
             return response()->json(['data' => $response]);
@@ -123,7 +123,7 @@ class LeagueController extends Controller
     public function publicStatistics(string $id): JsonResponse
     {
         try {
-            $league = $this->service->publicShow($id);
+            $league = $this->service->show($id);
             $response = $this->statisticsService->build($league);
 
             return response()->json(['data' => $response], 200, [], JSON_PRESERVE_ZERO_FRACTION);
