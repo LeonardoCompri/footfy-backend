@@ -6,7 +6,9 @@ use App\Models\User;
 use App\Repositories\PlayerRepository;
 use App\Repositories\UserRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
+use App\Services\Concerns\SearchesByDocument;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -14,19 +16,20 @@ use Illuminate\Validation\ValidationException;
 
 class UserService
 {
-    use EnsuresLeagueAccess;
+    use EnsuresLeagueAccess, SearchesByDocument;
 
     public function __construct(
         private readonly UserRepository $repository,
         private readonly PlayerRepository $playerRepository,
     ) {}
 
-    public function index(?string $leagueId = null): Collection
+    public function index(?string $leagueId = null, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
         $user = Auth::user();
+        $filters['document_search'] = $this->documentSearch($filters['search'] ?? null);
 
         if ($user->isMaster()) {
-            return $this->repository->index($leagueId !== null ? [$leagueId] : null);
+            return $this->repository->index($leagueId !== null ? [$leagueId] : null, filters: $filters, paginate: $paginate);
         }
 
         $leagueIds = $user->leagueIds();
@@ -39,7 +42,7 @@ class UserService
             $leagueIds = [$leagueId];
         }
 
-        return $this->repository->index($leagueIds, $user->id, true);
+        return $this->repository->index($leagueIds, $user->id, true, $filters, $paginate);
     }
 
     public function store(array $data): User

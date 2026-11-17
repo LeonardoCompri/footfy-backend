@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\LeagueFilterRequest;
+use App\Http\Requests\UserIndexRequest;
 use App\Http\Requests\UserLeaguesRequest;
 use App\Http\Requests\UserStoreRequest;
 use App\Http\Requests\UserUpdateRequest;
 use App\Http\Resources\UserResource;
 use App\Services\UserService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Arr;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -16,12 +17,15 @@ class UserController extends Controller
 {
     public function __construct(private readonly UserService $service) {}
 
-    public function index(LeagueFilterRequest $request): JsonResponse
+    public function index(UserIndexRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index($request->validated('league_id'));
+            $filters = $request->validated();
+            $leagueId = Arr::pull($filters, 'league_id');
 
-            return response()->json(['data' => UserResource::collection($response)]);
+            $response = $this->service->index($leagueId, $filters, $request->wantsPagination());
+
+            return $this->listResponse($response, UserResource::class);
         } catch (ValidationException $ex) {
             return response()->json(['message' => $ex->getMessage()], 422);
         } catch (Throwable $th) {

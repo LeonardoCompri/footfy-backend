@@ -6,6 +6,7 @@ use App\Models\Player;
 use App\Repositories\PlayerRepository;
 use App\Repositories\TeamRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
+use App\Services\Concerns\SearchesByDocument;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -15,9 +16,7 @@ use Illuminate\Validation\ValidationException;
 
 class PlayerService
 {
-    use EnsuresLeagueAccess;
-
-    private const DOCUMENT_LIKE_SEARCH = '/^[\d.\-\s]+$/';
+    use EnsuresLeagueAccess, SearchesByDocument;
 
     public function __construct(
         private readonly PlayerRepository $repository,
@@ -167,16 +166,5 @@ class PlayerService
         }
 
         $this->ensureUserHasAccessToTeam($teamId);
-    }
-
-    private function documentSearch(?string $search): ?string
-    {
-        if (blank($search) || ! preg_match(self::DOCUMENT_LIKE_SEARCH, $search)) {
-            return null;
-        }
-
-        $digits = preg_replace('/\D/', '', $search);
-
-        return $digits === '' ? null : $digits;
     }
 }

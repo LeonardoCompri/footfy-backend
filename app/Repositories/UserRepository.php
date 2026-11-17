@@ -4,15 +4,37 @@ namespace App\Repositories;
 
 use App\Models\Player;
 use App\Models\User;
+use App\Repositories\Concerns\BuildsListings;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 class UserRepository
 {
+    use BuildsListings;
+
     private const WITH = ['leagues', 'team', 'player.team'];
 
-    public function index(?array $leagueIds = null, ?int $includeUserId = null, bool $excludeMasters = false): Collection
-    {
-        $query = User::with([...self::WITH, 'roles']);
+    private const LISTING_COLUMNS = ['users.id', 'users.name', 'users.email', 'users.document', 'users.team_id', 'users.created_at', 'users.updated_at'];
+
+    private const LISTING_WITH = [
+        'roles:id,name',
+        'leagues:id,name',
+        'team:id,name,logo',
+        'player:id,name,team_id,user_id',
+        'player.team:id,name,logo',
+    ];
+
+    public function index(
+        ?array $leagueIds = null,
+        ?int $includeUserId = null,
+        bool $excludeMasters = false,
+        array $filters = [],
+        bool $paginate = false,
+    ): Collection|LengthAwarePaginator {
+        $query = User::query()
+            ->select(self::LISTING_COLUMNS)
+            ->with(self::LISTING_WITH);
 
         $query->where(function ($q) use ($leagueIds, $includeUserId, $excludeMasters) {
             $q->where(function ($filtered) use ($leagueIds, $excludeMasters) {
@@ -20,7 +42,7 @@ class UserRepository
                     $filtered->inLeagues($leagueIds);
                 }
                 if ($excludeMasters) {
-                    $filtered->whereDoesntHave('roles', fn ($r) => $r->where('name', 'master'));
+                    $filtered->whereNotIn('users.id', User::idsWithRoles(['master']));
                 }
             });
 
@@ -29,7 +51,20 @@ class UserRepository
             }
         });
 
-        return $query->get();
+        $query->when(filled($filters['search'] ?? null), function (Builder $q) use ($filters) {
+            $q->where(function (Builder $sub) use ($filters) {
+                $sub->where('users.name', 'like', '%'.$filters['search'].'%')
+                    ->orWhere('users.email', 'like', '%'.$filters['search'].'%');
+
+                if (filled($filters['document_search'] ?? null)) {
+                    $sub->orWhere('users.document', 'like', '%'.$filters['document_search'].'%');
+                }
+            });
+        });
+
+        $this->sortListing($query, $filters, $paginate);
+
+        return $this->getOrPaginate($query, $filters, $paginate);
     }
 
     public function store(array $data, string $role, int|string|null $playerId = null): User

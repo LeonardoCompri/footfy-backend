@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\DB;
@@ -100,19 +101,30 @@ class User extends Authenticatable
                 ->orWhereIn('team_id', Player::where('user_id', $this->id)->select('team_id'))));
     }
 
+    public static function idsWithRoles(array $roles): QueryBuilder
+    {
+        return DB::table('model_has_roles')
+            ->select('model_has_roles.model_id')
+            ->join('roles', 'roles.id', '=', 'model_has_roles.role_id')
+            ->where('model_has_roles.model_type', (new self)->getMorphClass())
+            ->whereIn('roles.name', $roles);
+    }
+
     public function scopeInLeagues(Builder $query, array $leagueIds): void
     {
-        $teamScoped = fn ($q) => $q
-            ->whereHas('roles', fn ($r) => $r->whereIn('name', self::TEAM_SCOPED_ROLES))
-            ->whereDoesntHave('roles', fn ($r) => $r->whereIn('name', self::LEAGUE_SCOPED_ROLES));
+        $teamRoleIds = self::idsWithRoles(self::TEAM_SCOPED_ROLES);
+        $leagueRoleIds = self::idsWithRoles(self::LEAGUE_SCOPED_ROLES);
         $teamIds = Team::idsInLeagues($leagueIds);
 
         $query->where(fn ($q) => $q
             ->where(fn ($direct) => $direct
-                ->whereNot($teamScoped)
+                ->where(fn ($leagueScoped) => $leagueScoped
+                    ->whereNotIn('users.id', $teamRoleIds)
+                    ->orWhereIn('users.id', $leagueRoleIds))
                 ->whereIn('users.id', DB::table('user_leagues')->select('user_id')->whereIn('league_id', $leagueIds)))
             ->orWhere(fn ($derived) => $derived
-                ->where($teamScoped)
+                ->whereIn('users.id', $teamRoleIds)
+                ->whereNotIn('users.id', $leagueRoleIds)
                 ->where(fn ($team) => $team
                     ->whereIn('users.team_id', $teamIds)
                     ->orWhereIn('users.id', Player::whereIn('team_id', $teamIds)->select('user_id'))))
