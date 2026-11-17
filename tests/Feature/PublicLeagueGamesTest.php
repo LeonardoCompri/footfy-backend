@@ -187,7 +187,7 @@ class PublicLeagueGamesTest extends TestCase
         $this->assertLessThanOrEqual(6, count($queries));
     }
 
-    public function test_public_show_brings_the_counters_and_keeps_games(): void
+    public function test_public_show_brings_the_counters_without_the_games(): void
     {
         [$league, $teams] = $this->leagueWithTeams(3);
         Stadium::factory()->count(2)->create(['league_id' => $league->id]);
@@ -203,13 +203,31 @@ class PublicLeagueGamesTest extends TestCase
             ->assertJsonPath('data.teams_count', 3)
             ->assertJsonPath('data.games_count', 4)
             ->assertJsonPath('data.stadiums_count', 2)
-            ->assertJsonCount(4, 'data.games')
+            ->assertJsonMissingPath('data.games')
             ->assertJsonCount(3, 'data.teams')
             ->assertJsonCount(2, 'data.stadiums');
         $this->assertSame(
             $response->json('data.games_count'),
             $this->getJson("/api/public/leagues/{$league->id}/games")->json('meta.total'),
         );
+    }
+
+    public function test_public_show_does_not_load_the_games(): void
+    {
+        [$league, $teams] = $this->leagueWithTeams();
+        Stadium::factory()->create(['league_id' => $league->id]);
+        $this->game($league, $teams->all());
+
+        $queries = [];
+        DB::listen(function ($query) use (&$queries) {
+            $queries[] = strtolower(str_replace(['"', '`'], '', $query->sql));
+        });
+
+        $this->getJson("/api/public/leagues/{$league->id}")->assertOk();
+
+        $sql = implode("\n", $queries);
+        $this->assertStringContainsString('stadiums.league_id in (', $sql);
+        $this->assertStringNotContainsString('games.league_id in (', $sql);
     }
 
     public function test_public_show_of_empty_league_has_zero_counters(): void
