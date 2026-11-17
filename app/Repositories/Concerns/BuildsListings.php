@@ -15,8 +15,13 @@ trait BuildsListings
         });
     }
 
-    protected function sortListing(Builder $query, array $filters, bool $paginate): Builder
-    {
+    protected function sortListing(
+        Builder $query,
+        array $filters,
+        bool $paginate,
+        string $defaultSort = 'id',
+        string $defaultOrder = 'asc',
+    ): Builder {
         $sort = $filters['sort'] ?? null;
         $order = $filters['order'] ?? null;
 
@@ -24,8 +29,9 @@ trait BuildsListings
             return $query;
         }
 
-        $sort ??= 'id';
-        $query->orderBy($query->qualifyColumn($sort), $order ?? 'asc');
+        $order ??= $sort === null ? $defaultOrder : 'asc';
+        $sort ??= $defaultSort;
+        $query->orderBy($query->qualifyColumn($sort), $order);
 
         if ($sort !== 'id') {
             $query->orderBy($query->qualifyColumn('id'));

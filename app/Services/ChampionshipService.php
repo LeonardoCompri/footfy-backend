@@ -7,6 +7,7 @@ use App\Repositories\ChampionshipRepository;
 use App\Repositories\LeagueRepository;
 use App\Services\Concerns\HandlesImageUpload;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -27,9 +28,9 @@ class ChampionshipService
         return $this->repository->index();
     }
 
-    public function publicIndex(): Collection
+    public function publicIndex(array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
-        return $this->repository->index();
+        return $this->repository->publicIndex($filters, $paginate);
     }
 
     public function store(array $data): Championship

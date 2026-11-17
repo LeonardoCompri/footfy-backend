@@ -41,7 +41,7 @@ class LeagueService
 
     public function publicShow(string $id): League
     {
-        $league = $this->repository->show($id, ['championship', 'teams', 'games', 'stadiums']);
+        $league = $this->repository->show($id, ['championship', 'teams', 'games', 'stadiums'], ['teams', 'games', 'stadiums']);
 
         if (! $league) {
             throw ValidationException::withMessages(['message' => 'Liga não encontrada!']);

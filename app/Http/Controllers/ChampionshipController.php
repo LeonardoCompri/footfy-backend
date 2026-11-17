@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ChampionshipDestroyRequest;
+use App\Http\Requests\ChampionshipIndexRequest;
 use App\Http\Requests\ChampionshipStoreRequest;
 use App\Http\Requests\ChampionshipUpdateRequest;
 use App\Http\Resources\ChampionshipResource;
@@ -30,12 +31,12 @@ class ChampionshipController extends Controller
         }
     }
 
-    public function publicIndex(): JsonResponse
+    public function publicIndex(ChampionshipIndexRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->publicIndex();
+            $response = $this->service->publicIndex($request->validated(), $request->wantsPagination());
 
-            return response()->json(['data' => ChampionshipResource::collection($response)]);
+            return $this->listResponse($response, ChampionshipResource::class);
         } catch (Throwable $th) {
             log_error($th);
 
