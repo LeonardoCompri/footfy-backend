@@ -11,6 +11,7 @@ use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\LinksUsersToLeagues;
@@ -112,7 +113,9 @@ class GameEventControllerTest extends TestCase
 
         $response = $this->getJson('/api/game-events');
 
-        $response->assertOk()->assertJsonCount(3, 'data');
+        $response->assertOk()
+            ->assertJsonCount(3, 'data')
+            ->assertJsonPath('meta', ['current_page' => 1, 'per_page' => 20, 'total' => 3, 'last_page' => 1]);
     }
 
     public function test_master_can_filter_index_by_type(): void
@@ -197,6 +200,216 @@ class GameEventControllerTest extends TestCase
         $response = $this->getJson("/api/game-events?game_id={$scenario['game']->id}");
 
         $response->assertStatus(422)->assertJson(['message' => 'Você não tem acesso a essa partida.']);
+    }
+
+    private function eventIn(array $scenario, array $overrides = []): GameEvent
+    {
+        return GameEvent::create(array_merge([
+            'game_id' => $scenario['game']->id,
+            'league_id' => $scenario['league']->id,
+            'team_id' => $scenario['homeTeam']->id,
+            'player_id' => $scenario['player']->id,
+            'type' => 'goal',
+            'minute' => 10,
+        ], $overrides));
+    }
+
+    private function eventIds(TestResponse $response): array
+    {
+        return array_column($response->json('data'), 'id');
+    }
+
+    public function test_index_paginates_with_default_per_page(): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        foreach (range(1, 25) as $minute) {
+            $this->eventIn($scenario, ['minute' => $minute]);
+        }
+
+        $this->getJson('/api/game-events')
+            ->assertOk()
+            ->assertJsonCount(20, 'data')
+            ->assertJsonPath('meta', ['current_page' => 1, 'per_page' => 20, 'total' => 25, 'last_page' => 2]);
+
+        $this->getJson('/api/game-events?page=2')
+            ->assertOk()
+            ->assertJsonCount(5, 'data')
+            ->assertJsonPath('meta.current_page', 2);
+    }
+
+    public function test_index_accepts_per_page_up_to_the_configured_maximum(): void
+    {
+        $this->authenticate();
+        $max = config('footfy.pagination.max_per_page');
+
+        $this->getJson("/api/game-events?per_page={$max}")
+            ->assertOk()
+            ->assertJsonPath('meta.per_page', $max);
+
+        $this->getJson('/api/game-events?per_page='.($max + 1))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('per_page');
+    }
+
+    public function test_index_keeps_minute_desc_order_across_pages(): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        foreach ([30, null, 45, 10, 45, 5, null] as $minute) {
+            $this->eventIn($scenario, ['minute' => $minute]);
+        }
+
+        $expected = GameEvent::query()->latestMinuteFirst()->pluck('id')->all();
+        $pages = array_map(
+            fn (int $page) => $this->eventIds($this->getJson("/api/game-events?per_page=3&page={$page}")->assertOk()),
+            [1, 2, 3],
+        );
+
+        $this->assertSame($expected, array_merge(...$pages));
+        $this->assertSame([3, 3, 1], array_map('count', $pages));
+    }
+
+    public function test_master_can_filter_index_by_league_and_type(): void
+    {
+        $this->authenticate();
+        $scenarioA = $this->buildGameScenario();
+        $scenarioB = $this->buildGameScenario();
+        $goal = $this->eventIn($scenarioA);
+        $this->eventIn($scenarioA, ['type' => 'yellow_card']);
+        $this->eventIn($scenarioB);
+
+        $this->getJson("/api/game-events?league_id={$scenarioA['league']->id}")
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2);
+
+        $this->getJson("/api/game-events?league_id={$scenarioA['league']->id}&type=goal")
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.id', $goal->id);
+    }
+
+    public function test_master_can_filter_index_by_team_and_type(): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        $awayPlayer = Player::factory()->create(['team_id' => $scenario['awayTeam']->id]);
+        $homeGoal = $this->eventIn($scenario);
+        $homeCard = $this->eventIn($scenario, ['type' => 'yellow_card', 'minute' => 5]);
+        $this->eventIn($scenario, ['team_id' => $scenario['awayTeam']->id, 'player_id' => $awayPlayer->id]);
+
+        $response = $this->getJson("/api/game-events?team_id={$scenario['homeTeam']->id}")->assertOk();
+        $this->assertSame([$homeGoal->id, $homeCard->id], $this->eventIds($response));
+
+        $response = $this->getJson("/api/game-events?team_id={$scenario['homeTeam']->id}&type=yellow_card")->assertOk();
+        $this->assertSame([$homeCard->id], $this->eventIds($response));
+    }
+
+    public function test_master_can_filter_index_by_game_and_type(): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        $card = $this->eventIn($scenario, ['type' => 'yellow_card']);
+        $this->eventIn($scenario);
+        $this->eventIn($this->buildGameScenario(), ['type' => 'yellow_card']);
+
+        $response = $this->getJson("/api/game-events?game_id={$scenario['game']->id}&type=yellow_card")->assertOk();
+
+        $this->assertSame([$card->id], $this->eventIds($response));
+    }
+
+    public function test_player_filter_includes_events_where_the_player_assisted(): void
+    {
+        $this->authenticate();
+        $scenario = $this->buildGameScenario();
+        $scored = $this->eventIn($scenario, ['minute' => 30]);
+        $assisted = $this->eventIn($scenario, ['player_id' => $scenario['teammate']->id, 'related_player_id' => $scenario['player']->id, 'minute' => 20]);
+        $card = $this->eventIn($scenario, ['type' => 'yellow_card', 'minute' => 10]);
+        $this->eventIn($scenario, ['player_id' => $scenario['teammate']->id, 'minute' => 40]);
+
+        $response = $this->getJson("/api/game-events?player_id={$scenario['player']->id}")->assertOk();
+        $this->assertSame([$scored->id, $assisted->id, $card->id], $this->eventIds($response));
+
+        $response = $this->getJson("/api/game-events?player_id={$scenario['player']->id}&type=goal")->assertOk();
+        $this->assertSame([$scored->id, $assisted->id], $this->eventIds($response));
+    }
+
+    public function test_admin_can_filter_index_by_league_team_and_player_in_assigned_league(): void
+    {
+        $league = League::factory()->create();
+        $scenario = $this->buildGameScenario($league->id);
+        $scenario['homeTeam']->leagues()->attach($league->id);
+        $event = $this->eventIn($scenario);
+        $this->eventIn($scenario, ['team_id' => $scenario['awayTeam']->id, 'player_id' => Player::factory()->create(['team_id' => $scenario['awayTeam']->id])->id]);
+        $this->authenticateAsAdmin([$league->id]);
+
+        $query = "league_id={$league->id}&team_id={$scenario['homeTeam']->id}&player_id={$scenario['player']->id}";
+        $response = $this->getJson("/api/game-events?{$query}&page=1&per_page=100")->assertOk();
+
+        $this->assertSame([$event->id], $this->eventIds($response));
+        $response->assertJsonPath('meta.total', 1);
+    }
+
+    public function test_admin_player_filter_ignores_events_outside_assigned_leagues(): void
+    {
+        $assigned = League::factory()->create();
+        $scenarioIn = $this->buildGameScenario($assigned->id);
+        $scenarioOut = $this->buildGameScenario();
+        $scenarioOut['game']->update(['home_team_id' => $scenarioIn['homeTeam']->id]);
+        $inScope = $this->eventIn($scenarioIn);
+        $this->eventIn($scenarioOut, ['team_id' => $scenarioIn['homeTeam']->id, 'player_id' => $scenarioIn['player']->id]);
+        $this->authenticateAsAdmin([$assigned->id]);
+
+        $response = $this->getJson("/api/game-events?player_id={$scenarioIn['player']->id}")->assertOk();
+
+        $this->assertSame([$inScope->id], $this->eventIds($response));
+    }
+
+    public function test_coach_index_only_sees_events_of_the_team_leagues(): void
+    {
+        $league = League::factory()->create();
+        $inScope = $this->eventIn($this->buildGameScenario($league->id));
+        $this->eventIn($this->buildGameScenario());
+        $this->authenticateAs('coach', [$league->id]);
+
+        $response = $this->getJson('/api/game-events')->assertOk();
+
+        $this->assertSame([$inScope->id], $this->eventIds($response));
+    }
+
+    public function test_admin_cannot_filter_index_by_league_outside_assignments(): void
+    {
+        $assigned = League::factory()->create();
+        $other = League::factory()->create();
+        $this->authenticateAsAdmin([$assigned->id]);
+
+        $this->getJson("/api/game-events?league_id={$other->id}")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Você não tem acesso a uma ou mais ligas informadas.');
+    }
+
+    public function test_admin_cannot_filter_index_by_team_outside_assignments(): void
+    {
+        $assigned = League::factory()->create();
+        $other = League::factory()->create();
+        $team = Team::factory()->create();
+        $team->leagues()->attach($other->id);
+        $this->authenticateAsAdmin([$assigned->id]);
+
+        $this->getJson("/api/game-events?team_id={$team->id}")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Você não tem acesso a esse time.');
+    }
+
+    public function test_master_filter_by_unknown_ids_returns_empty_page(): void
+    {
+        $this->authenticate();
+        GameEvent::factory()->create();
+
+        $this->getJson('/api/game-events?game_id=999&league_id=999&team_id=999&player_id=999')
+            ->assertOk()
+            ->assertJsonCount(0, 'data')
+            ->assertJsonPath('meta.total', 0);
     }
 
     public function test_master_can_create_goal_event(): void
@@ -559,6 +772,14 @@ class GameEventControllerTest extends TestCase
             'game_id sufixo não numérico' => ['game_id=1abc', 'game_id'],
             'game_id texto' => ['game_id=abc', 'game_id'],
             'type array' => ['type[]=goal', 'type'],
+            'league_id array' => ['league_id[]=1', 'league_id'],
+            'league_id texto' => ['league_id=abc', 'league_id'],
+            'team_id array' => ['team_id[]=1', 'team_id'],
+            'team_id sufixo não numérico' => ['team_id=1abc', 'team_id'],
+            'player_id array' => ['player_id[]=1', 'player_id'],
+            'player_id zero' => ['player_id=0', 'player_id'],
+            'page zero' => ['page=0', 'page'],
+            'per_page texto' => ['per_page=abc', 'per_page'],
         ];
     }
 
