@@ -3,7 +3,9 @@
 namespace Tests\Unit;
 
 use App\Models\League;
+use App\Repositories\AuditLogRepository;
 use App\Repositories\LeagueRepository;
+use App\Services\AuditLogger;
 use App\Services\LeagueGroupService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -23,7 +25,7 @@ class LeagueGroupDistributionTest extends TestCase
     #[DataProvider('distributions')]
     public function test_distribute_assigns_every_team_to_groups_of_equal_size(int $teams, int $groups): void
     {
-        $service = new LeagueGroupService(new LeagueRepository);
+        $service = new LeagueGroupService(new LeagueRepository, new AuditLogger(new AuditLogRepository, new LeagueRepository));
         $teamIds = range(101, 100 + $teams);
 
         $groupByTeam = $service->distribute($teamIds, $groups);
@@ -36,7 +38,7 @@ class LeagueGroupDistributionTest extends TestCase
 
     public function test_distribute_shuffles_the_teams(): void
     {
-        $service = new LeagueGroupService(new LeagueRepository);
+        $service = new LeagueGroupService(new LeagueRepository, new AuditLogger(new AuditLogRepository, new LeagueRepository));
         $teamIds = range(1, 16);
         $results = [];
 

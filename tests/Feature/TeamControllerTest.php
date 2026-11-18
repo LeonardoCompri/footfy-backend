@@ -400,7 +400,7 @@ class TeamControllerTest extends TestCase
         $this->authenticate();
         $league = League::factory()->create();
         $this->partialMock(TeamRepository::class, function ($mock) {
-            $mock->shouldReceive('syncLeagues')->andThrow(new \RuntimeException('falha simulada'));
+            $mock->shouldReceive('attachLeagues')->andThrow(new \RuntimeException('falha simulada'));
         });
 
         $response = $this->post('/api/teams', [

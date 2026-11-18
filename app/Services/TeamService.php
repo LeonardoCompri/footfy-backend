@@ -22,6 +22,7 @@ class TeamService
     public function __construct(
         private readonly TeamRepository $repository,
         private readonly LeagueRepository $leagueRepository,
+        private readonly AuditLogger $auditLogger,
     ) {}
 
     public function index(?string $leagueId = null, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
@@ -63,7 +64,7 @@ class TeamService
             return DB::transaction(function () use ($data, $leagueIds) {
                 $team = $this->repository->store($data);
 
-                return $this->repository->syncLeagues($team, $leagueIds);
+                return $this->attachLeagues($team, $leagueIds);
             });
         } catch (Throwable $th) {
             $this->deleteImage($data['logo'] ?? null);
@@ -168,8 +169,21 @@ class TeamService
             $this->repository->findForUpdate($team->id);
             $this->ensureRosterFitsNewLeagues($team, $leagueIds);
 
-            return $this->repository->syncLeagues($team, $leagueIds);
+            return $this->attachLeagues($team, $leagueIds);
         });
+    }
+
+    private function attachLeagues(Team $team, array $leagueIds): Team
+    {
+        $attached = $this->repository->attachLeagues($team, $leagueIds);
+
+        if ($attached !== []) {
+            foreach ($this->leagueRepository->index($attached) as $league) {
+                $this->auditLogger->record('league.teams_attached', $league, meta: ['team_ids' => [$team->id]]);
+            }
+        }
+
+        return $this->repository->loadLeagues($team);
     }
 
     private function ensureRosterFitsNewLeagues(Team $team, array $leagueIds): void
@@ -219,7 +233,14 @@ class TeamService
             throw ValidationException::withMessages(['message' => 'Não é possível remover o time da liga pois ele está em um grupo com rodadas sorteadas.']);
         }
 
-        return $this->repository->removeLeague($team, $leagueId);
+        return DB::transaction(function () use ($team, $leagueId) {
+            if ($this->repository->detachLeague($team, $leagueId) > 0) {
+                $league = $this->leagueRepository->show($leagueId);
+                $this->auditLogger->record('league.teams_detached', $league, meta: ['team_ids' => [$team->id]]);
+            }
+
+            return $this->repository->loadLeagues($team);
+        });
     }
 
     private function findOrFail(string $id): Team

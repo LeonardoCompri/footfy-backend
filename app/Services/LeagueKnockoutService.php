@@ -53,6 +53,7 @@ class LeagueKnockoutService
         private readonly StandingsService $standingsService,
         private readonly KnockoutBracket $bracket,
         private readonly TieResolver $tieResolver,
+        private readonly AuditLogger $auditLogger,
     ) {}
 
     public function build(League $league): array
@@ -85,12 +86,27 @@ class LeagueKnockoutService
             $this->failWhen($this->manualPhasesIssue($isFirstStage, $manualGames['total'], $replacing));
 
             $plan = $this->planNextStep($context);
+            $replacedGameIds = [];
 
             if ($replacing && $manualGames['total'] > 0) {
+                $replacedGameIds = $this->gameRepository->manualPhaseGameIds($league);
                 $this->gameRepository->deleteManualPhaseGames($league);
             }
 
             $this->gameRepository->insertKnockoutGames($this->rowsOf($league, $plan));
+            $stages = $context['next_step'];
+
+            $this->auditLogger->record(
+                'knockout.stage_generated',
+                $league,
+                ['last_stage' => $context['last_stage']],
+                ['last_stage' => $stage],
+                [
+                    'stages' => $stages,
+                    'game_ids' => $this->gameRepository->knockoutGameIds($league, $stages),
+                    ...($replacedGameIds !== [] ? ['replaced_manual_game_ids' => $replacedGameIds] : []),
+                ],
+            );
 
             return $this->format($league);
         });
@@ -109,7 +125,20 @@ class LeagueKnockoutService
 
             $this->failWhen($this->undoIssue($context));
 
-            $this->gameRepository->deleteKnockoutGames($league, $this->stepStages($lastStage));
+            $stages = $this->stepStages($lastStage);
+            $deletedGames = $context['games']->whereIn('knockout_stage', $stages);
+            $this->gameRepository->deleteKnockoutGames($league, $stages);
+
+            $this->auditLogger->record(
+                'knockout.stage_undone',
+                $league,
+                ['last_stage' => $lastStage],
+                ['last_stage' => $this->previousStage($context, $lastStage)],
+                [
+                    'stages' => $this->presentStages($context, $stages),
+                    'game_ids' => $deletedGames->pluck('id')->map(fn ($id) => (int) $id)->sort()->values()->all(),
+                ],
+            );
 
             return $this->format($league);
         });
@@ -466,6 +495,23 @@ class LeagueKnockoutService
     private function stepStages(string $mainStage): array
     {
         return $mainStage === KnockoutBracket::FINAL ? [KnockoutBracket::FINAL, KnockoutBracket::THIRD_PLACE] : [$mainStage];
+    }
+
+    private function previousStage(array $context, string $stage): ?string
+    {
+        $previous = null;
+
+        foreach (KnockoutBracket::stepKeys() as $key) {
+            if ($key === $stage) {
+                break;
+            }
+
+            if (in_array($key, $context['generated'], true)) {
+                $previous = $key;
+            }
+        }
+
+        return $previous;
     }
 
     private function presentStages(array $context, array $stages): array

@@ -29,6 +29,7 @@ class LeagueDrawService
         private readonly GameRepository $gameRepository,
         private readonly LeagueDrawPlanRepository $planRepository,
         private readonly RoundRobinScheduler $scheduler,
+        private readonly AuditLogger $auditLogger,
     ) {}
 
     public function build(League $league): array
@@ -56,7 +57,10 @@ class LeagueDrawService
             $manualGames = $this->gameRepository->manualRoundGamesSummary($state->league);
             $this->failWhen($this->manualRoundsIssue($state, $manualGames['total'], $replacing));
 
+            $replacedGameIds = [];
+
             if ($replacing && $manualGames['total'] > 0) {
+                $replacedGameIds = $this->gameRepository->manualRoundGameIds($state->league);
                 $this->gameRepository->deleteManualRoundGames($state->league);
             }
 
@@ -72,6 +76,12 @@ class LeagueDrawService
             }
 
             $this->gameRepository->insertDrawnGames($rows);
+
+            $this->recordDraw('draw.round_drawn', $state->league, $round - 1, $round, [
+                'round' => $round,
+                'game_ids' => $this->gameRepository->drawnGameIds($state->league, $round),
+                ...($replacedGameIds !== [] ? ['replaced_manual_game_ids' => $replacedGameIds] : []),
+            ]);
 
             return $this->format($this->state($state->league));
         });
@@ -95,7 +105,12 @@ class LeagueDrawService
                 $this->returnRoundToPlans($state, $lastRound);
             }
 
+            $gameIds = $this->gameRepository->drawnGameIds($state->league, $lastRound);
             $this->gameRepository->deleteDrawnGames($state->league, $lastRound);
+            $this->recordDraw('draw.round_undone', $state->league, $lastRound, $lastRound - 1, [
+                'round' => $lastRound,
+                'game_ids' => $gameIds,
+            ]);
 
             return $this->format($this->state($state->league));
         });
@@ -108,8 +123,10 @@ class LeagueDrawService
 
             $this->failWhen($this->resetIssue($state));
 
+            $gameIds = $this->gameRepository->drawnGameIds($state->league);
             $this->gameRepository->deleteDrawnGames($state->league);
             $this->planRepository->deleteForLeague($state->league);
+            $this->recordDraw('draw.reset', $state->league, $state->drawnRounds(), 0, ['game_ids' => $gameIds]);
 
             return $this->format($this->state($state->league));
         });
@@ -169,6 +186,11 @@ class LeagueDrawService
         if ($roundsLeft > 0) {
             $this->planRepository->save($state->league, $groupNumber, self::FIRST_TURN, $completion);
         }
+    }
+
+    private function recordDraw(string $action, League $league, int $before, int $after, array $meta): void
+    {
+        $this->auditLogger->record($action, $league, ['drawn_rounds' => $before], ['drawn_rounds' => $after], $meta);
     }
 
     private function persistSingleGroup(DrawState $state): void

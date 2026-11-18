@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Models\Championship;
 use App\Repositories\ChampionshipRepository;
-use App\Repositories\LeagueRepository;
 use App\Services\Concerns\HandlesImageUpload;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -19,8 +18,8 @@ class ChampionshipService
 
     public function __construct(
         private readonly ChampionshipRepository $repository,
-        private readonly LeagueRepository $leagueRepository,
         private readonly LeagueService $leagueService,
+        private readonly AuditLogger $auditLogger,
     ) {}
 
     public function index(): Collection
@@ -44,6 +43,7 @@ class ChampionshipService
         try {
             $championship = DB::transaction(function () use ($data, $leagues) {
                 $championship = $this->repository->store($data);
+                $this->auditLogger->record('championship.created', $championship, new: $championship->auditAttributes());
                 $this->saveLeagues($championship, $leagues);
 
                 return $championship;
@@ -84,7 +84,13 @@ class ChampionshipService
         try {
             DB::transaction(function () use ($championship, $data, $leagues) {
                 $championship->fill($data);
+                $changes = $championship->auditChanges();
                 $this->repository->update($championship);
+
+                if ($changes['new'] !== []) {
+                    $this->auditLogger->record('championship.updated', $championship, $changes['old'], $changes['new']);
+                }
+
                 $this->saveLeagues($championship, $leagues);
             });
         } catch (Throwable $th) {
@@ -100,8 +106,22 @@ class ChampionshipService
 
     public function destroy(string $id): ?bool
     {
-        $championship = $this->find($id);
-        $deleted = $this->repository->destroy($championship);
+        $championship = $this->find($id, ['leagues:id,championship_id,name']);
+
+        $deleted = DB::transaction(function () use ($championship) {
+            $deleted = $this->repository->destroy($championship);
+
+            if ($deleted) {
+                $this->auditLogger->record(
+                    'championship.deleted',
+                    $championship,
+                    old: $championship->auditAttributes(),
+                    meta: ['deleted_leagues' => $championship->leagues->sortBy('id')->map->only(['id', 'name'])->values()->all()],
+                );
+            }
+
+            return $deleted;
+        });
 
         if ($deleted) {
             $this->deleteImage($championship->image);
@@ -139,7 +159,7 @@ class ChampionshipService
                 $league->fill($data);
                 $this->leagueService->save($league);
             } else {
-                $this->leagueRepository->store($data);
+                $this->leagueService->store($data);
             }
         }
     }

@@ -5,6 +5,7 @@ namespace App\Models\Concerns;
 use App\Models\AuditLog;
 use App\Models\League;
 use App\Services\AuditLogger;
+use Illuminate\Support\Arr;
 
 trait Auditable
 {
@@ -23,6 +24,11 @@ trait Auditable
         }
 
         return ['old' => $old, 'new' => $new];
+    }
+
+    public function auditAttributes(): array
+    {
+        return Arr::except($this->attributesToArray(), $this->auditExcludedAttributes());
     }
 
     public function recordAudit(string $action, ?array $changes = null, array $meta = [], ?League $league = null): AuditLog
