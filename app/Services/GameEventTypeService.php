@@ -6,13 +6,17 @@ use App\Models\GameEventType;
 use App\Repositories\GameEventTypeRepository;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class GameEventTypeService
 {
     private const IN_USE_MESSAGE = 'Tipo em uso; inative-o.';
 
-    public function __construct(private readonly GameEventTypeRepository $repository) {}
+    public function __construct(
+        private readonly GameEventTypeRepository $repository,
+        private readonly AuditLogger $auditLogger,
+    ) {}
 
     public function index(): Collection
     {
@@ -23,7 +27,12 @@ class GameEventTypeService
     {
         $data['sort_order'] ??= $this->repository->maxSortOrder() + 1;
 
-        return $this->repository->store($data);
+        return DB::transaction(function () use ($data) {
+            $type = $this->repository->store($data);
+            $this->auditLogger->record('game_event_type.created', $type, new: $type->auditAttributes());
+
+            return $type;
+        });
     }
 
     public function show(string $id): GameEventType
@@ -49,7 +58,14 @@ class GameEventTypeService
             ]);
         }
 
-        $this->repository->update($type);
+        DB::transaction(function () use ($type) {
+            $changes = $type->auditChanges();
+            $this->repository->update($type);
+
+            if ($changes['new'] !== []) {
+                $this->auditLogger->record('game_event_type.updated', $type, $changes['old'], $changes['new']);
+            }
+        });
 
         return $type;
     }
@@ -63,7 +79,15 @@ class GameEventTypeService
         }
 
         try {
-            return $this->repository->destroy($type);
+            return DB::transaction(function () use ($type) {
+                $deleted = $this->repository->destroy($type);
+
+                if ($deleted) {
+                    $this->auditLogger->record('game_event_type.deleted', $type, old: $type->auditAttributes());
+                }
+
+                return $deleted;
+            });
         } catch (QueryException) {
             throw ValidationException::withMessages(['message' => self::IN_USE_MESSAGE]);
         }
