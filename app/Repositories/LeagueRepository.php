@@ -28,6 +28,11 @@ class LeagueRepository
         return League::with($with)->withCount($counts)->find($id);
     }
 
+    public function championshipIdOf(int $leagueId): ?int
+    {
+        return League::query()->whereKey($leagueId)->value('championship_id');
+    }
+
     public function findForUpdate(string $id): ?League
     {
         return League::query()->lockForUpdate()->find($id);
