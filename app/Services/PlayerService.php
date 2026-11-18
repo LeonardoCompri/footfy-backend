@@ -23,17 +23,36 @@ class PlayerService
         private readonly TeamRepository $teamRepository,
     ) {}
 
-    public function index(array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
+    public function index(?string $leagueId = null, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
-        $user = Auth::user();
-
         if (filled($filters['team_id'] ?? null)) {
             $this->ensureUserHasAccessToTeam($filters['team_id'], 'Você não tem acesso a esse time.');
         }
 
         $filters['document_search'] = $this->documentSearch($filters['search'] ?? null);
 
-        return $this->repository->index($user->isMaster() ? null : $user->leagueIds(), $filters, $paginate);
+        return $this->repository->index($this->listingLeagueIds($leagueId), $filters, $paginate);
+    }
+
+    private function listingLeagueIds(?string $leagueId): ?array
+    {
+        $user = Auth::user();
+
+        if ($user->isMaster()) {
+            return $leagueId !== null ? [$leagueId] : null;
+        }
+
+        $leagueIds = $user->leagueIds();
+
+        if ($leagueId === null) {
+            return $leagueIds;
+        }
+
+        if (! in_array((int) $leagueId, $leagueIds)) {
+            throw ValidationException::withMessages(['message' => 'Você não tem acesso a essa liga.']);
+        }
+
+        return [$leagueId];
     }
 
     public function store(array $data): Player
