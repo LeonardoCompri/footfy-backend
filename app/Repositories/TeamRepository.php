@@ -71,10 +71,13 @@ class TeamRepository
         return $team->delete();
     }
 
-    public function syncLeagues(Team $team, array $leagueIds): Team
+    public function attachLeagues(Team $team, array $leagueIds): array
     {
-        $team->leagues()->syncWithoutDetaching($leagueIds);
+        return array_map('intval', $team->leagues()->syncWithoutDetaching($leagueIds)['attached']);
+    }
 
+    public function loadLeagues(Team $team): Team
+    {
         return $team->load('leagues');
     }
 
@@ -91,10 +94,8 @@ class TeamRepository
         return $query->exists();
     }
 
-    public function removeLeague(Team $team, string $leagueId): Team
+    public function detachLeague(Team $team, string $leagueId): int
     {
-        $team->leagues()->detach($leagueId);
-
-        return $team->load('leagues');
+        return $team->leagues()->detach($leagueId);
     }
 }
