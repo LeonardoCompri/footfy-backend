@@ -87,6 +87,11 @@ class LeagueRepository
         return $league->teams()->pluck('teams.id')->map(fn ($id) => (int) $id)->all();
     }
 
+    public function groupAssignments(League $league): array
+    {
+        return $league->teams()->newPivotQuery()->orderBy('team_id')->pluck('group_number', 'team_id')->all();
+    }
+
     public function groupTeams(League $league): Collection
     {
         return $league->teams()->orderBy('teams.name')->orderBy('teams.id')->get();

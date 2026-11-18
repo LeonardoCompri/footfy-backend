@@ -11,7 +11,10 @@ use Illuminate\Validation\ValidationException;
 
 class LeagueGroupService
 {
-    public function __construct(private readonly LeagueRepository $repository) {}
+    public function __construct(
+        private readonly LeagueRepository $repository,
+        private readonly AuditLogger $auditLogger,
+    ) {}
 
     public function build(League $league): array
     {
@@ -34,7 +37,7 @@ class LeagueGroupService
             }
 
             $this->ensureAssignmentIsValid($league, $teamIds, $groupByTeam);
-            $this->repository->assignGroups($league, $groupByTeam);
+            $this->saveGroups($league, $groupByTeam, 'league.groups_updated');
 
             return $this->format($league, $this->repository->groupTeams($league), false);
         });
@@ -46,7 +49,7 @@ class LeagueGroupService
             $league = $this->lockLeague($id);
             $teamIds = $this->ensureGroupsCanBeAssembled($league);
 
-            $this->repository->assignGroups($league, $this->distribute($teamIds, $league->groups_count));
+            $this->saveGroups($league, $this->distribute($teamIds, $league->groups_count), 'league.groups_shuffled');
 
             return $this->format($league, $this->repository->groupTeams($league), false);
         });
@@ -69,6 +72,37 @@ class LeagueGroupService
         }
 
         return $groupByTeam;
+    }
+
+    private function saveGroups(League $league, array $groupByTeam, string $action): void
+    {
+        $previous = $this->repository->groupAssignments($league);
+        $this->repository->assignGroups($league, $groupByTeam);
+
+        $this->auditLogger->record(
+            $action,
+            $league,
+            ['groups' => $this->groupsSummary($previous)],
+            ['groups' => $this->groupsSummary($groupByTeam)],
+        );
+    }
+
+    private function groupsSummary(array $groupByTeam): array
+    {
+        ksort($groupByTeam);
+        $groups = [];
+
+        foreach ($groupByTeam as $teamId => $groupNumber) {
+            $groups[$groupNumber === null ? 0 : (int) $groupNumber][] = (int) $teamId;
+        }
+
+        ksort($groups);
+
+        return array_map(
+            fn (int $groupNumber, array $teamIds) => ['group_number' => $groupNumber === 0 ? null : $groupNumber, 'team_ids' => $teamIds],
+            array_keys($groups),
+            array_values($groups),
+        );
     }
 
     private function lockLeague(string $id): League
