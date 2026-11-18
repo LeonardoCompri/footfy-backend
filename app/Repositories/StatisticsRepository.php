@@ -25,6 +25,8 @@ class StatisticsRepository
                 'teams.name as team_name, teams.nickname as team_nickname, COUNT(*) as goals'
             )
             ->orderByDesc('goals')
+            ->orderBy('players.name')
+            ->orderBy('game_events.player_id')
             ->limit($limit)
             ->get();
     }
@@ -45,6 +47,8 @@ class StatisticsRepository
                 'teams.name as team_name, teams.nickname as team_nickname, COUNT(*) as assists'
             )
             ->orderByDesc('assists')
+            ->orderBy('players.name')
+            ->orderBy('game_events.related_player_id')
             ->limit($limit)
             ->get();
     }
@@ -67,6 +71,8 @@ class StatisticsRepository
                 'COUNT(*) as total_cards'
             )
             ->orderByDesc('total_cards')
+            ->orderBy('players.name')
+            ->orderBy('game_events.player_id')
             ->limit($limit)
             ->get();
     }
