@@ -159,8 +159,11 @@ return [
 
     'attributes' => [
         'abbreviation' => 'sigla',
+        'action' => 'ação',
         'active' => 'ativo',
         'allows_assist' => 'permite assistência',
+        'auditable_id' => 'id da entidade',
+        'auditable_type' => 'entidade',
         'away_penalties' => 'pênaltis do visitante',
         'away_score' => 'placar do visitante',
         'away_team_id' => 'time visitante',
@@ -177,6 +180,7 @@ return [
         'final_legs' => 'jogos da final',
         'fixture_mode' => 'modo de tabela',
         'format' => 'formato',
+        'from' => 'data inicial',
         'game_id' => 'partida',
         'group_legs' => 'turnos da fase de grupos',
         'group_number' => 'grupo',
@@ -262,7 +266,9 @@ return [
         'tie_key' => 'chave do confronto',
         'tiebreakers' => 'critérios de desempate',
         'tiebreakers.*' => 'critério de desempate',
+        'to' => 'data final',
         'type' => 'tipo',
+        'user_id' => 'usuário',
     ],
 
 ];

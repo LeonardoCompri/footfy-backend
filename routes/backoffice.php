@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChampionshipController;
 use App\Http\Controllers\GameController;
@@ -35,6 +36,10 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::delete('/{id}', [UserController::class, 'destroy'])->name('destroy');
         Route::post('/{id}/leagues', [UserController::class, 'syncLeagues'])->name('leagues.sync');
         Route::delete('/{id}/leagues/{lid}', [UserController::class, 'removeLeague'])->name('leagues.remove');
+    });
+
+    Route::middleware(['role:master'])->prefix('/audit-logs')->name('audit-logs.')->group(function () {
+        Route::get('/', [AuditLogController::class, 'index'])->name('index');
     });
 
     Route::prefix('/leagues')->name('leagues.')->group(function () {
