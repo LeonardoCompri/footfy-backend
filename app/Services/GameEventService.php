@@ -23,6 +23,7 @@ class GameEventService
         private readonly LeagueKnockoutService $knockoutService,
         private readonly GameEventTypeRepository $eventTypeRepository,
         private readonly GameRepository $gameRepository,
+        private readonly AuditLogger $auditLogger,
     ) {}
 
     public function index(array $filters = []): LengthAwarePaginator
@@ -60,7 +61,8 @@ class GameEventService
             }
 
             $event = $this->repository->store($data);
-            $this->gameService->refreshScore($game->id);
+            $scores = $this->refreshScores([$game->id]);
+            $this->auditLogger->record('game_event.created', $event, new: $event->auditAttributes(), meta: ['scores' => $scores]);
 
             return $event;
         });
@@ -108,8 +110,13 @@ class GameEventService
 
         DB::transaction(function () use ($event, $previousGameId, $lockedGames) {
             $this->ensureKnockoutResultsEditable($lockedGames);
+            $changes = $event->auditChanges();
             $this->repository->update($event);
-            $this->refreshScores([$previousGameId, $event->game_id]);
+            $scores = $this->refreshScores([$previousGameId, $event->game_id]);
+
+            if ($changes['new'] !== []) {
+                $this->auditLogger->record('game_event.updated', $event, $changes['old'], $changes['new'], ['scores' => $scores]);
+            }
         });
 
         return $event;
@@ -127,7 +134,11 @@ class GameEventService
             }
 
             $deleted = $this->repository->destroy($event);
-            $this->gameService->refreshScore($event->game_id);
+            $scores = $this->refreshScores([$event->game_id]);
+
+            if ($deleted) {
+                $this->auditLogger->record('game_event.deleted', $event, old: $event->auditAttributes(), meta: ['scores' => $scores]);
+            }
 
             return $deleted;
         });
@@ -149,13 +160,14 @@ class GameEventService
         }
     }
 
-    private function refreshScores(array $gameIds): void
+    private function refreshScores(array $gameIds): array
     {
         $gameIds = array_unique(array_map('intval', $gameIds));
         sort($gameIds);
 
-        foreach ($gameIds as $gameId) {
-            $this->gameService->refreshScore($gameId);
-        }
+        return array_values(array_filter(array_map(
+            fn (int $gameId) => $this->gameService->refreshScore($gameId),
+            $gameIds,
+        )));
     }
 }

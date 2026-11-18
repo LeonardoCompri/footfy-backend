@@ -61,6 +61,20 @@ class GameRepository
             ->get();
     }
 
+    public function penaltyKickRows(Game $game): array
+    {
+        return $game->penaltyKicks()
+            ->inShootoutOrder()
+            ->get(['team_id', 'player_id', 'order', 'scored'])
+            ->map(fn (GamePenaltyKick $kick) => [
+                'team_id' => (int) $kick->team_id,
+                'player_id' => (int) $kick->player_id,
+                'order' => $kick->order,
+                'scored' => $kick->scored,
+            ])
+            ->all();
+    }
+
     public function replacePenaltyKicks(Game $game, array $kicks): void
     {
         $this->deletePenaltyKicks($game);

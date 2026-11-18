@@ -3,18 +3,24 @@
 namespace App\Services;
 
 use App\Models\TechnicalCommitteeMember;
+use App\Repositories\LeagueRepository;
 use App\Repositories\TechnicalCommitteeMemberRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class TechnicalCommitteeMemberService
 {
     use EnsuresLeagueAccess;
 
-    public function __construct(private readonly TechnicalCommitteeMemberRepository $repository) {}
+    public function __construct(
+        private readonly TechnicalCommitteeMemberRepository $repository,
+        private readonly LeagueRepository $leagueRepository,
+        private readonly AuditLogger $auditLogger,
+    ) {}
 
     public function index(array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
@@ -69,6 +75,22 @@ class TechnicalCommitteeMemberService
     {
         $technicalCommitteeMember = $this->show($id);
 
-        return $this->repository->destroy($technicalCommitteeMember);
+        return DB::transaction(function () use ($technicalCommitteeMember) {
+            $deleted = $this->repository->destroy($technicalCommitteeMember);
+
+            if ($deleted) {
+                $teamId = $technicalCommitteeMember->team_id !== null ? (int) $technicalCommitteeMember->team_id : null;
+
+                $this->auditLogger->record(
+                    'technical_committee_member.deleted',
+                    $technicalCommitteeMember,
+                    old: $technicalCommitteeMember->auditAttributes(),
+                    meta: ['team_id' => $teamId],
+                    league: $this->leagueRepository->soleLeagueOfTeam($teamId),
+                );
+            }
+
+            return $deleted;
+        });
     }
 }
