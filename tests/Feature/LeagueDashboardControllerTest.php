@@ -307,6 +307,160 @@ class LeagueDashboardControllerTest extends TestCase
         );
     }
 
+    public function test_dashboard_counts_each_league_separately_when_a_team_is_in_two_leagues(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'round_robin']);
+        $otherLeague = League::factory()->create(['format' => 'round_robin']);
+        [$shared, $onlyHere, $onlyThere] = Team::factory()->count(3)->create();
+        $league->teams()->attach([$shared->id, $onlyHere->id]);
+        $otherLeague->teams()->attach([$shared->id, $onlyThere->id]);
+        Stadium::factory()->count(2)->create(['league_id' => $league->id]);
+        Stadium::factory()->create(['league_id' => $otherLeague->id]);
+        $this->game($league, $shared, $onlyHere, 'finished', '2026-03-01 16:00:00');
+        $this->game($otherLeague, $shared, $onlyThere, 'scheduled', '2026-03-02 16:00:00');
+        $this->game($otherLeague, $onlyThere, $shared, 'scheduled', '2026-03-03 16:00:00');
+
+        $this->getJson("/api/leagues/{$league->id}/dashboard")
+            ->assertOk()
+            ->assertJsonPath('data.counters.teams', 2)
+            ->assertJsonPath('data.counters.games', 1)
+            ->assertJsonPath('data.counters.stadiums', 2);
+
+        $this->getJson("/api/leagues/{$otherLeague->id}/dashboard")
+            ->assertOk()
+            ->assertJsonPath('data.counters.teams', 2)
+            ->assertJsonPath('data.counters.games', 2)
+            ->assertJsonPath('data.counters.stadiums', 1);
+    }
+
+    public function test_dashboard_orders_last_results_by_date_desc_with_stable_tie_break(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'hybrid']);
+        [$teamA, $teamB] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamA->id, $teamB->id]);
+        $sameDate = '2026-03-10 16:00:00';
+
+        $roundTwo = $this->game($league, $teamA, $teamB, 'finished', $sameDate, ['round' => 2]);
+        $roundOneFirst = $this->game($league, $teamB, $teamA, 'finished', $sameDate, ['round' => 1]);
+        $finalWithoutOrder = $this->game($league, $teamA, $teamB, 'finished', $sameDate, ['phase' => 'Final']);
+        $semiFinal = $this->game($league, $teamB, $teamA, 'finished', $sameDate, ['phase' => 'Semi', 'phase_order' => 1]);
+        $withoutDate = $this->game($league, $teamA, $teamB, 'finished', null, ['round' => 3]);
+        $latest = $this->game($league, $teamB, $teamA, 'finished', '2026-03-12 16:00:00', ['round' => 3]);
+        $roundOneSecond = $this->game($league, $teamA, $teamB, 'finished', $sameDate, ['round' => 1]);
+        $this->game($league, $teamA, $teamB, 'scheduled', '2026-03-20 16:00:00', ['round' => 4]);
+        $this->game($league, $teamA, $teamB, 'in_progress', '2026-03-30 16:00:00', ['round' => 4]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/dashboard")->assertOk();
+
+        $this->assertSame(
+            [$latest->id, $roundOneFirst->id, $roundOneSecond->id, $roundTwo->id, $semiFinal->id],
+            array_column($response->json('data.last_results'), 'id'),
+        );
+        $this->assertNotContains($finalWithoutOrder->id, array_column($response->json('data.last_results'), 'id'));
+        $this->assertNotContains($withoutDate->id, array_column($response->json('data.last_results'), 'id'));
+    }
+
+    public function test_dashboard_orders_upcoming_games_with_undated_games_first(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'hybrid']);
+        [$teamA, $teamB] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamA->id, $teamB->id]);
+
+        $lateRoundFour = $this->game($league, $teamA, $teamB, 'scheduled', '2026-04-10 16:00:00', ['round' => 4]);
+        $undatedRoundSix = $this->game($league, $teamB, $teamA, 'scheduled', null, ['round' => 6]);
+        $lateRoundFive = $this->game($league, $teamA, $teamB, 'scheduled', '2026-04-10 16:00:00', ['round' => 5]);
+        $undatedRoundFour = $this->game($league, $teamB, $teamA, 'scheduled', null, ['round' => 4]);
+        $undatedPhase = $this->game($league, $teamA, $teamB, 'scheduled', null, ['phase' => 'Extra']);
+        $early = $this->game($league, $teamB, $teamA, 'scheduled', '2026-04-01 16:00:00', ['round' => 7]);
+        $this->game($league, $teamA, $teamB, 'finished', null, ['round' => 1]);
+        $this->game($league, $teamA, $teamB, 'cancelled', null, ['round' => 1]);
+
+        $response = $this->getJson("/api/leagues/{$league->id}/dashboard")->assertOk();
+
+        $this->assertSame(
+            [$undatedRoundFour->id, $undatedRoundSix->id, $undatedPhase->id, $early->id, $lateRoundFour->id],
+            array_column($response->json('data.upcoming_games'), 'id'),
+        );
+        $this->assertNotContains($lateRoundFive->id, array_column($response->json('data.upcoming_games'), 'id'));
+    }
+
+    public function test_dashboard_does_not_run_ranking_queries_nor_load_every_game(): void
+    {
+        $this->authenticate();
+        $league = $this->buildLeagueWithCardsAndAnotherLeague();
+        $queries = [];
+        DB::listen(function ($query) use (&$queries) {
+            $queries[] = strtolower(str_replace(['"', '`'], '', $query->sql));
+        });
+
+        $this->getJson("/api/leagues/{$league->id}/dashboard")->assertOk();
+
+        foreach ($queries as $sql) {
+            $this->assertStringNotContainsString('group by game_events.player_id', $sql);
+            $this->assertStringNotContainsString('group by game_events.related_player_id', $sql);
+            $this->assertStringNotContainsString('join players', $sql);
+            $this->assertStringNotContainsString('select * from stadiums', $sql);
+            $this->assertStringNotContainsString('select * from teams where teams.id in (select', $sql);
+            if (str_starts_with($sql, 'select * from games')) {
+                $this->assertStringContainsString('limit 5', $sql);
+            }
+        }
+    }
+
+    public function test_dashboard_query_count_does_not_grow_with_the_number_of_games(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'round_robin']);
+        $teams = Team::factory()->count(8)->create();
+        $league->teams()->attach($teams->pluck('id'));
+        Stadium::factory()->create(['league_id' => $league->id]);
+        $this->game($league, $teams[0], $teams[1], 'finished', '2026-03-01 16:00:00', ['round' => 1]);
+        $this->game($league, $teams[2], $teams[3], 'scheduled', '2026-04-01 16:00:00', ['round' => 2]);
+
+        $queries = 0;
+        DB::listen(function () use (&$queries) {
+            $queries++;
+        });
+        $this->getJson("/api/leagues/{$league->id}/dashboard")->assertOk();
+
+        $queries = 0;
+        $this->getJson("/api/leagues/{$league->id}/dashboard")->assertOk();
+        $fewGames = $queries;
+
+        for ($i = 0; $i < 7; $i++) {
+            $this->game($league, $teams[$i], $teams[$i + 1], 'finished', sprintf('2026-03-%02d 18:00:00', $i + 2), ['round' => 1]);
+            $this->game($league, $teams[$i + 1], $teams[$i], 'scheduled', sprintf('2026-04-%02d 18:00:00', $i + 2), ['round' => 2]);
+        }
+
+        $queries = 0;
+        $this->getJson("/api/leagues/{$league->id}/dashboard")->assertOk();
+
+        $this->assertSame($fewGames, $queries);
+    }
+
+    private function game(League $league, Team $home, Team $away, string $status, ?string $matchDate, array $attributes = []): Game
+    {
+        $hasScore = in_array($status, ['finished', 'in_progress'], true);
+
+        return Game::factory()->create([
+            'league_id' => $league->id,
+            'home_team_id' => $home->id,
+            'away_team_id' => $away->id,
+            'stadium_id' => null,
+            'status' => $status,
+            'match_date' => $matchDate,
+            'home_score' => $hasScore ? 1 : null,
+            'away_score' => $hasScore ? 0 : null,
+            'round' => null,
+            'phase' => null,
+            'phase_order' => null,
+            ...$attributes,
+        ]);
+    }
+
     public function test_admin_without_league_access_gets_forbidden(): void
     {
         $league = League::factory()->create(['format' => 'round_robin']);
