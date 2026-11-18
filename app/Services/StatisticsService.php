@@ -15,12 +15,21 @@ class StatisticsService
     public function build(League $league): array
     {
         $leagueId = (int) $league->id;
-        $summary = $this->repository->finishedGamesSummary($leagueId);
 
         return [
             'top_scorers' => $this->mapPlayerRanking($this->repository->topScorers($leagueId, self::RANKING_LIMIT), 'goals'),
             'top_assists' => $this->mapPlayerRanking($this->repository->topAssists($leagueId, self::RANKING_LIMIT), 'assists'),
             'top_cards' => $this->mapCardRanking($this->repository->topCards($leagueId, self::RANKING_LIMIT)),
+            ...$this->summary($league),
+        ];
+    }
+
+    public function summary(League $league): array
+    {
+        $leagueId = (int) $league->id;
+        $summary = $this->repository->finishedGamesSummary($leagueId);
+
+        return [
             'goals_by_bucket' => $this->goalsByBucket($leagueId),
             'results_split' => $this->resultsSplit($summary),
             'totals' => $this->totals($summary),
