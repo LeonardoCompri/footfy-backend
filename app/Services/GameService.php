@@ -27,6 +27,7 @@ class GameService
         private readonly LeagueDrawService $drawService,
         private readonly LeagueKnockoutService $knockoutService,
         private readonly ShootoutResolver $shootoutResolver,
+        private readonly AuditLogger $auditLogger,
     ) {}
 
     public function index(string $leagueId, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
@@ -94,13 +95,18 @@ class GameService
                 $game->fill($this->scoreFromEvents($game));
             }
 
+            $changes = $game->auditChanges();
             $this->repository->update($game);
 
             if ($leagueChanged) {
                 $this->repository->syncEventsLeague($game);
             }
 
-            $this->knockoutService->clearStalePenalties($game);
+            $clearedGameId = $this->knockoutService->clearStalePenalties($game);
+
+            if ($changes['new'] !== [] || $clearedGameId !== null) {
+                $this->auditLogger->record('game.updated', $game, $changes['old'], $changes['new'], $this->penaltiesClearedMeta($clearedGameId));
+            }
         });
 
         return $this->withBackofficeFlags($game->load($this->showRelations(backoffice: true)));
@@ -129,9 +135,21 @@ class GameService
                 'scored' => (bool) $kick['scored'],
             ], $kicks, array_keys($kicks));
 
+            $previousRows = $this->repository->penaltyKickRows($game);
+            $previousPenalties = $game->only(['home_penalties', 'away_penalties']);
+
             $this->repository->replacePenaltyKicks($game, $rows);
             $game->fill($this->penaltiesFromKicks($game, $rows));
             $this->repository->update($game);
+
+            if ($previousRows !== $rows) {
+                $this->auditLogger->record(
+                    'game.penalty_kicks_updated',
+                    $game,
+                    ['kicks' => $previousRows, ...$previousPenalties],
+                    ['kicks' => $rows, ...$game->only(['home_penalties', 'away_penalties'])],
+                );
+            }
 
             return $game;
         });
@@ -139,17 +157,30 @@ class GameService
         return $this->withBackofficeFlags($game->load($this->showRelations(backoffice: true)));
     }
 
-    public function refreshScore(int $gameId): void
+    public function refreshScore(int $gameId): ?array
     {
         $game = $this->repository->findForUpdate($gameId);
 
         if (! $game) {
-            return;
+            return null;
         }
 
+        $before = $game->only(['home_score', 'away_score']);
         $game->fill($this->scoreFromEvents($game));
         $this->repository->update($game);
-        $this->knockoutService->clearStalePenalties($game);
+        $clearedGameId = $this->knockoutService->clearStalePenalties($game);
+
+        return [
+            'game_id' => (int) $game->id,
+            'before' => $before,
+            'after' => $game->only(['home_score', 'away_score']),
+            ...$this->penaltiesClearedMeta($clearedGameId),
+        ];
+    }
+
+    private function penaltiesClearedMeta(?int $clearedGameId): array
+    {
+        return $clearedGameId !== null ? ['penalties_cleared_game_id' => $clearedGameId] : [];
     }
 
     private function withBackofficeFlags(Game $game): Game
@@ -233,7 +264,15 @@ class GameService
             ]);
         }
 
-        return $this->repository->destroy($game);
+        return DB::transaction(function () use ($game) {
+            $deleted = $this->repository->destroy($game);
+
+            if ($deleted) {
+                $this->auditLogger->record('game.deleted', $game, old: $game->auditAttributes());
+            }
+
+            return $deleted;
+        });
     }
 
     private function showRelations(bool $backoffice = false): array
