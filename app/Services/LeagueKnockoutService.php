@@ -226,30 +226,34 @@ class LeagueKnockoutService
             && $this->penaltiesIssue($game) === null;
     }
 
-    public function clearStalePenalties(Game $game): void
+    public function clearStalePenalties(Game $game): ?int
     {
         if (! $game->isGeneratedKnockout()) {
-            return;
+            return null;
         }
 
         $tieGames = $this->gameRepository->tieGames($game);
         $decisive = $this->tieResolver->decisiveLeg($tieGames->map(fn (Game $leg) => $this->tieResolver->legFromGame($leg))->all());
 
         if (! $decisive) {
-            return;
+            return null;
         }
 
         $decisiveGame = (int) $decisive['id'] === (int) $game->id ? $game : $tieGames->firstWhere('id', $decisive['id']);
 
         if ($decisiveGame->home_penalties === null && $decisiveGame->away_penalties === null) {
-            return;
+            return null;
         }
 
         if ($this->penaltiesIssue($decisiveGame) !== null) {
             $this->gameRepository->deletePenaltyKicks($decisiveGame);
             $decisiveGame->fill(['home_penalties' => null, 'away_penalties' => null]);
             $this->gameRepository->update($decisiveGame);
+
+            return (int) $decisiveGame->id;
         }
+
+        return null;
     }
 
     private function shootoutStructure(Game $game, array $changes = []): array

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Repositories\LeagueRepository;
 use App\Repositories\PlayerRepository;
 use App\Repositories\UserRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
@@ -21,6 +22,8 @@ class UserService
     public function __construct(
         private readonly UserRepository $repository,
         private readonly PlayerRepository $playerRepository,
+        private readonly LeagueRepository $leagueRepository,
+        private readonly AuditLogger $auditLogger,
     ) {}
 
     public function index(?string $leagueId = null, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
@@ -52,7 +55,12 @@ class UserService
 
         $this->ensureUserCanLink($data['team_id'] ?? null, $playerId);
 
-        return DB::transaction(fn () => $this->repository->store($data, $role, $playerId));
+        return DB::transaction(function () use ($data, $role, $playerId) {
+            $user = $this->repository->store($data, $role, $playerId);
+            $this->auditLogger->record('user.created', $user, new: $this->auditState($user));
+
+            return $user;
+        });
     }
 
     public function show(string $id): User
@@ -72,7 +80,7 @@ class UserService
 
         $this->ensureUserCanLink($data['team_id'] ?? null, $data['player_id'] ?? null);
 
-        return DB::transaction(fn () => $this->repository->update($user, $data));
+        return DB::transaction(fn () => $this->updateAndAudit($user, $data));
     }
 
     public function showProfile(): User
@@ -82,14 +90,25 @@ class UserService
 
     public function updateProfile(array $data): User
     {
-        return $this->repository->update($this->showProfile(), Arr::only($data, ['name', 'email', 'password']));
+        $user = $this->showProfile();
+
+        return DB::transaction(fn () => $this->updateAndAudit($user, Arr::only($data, ['name', 'email', 'password'])));
     }
 
     public function destroy(string $id): ?bool
     {
         $user = $this->show($id);
+        $state = $this->auditState($user);
 
-        return $this->repository->destroy($user);
+        return DB::transaction(function () use ($user, $state) {
+            $deleted = $this->repository->destroy($user);
+
+            if ($deleted) {
+                $this->auditLogger->record('user.deleted', $user, old: $state);
+            }
+
+            return $deleted;
+        });
     }
 
     public function syncLeagues(string $id, array $leagueIds): User
@@ -102,14 +121,64 @@ class UserService
             ]);
         }
 
-        return $this->repository->syncLeagues($user, $leagueIds);
+        return DB::transaction(function () use ($user, $leagueIds) {
+            $attached = $this->repository->attachLeagues($user, $leagueIds);
+
+            if ($attached !== []) {
+                $this->recordLeagueLink('user.leagues_attached', $user, $attached);
+            }
+
+            return $this->repository->loadLeagues($user);
+        });
     }
 
     public function removeLeague(string $id, string $leagueId): User
     {
         $user = $this->show($id);
 
-        return $this->repository->removeLeague($user, $leagueId);
+        return DB::transaction(function () use ($user, $leagueId) {
+            if ($this->repository->detachLeague($user, $leagueId) > 0) {
+                $this->recordLeagueLink('user.leagues_detached', $user, [(int) $leagueId]);
+            }
+
+            return $this->repository->loadLeagues($user);
+        });
+    }
+
+    private function updateAndAudit(User $user, array $data): User
+    {
+        $before = $this->auditState($user);
+        $user = $this->repository->update($user, $data);
+        $after = $this->auditState($user);
+
+        $changed = array_keys(array_filter($after, fn ($value, $key) => $before[$key] !== $value, ARRAY_FILTER_USE_BOTH));
+        $meta = array_key_exists('password', $data) ? ['password_changed' => true] : [];
+
+        if ($changed !== [] || $meta !== []) {
+            $this->auditLogger->record('user.updated', $user, Arr::only($before, $changed), Arr::only($after, $changed), $meta);
+        }
+
+        return $user;
+    }
+
+    private function auditState(User $user): array
+    {
+        return [
+            'name' => $user->name,
+            'email' => $user->email,
+            'document' => $user->document,
+            'team_id' => $user->team_id !== null ? (int) $user->team_id : null,
+            'role' => $user->getRoleNames()->first(),
+            'player_id' => $user->player !== null ? (int) $user->player->id : null,
+            'league_ids' => $user->leagues->pluck('id')->map(fn ($id) => (int) $id)->sort()->values()->all(),
+        ];
+    }
+
+    private function recordLeagueLink(string $action, User $user, array $leagueIds): void
+    {
+        $league = count($leagueIds) === 1 ? $this->leagueRepository->show((string) $leagueIds[0]) : null;
+
+        $this->auditLogger->record($action, $user, meta: ['league_ids' => $leagueIds], league: $league);
     }
 
     private function ensureUserCanLink(int|string|null $teamId, int|string|null $playerId): void

@@ -49,9 +49,8 @@ class PlayerRepository
         return Player::onlyTrashed()->where('document', $document)->first();
     }
 
-    public function restore(Player $player, array $data): Player
+    public function restore(Player $player): Player
     {
-        $player->fill($data);
         $player->setAttribute($player->getDeletedAtColumn(), null);
         $player->save();
 

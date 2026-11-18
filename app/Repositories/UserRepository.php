@@ -116,17 +116,18 @@ class UserRepository
         return $user->delete();
     }
 
-    public function syncLeagues(User $user, array $leagueIds): User
+    public function attachLeagues(User $user, array $leagueIds): array
     {
-        $user->leagues()->syncWithoutDetaching($leagueIds);
-
-        return $user->load('leagues');
+        return array_map('intval', $user->leagues()->syncWithoutDetaching($leagueIds)['attached']);
     }
 
-    public function removeLeague(User $user, string $leagueId): User
+    public function detachLeague(User $user, string $leagueId): int
     {
-        $user->leagues()->detach($leagueId);
+        return $user->leagues()->detach($leagueId);
+    }
 
+    public function loadLeagues(User $user): User
+    {
         return $user->load('leagues');
     }
 

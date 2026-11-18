@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class GameEventType extends Model
 {
-    use HasFactory;
+    use Auditable, HasFactory;
 
     public const COLORS = ['primary', 'secondary', 'success', 'info', 'warning', 'error', 'card-yellow', 'card-red', 'grey'];
 

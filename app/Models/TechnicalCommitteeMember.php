@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class TechnicalCommitteeMember extends Model
 {
-    use HasFactory;
+    use Auditable, HasFactory;
 
     public const HEAD_COACH_ROLE = 'Treinador';
 
