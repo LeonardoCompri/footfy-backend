@@ -767,6 +767,120 @@ class LeagueStatisticsControllerTest extends TestCase
         }
     }
 
+    private function leagueWithOneEventOfEachRankingPerPlayer(array $players): League
+    {
+        $league = League::factory()->create(['format' => 'round_robin']);
+        [$teamA, $teamB] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamA->id, $teamB->id]);
+        $game = $this->finishedGame($league, $teamA, $teamB, count($players), 0);
+
+        foreach ($players as $index => $player) {
+            $this->goal($league, $game, $teamA, $player, $players[($index + 1) % count($players)]);
+            $this->card($league, $game, $teamA, $player, 'yellow_card');
+        }
+
+        return $league;
+    }
+
+    private function rankingColumn(array $data, string $column): array
+    {
+        return [
+            'top_scorers' => array_column($data['top_scorers'], $column),
+            'top_assists' => array_column($data['top_assists'], $column),
+            'top_cards' => array_column($data['top_cards'], $column),
+        ];
+    }
+
+    public function test_rankings_break_ties_by_player_name(): void
+    {
+        $this->authenticate();
+        $team = Team::factory()->create(['name' => 'Time do Bruno', 'nickname' => 'TB']);
+        $carlos = Player::factory()->create(['name' => 'Carlos', 'team_id' => null]);
+        $ana = Player::factory()->create(['name' => 'Ana', 'team_id' => $team->id]);
+        $bruno = Player::factory()->create(['name' => 'Bruno', 'team_id' => $team->id]);
+        $league = $this->leagueWithOneEventOfEachRankingPerPlayer([$carlos, $ana, $bruno]);
+        $bruno->delete();
+
+        $data = $this->getJson("/api/leagues/{$league->id}/statistics")->assertOk()->json('data');
+
+        $expectedNames = ['Ana', 'Bruno', 'Carlos'];
+        $this->assertSame(
+            ['top_scorers' => $expectedNames, 'top_assists' => $expectedNames, 'top_cards' => $expectedNames],
+            $this->rankingColumn($data, 'player_name'),
+        );
+
+        foreach (['top_scorers', 'top_assists', 'top_cards'] as $ranking) {
+            $this->assertSame([false, true, false], array_column($data[$ranking], 'player_removed'));
+            $this->assertSame([$team->id, $team->id, null], array_column($data[$ranking], 'team_id'));
+            $this->assertSame(['Time do Bruno', 'Time do Bruno', null], array_column($data[$ranking], 'team_name'));
+            $this->assertSame(['TB', 'TB', null], array_column($data[$ranking], 'team_nickname'));
+        }
+    }
+
+    public function test_rankings_break_ties_between_equal_names_by_player_id(): void
+    {
+        $this->authenticate();
+        $secondBruno = Player::factory()->create(['id' => 20, 'name' => 'Bruno']);
+        $firstBruno = Player::factory()->create(['id' => 10, 'name' => 'Bruno']);
+        $ana = Player::factory()->create(['id' => 30, 'name' => 'Ana']);
+        $league = $this->leagueWithOneEventOfEachRankingPerPlayer([$secondBruno, $firstBruno, $ana]);
+
+        $data = $this->getJson("/api/leagues/{$league->id}/statistics")->assertOk()->json('data');
+
+        $expectedIds = [30, 10, 20];
+        $this->assertSame(
+            ['top_scorers' => $expectedIds, 'top_assists' => $expectedIds, 'top_cards' => $expectedIds],
+            $this->rankingColumn($data, 'player_id'),
+        );
+    }
+
+    public function test_rankings_cut_ties_at_the_limit_keeping_the_first_names(): void
+    {
+        $this->authenticate();
+        $names = ['Laura', 'Karina', 'Joana', 'Igor', 'Hugo', 'Gabriel', 'Fabio', 'Eva', 'Diego', 'Carla', 'Bia', 'Alice'];
+        $players = array_map(fn (string $name) => Player::factory()->create(['name' => $name]), $names);
+        $league = $this->leagueWithOneEventOfEachRankingPerPlayer($players);
+
+        $data = $this->getJson("/api/leagues/{$league->id}/statistics")->assertOk()->json('data');
+
+        $expectedNames = ['Alice', 'Bia', 'Carla', 'Diego', 'Eva', 'Fabio', 'Gabriel', 'Hugo', 'Igor', 'Joana'];
+        $this->assertSame(
+            ['top_scorers' => $expectedNames, 'top_assists' => $expectedNames, 'top_cards' => $expectedNames],
+            $this->rankingColumn($data, 'player_name'),
+        );
+        $this->assertSame(array_fill(0, 10, 1), array_column($data['top_scorers'], 'goals'));
+        $this->assertSame(array_fill(0, 10, 1), array_column($data['top_assists'], 'assists'));
+        $this->assertSame(array_fill(0, 10, 1), array_column($data['top_cards'], 'total_cards'));
+    }
+
+    public function test_top_assists_fills_the_limit_when_many_goals_have_no_assist(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create(['format' => 'round_robin']);
+        [$teamA, $teamB] = Team::factory()->count(2)->create();
+        $league->teams()->attach([$teamA->id, $teamB->id]);
+        $game = $this->finishedGame($league, $teamA, $teamB, 27, 0);
+        $soloScorer = Player::factory()->create(['name' => 'Solo', 'team_id' => $teamA->id]);
+        $scorer = Player::factory()->create(['name' => 'Artilheiro', 'team_id' => $teamA->id]);
+
+        for ($i = 0; $i < 15; $i++) {
+            $this->goal($league, $game, $teamA, $soloScorer);
+        }
+        foreach (range(1, 12) as $number) {
+            $assister = Player::factory()->create(['name' => sprintf('Garcom %02d', $number), 'team_id' => $teamA->id]);
+            $this->goal($league, $game, $teamA, $scorer, $assister);
+        }
+
+        $assists = $this->getJson("/api/leagues/{$league->id}/statistics")->assertOk()->json('data.top_assists');
+
+        $this->assertCount(10, $assists);
+        $this->assertSame(
+            array_map(fn (int $number) => sprintf('Garcom %02d', $number), range(1, 10)),
+            array_column($assists, 'player_name'),
+        );
+        $this->assertSame(array_fill(0, 10, 1), array_column($assists, 'assists'));
+    }
+
     public function test_public_statistics_of_missing_league_returns_unprocessable(): void
     {
         $this->getJson('/api/public/leagues/999/statistics')
