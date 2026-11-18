@@ -28,14 +28,14 @@ class LeagueRepository
         return League::with($with)->withCount($counts)->find($id);
     }
 
-    public function loadCounts(League $league, array $relations): League
-    {
-        return $league->loadCount($relations);
-    }
-
     public function findForUpdate(string $id): ?League
     {
         return League::query()->lockForUpdate()->find($id);
+    }
+
+    public function loadCounts(League $league, array $relations): League
+    {
+        return $league->loadCount($relations);
     }
 
     public function update(League $league): bool
