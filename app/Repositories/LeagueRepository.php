@@ -53,6 +53,11 @@ class LeagueRepository
         return League::query()->lockForUpdate()->find($id);
     }
 
+    public function loadCounts(League $league, array $relations): League
+    {
+        return $league->loadCount($relations);
+    }
+
     public function update(League $league): bool
     {
         return $league->save();
