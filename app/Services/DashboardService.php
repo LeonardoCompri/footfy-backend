@@ -5,65 +5,42 @@ namespace App\Services;
 use App\Models\Game;
 use App\Models\League;
 use App\Models\Team;
+use App\Repositories\GameRepository;
+use App\Repositories\LeagueRepository;
 use Illuminate\Database\Eloquent\Collection;
 
 class DashboardService
 {
     private const RECENT_GAMES_LIMIT = 5;
 
+    private const COUNTED_RELATIONS = ['teams', 'games', 'stadiums'];
+
     public function __construct(
-        private readonly TeamService $teamService,
-        private readonly GameService $gameService,
-        private readonly StadiumService $stadiumService,
+        private readonly LeagueRepository $leagueRepository,
+        private readonly GameRepository $gameRepository,
         private readonly StatisticsService $statisticsService,
     ) {}
 
     public function build(League $league): array
     {
-        $leagueId = (string) $league->id;
-
-        $teams = $this->teamService->index($leagueId);
-        $games = $this->gameService->index($leagueId);
-        $stadiums = $this->stadiumService->index($leagueId);
-        $statistics = $this->statisticsService->build($league);
+        $leagueId = (int) $league->id;
+        $league = $this->leagueRepository->loadCounts($league, self::COUNTED_RELATIONS);
 
         return [
             'counters' => [
-                'teams' => $teams->count(),
-                'games' => $games->count(),
-                'stadiums' => $stadiums->count(),
+                'teams' => (int) $league->teams_count,
+                'games' => (int) $league->games_count,
+                'stadiums' => (int) $league->stadiums_count,
                 'season' => $league->season,
             ],
-            'last_results' => $this->lastResults($games),
-            'upcoming_games' => $this->upcomingGames($games),
-            'goals_by_bucket' => $statistics['goals_by_bucket'],
-            'results_split' => $statistics['results_split'],
-            'totals' => $statistics['totals'],
-            'cards_split' => $statistics['cards_split'],
+            'last_results' => $this->summarizeGames($this->gameRepository->latestFinished($leagueId, self::RECENT_GAMES_LIMIT)),
+            'upcoming_games' => $this->summarizeGames($this->gameRepository->nextScheduled($leagueId, self::RECENT_GAMES_LIMIT)),
+            ...$this->statisticsService->summary($league),
         ];
     }
 
-    private function lastResults(Collection $games): array
+    private function summarizeGames(Collection $games): array
     {
-        $games = $games->where('status', 'finished')
-            ->sortByDesc('match_date')
-            ->take(self::RECENT_GAMES_LIMIT)
-            ->values();
-
-        $games->load(['homeTeam', 'awayTeam']);
-
-        return $games->map(fn (Game $game) => $this->summarizeGame($game))->all();
-    }
-
-    private function upcomingGames(Collection $games): array
-    {
-        $games = $games->where('status', 'scheduled')
-            ->sortBy('match_date')
-            ->take(self::RECENT_GAMES_LIMIT)
-            ->values();
-
-        $games->load(['homeTeam', 'awayTeam']);
-
         return $games->map(fn (Game $game) => $this->summarizeGame($game))->all();
     }
 

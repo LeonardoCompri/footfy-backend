@@ -26,6 +26,16 @@ class GameRepository
         return $this->getOrPaginate($query, $filters, $paginate);
     }
 
+    public function latestFinished(int $leagueId, int $limit): Collection
+    {
+        return $this->recentGames($leagueId, 'finished', 'desc', $limit);
+    }
+
+    public function nextScheduled(int $leagueId, int $limit): Collection
+    {
+        return $this->recentGames($leagueId, 'scheduled', 'asc', $limit);
+    }
+
     public function store(array $data): Game
     {
         return Game::create($data);
@@ -259,6 +269,20 @@ class GameRepository
         });
 
         return $query;
+    }
+
+    private function recentGames(int $leagueId, string $status, string $dateDirection, int $limit): Collection
+    {
+        return Game::query()
+            ->with(['homeTeam', 'awayTeam'])
+            ->where('league_id', $leagueId)
+            ->where('status', $status)
+            ->orderBy('match_date', $dateDirection)
+            ->orderByRaw('round IS NULL, round')
+            ->orderByRaw('phase_order IS NULL, phase_order')
+            ->orderBy('id')
+            ->limit($limit)
+            ->get();
     }
 
     private function orderedForListing(Builder $query): Builder
