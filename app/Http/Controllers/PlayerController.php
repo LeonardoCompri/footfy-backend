@@ -8,6 +8,7 @@ use App\Http\Requests\PlayerUpdateRequest;
 use App\Http\Resources\PlayerResource;
 use App\Services\PlayerService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Arr;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -18,7 +19,10 @@ class PlayerController extends Controller
     public function index(PlayerIndexRequest $request): JsonResponse
     {
         try {
-            $response = $this->service->index($request->validated(), $request->wantsPagination());
+            $filters = $request->validated();
+            $leagueId = Arr::pull($filters, 'league_id');
+
+            $response = $this->service->index($leagueId, $filters, $request->wantsPagination());
 
             return $this->listResponse($response, PlayerResource::class);
         } catch (ValidationException $ex) {

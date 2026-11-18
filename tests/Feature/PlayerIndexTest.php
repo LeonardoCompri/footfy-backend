@@ -94,6 +94,10 @@ class PlayerIndexTest extends TestCase
             'direção inválida' => ['order=random', 'order'],
             'time não numérico' => ['team_id=1abc', 'team_id'],
             'busca longa demais' => ['search='.str_repeat('a', 101), 'search'],
+            'liga não numérica' => ['league_id=abc', 'league_id'],
+            'liga zero' => ['league_id=0', 'league_id'],
+            'liga com sufixo' => ['league_id=1abc', 'league_id'],
+            'liga como lista' => ['league_id[]=1', 'league_id'],
         ];
     }
 
@@ -233,5 +237,156 @@ class PlayerIndexTest extends TestCase
         $this->getJson('/api/players?page=1')
             ->assertOk()
             ->assertJsonPath('meta.total', 3);
+    }
+
+    public function test_master_league_filter_with_and_without_page(): void
+    {
+        [$leagueA, $leagueB] = League::factory()->count(2)->create();
+        Player::factory()->count(3)->create(['team_id' => $this->teamInLeague($leagueA)->id]);
+        Player::factory()->count(2)->create(['team_id' => $this->teamInLeague($leagueB)->id]);
+        Player::factory()->create(['team_id' => null]);
+        $this->actingAsRole('master');
+
+        $this->getJson("/api/players?league_id={$leagueA->id}")
+            ->assertOk()
+            ->assertJsonCount(3, 'data')
+            ->assertJsonMissingPath('meta');
+
+        $this->getJson("/api/players?league_id={$leagueB->id}&page=1&per_page=1")
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.last_page', 2);
+
+        $this->getJson('/api/players')->assertOk()->assertJsonCount(6, 'data');
+    }
+
+    public function test_league_filter_lists_a_team_in_several_leagues_once(): void
+    {
+        [$leagueA, $leagueB] = League::factory()->count(2)->create();
+        $team = $this->teamInLeague($leagueA);
+        $team->leagues()->attach($leagueB->id);
+        Player::factory()->count(2)->create(['team_id' => $team->id]);
+        $this->actingAsRole('admin', [$leagueA->id, $leagueB->id]);
+
+        $this->getJson("/api/players?league_id={$leagueA->id}&page=1")
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2);
+    }
+
+    public function test_admin_league_filter_keeps_only_the_requested_league(): void
+    {
+        [$leagueA, $leagueB] = League::factory()->count(2)->create();
+        $teamA = $this->teamInLeague($leagueA);
+        Player::factory()->create(['team_id' => $teamA->id, 'name' => 'Jogador A']);
+        Player::factory()->create(['team_id' => $teamA->id, 'name' => 'Removido A'])->delete();
+        Player::factory()->create(['team_id' => $this->teamInLeague($leagueB)->id, 'name' => 'Jogador B']);
+        $this->actingAsRole('admin', [$leagueA->id, $leagueB->id]);
+
+        $response = $this->getJson("/api/players?league_id={$leagueA->id}&page=1");
+
+        $response->assertOk()->assertJsonPath('meta.total', 1);
+        $this->assertSame(['Jogador A'], $this->names($response->json('data')));
+        $this->assertSame(['Jogador B'], $this->names($this->getJson("/api/players?league_id={$leagueB->id}")->json('data')));
+        $this->getJson('/api/players?page=1')->assertOk()->assertJsonPath('meta.total', 2);
+    }
+
+    public function test_league_filter_combines_with_search(): void
+    {
+        [$leagueA, $leagueB] = League::factory()->count(2)->create();
+        $teamA = $this->teamInLeague($leagueA);
+        Player::factory()->create(['team_id' => $teamA->id, 'name' => 'Gabriel Barbosa']);
+        Player::factory()->create(['team_id' => $teamA->id, 'name' => 'Pedro Guilherme']);
+        Player::factory()->create(['team_id' => $this->teamInLeague($leagueB)->id, 'name' => 'Diego Barbosa']);
+        $this->actingAsRole('admin', [$leagueA->id, $leagueB->id]);
+
+        $paginated = $this->getJson("/api/players?league_id={$leagueA->id}&search=barbosa&page=1");
+        $plain = $this->getJson("/api/players?league_id={$leagueA->id}&search=barbosa");
+
+        $paginated->assertOk()->assertJsonPath('meta.total', 1);
+        $this->assertSame(['Gabriel Barbosa'], $this->names($paginated->json('data')));
+        $this->assertSame(['Gabriel Barbosa'], $this->names($plain->json('data')));
+    }
+
+    public function test_league_filter_combines_with_team_filter(): void
+    {
+        [$leagueA, $leagueB] = League::factory()->count(2)->create();
+        $teamA = $this->teamInLeague($leagueA);
+        $otherA = $this->teamInLeague($leagueA);
+        $teamB = $this->teamInLeague($leagueB);
+        Player::factory()->count(2)->create(['team_id' => $teamA->id]);
+        Player::factory()->create(['team_id' => $otherA->id]);
+        Player::factory()->create(['team_id' => $teamB->id]);
+        $this->actingAsRole('admin', [$leagueA->id, $leagueB->id]);
+
+        $this->getJson("/api/players?league_id={$leagueA->id}&team_id={$teamA->id}&page=1")
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2);
+
+        $this->getJson("/api/players?league_id={$leagueA->id}&team_id={$teamB->id}")
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
+    #[DataProvider('scopedRoleProvider')]
+    public function test_league_filter_outside_the_users_leagues_returns_422(string $role): void
+    {
+        [$leagueA, $leagueB] = League::factory()->count(2)->create();
+        Player::factory()->create(['team_id' => $this->teamInLeague($leagueB)->id]);
+        $this->actingAsRole($role, [$leagueA->id]);
+
+        $this->getJson("/api/players?league_id={$leagueB->id}")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Você não tem acesso a essa liga.');
+
+        $this->getJson("/api/players?league_id={$leagueB->id}&page=1")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Você não tem acesso a essa liga.');
+    }
+
+    public static function scopedRoleProvider(): array
+    {
+        return [
+            'admin' => ['admin'],
+            'coach' => ['coach'],
+            'player' => ['player'],
+        ];
+    }
+
+    public function test_coach_league_filter_uses_the_leagues_of_his_team(): void
+    {
+        $league = League::factory()->create();
+        Player::factory()->count(2)->create(['team_id' => $this->teamInLeague($league)->id]);
+        Player::factory()->create(['team_id' => $this->teamInLeague()->id]);
+        $this->actingAsRole('coach', [$league->id]);
+
+        $this->getJson("/api/players?league_id={$league->id}&page=1")
+            ->assertOk()
+            ->assertJsonPath('meta.total', 2);
+    }
+
+    public function test_master_league_filter_with_unknown_league_returns_empty_list(): void
+    {
+        Player::factory()->create(['team_id' => $this->teamInLeague()->id]);
+        $this->actingAsRole('master');
+
+        $this->getJson('/api/players?league_id=999999')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+
+        $this->getJson('/api/players?league_id=999999&page=1')
+            ->assertOk()
+            ->assertJsonCount(0, 'data')
+            ->assertJsonPath('meta.total', 0);
+    }
+
+    public function test_empty_league_filter_keeps_the_full_list(): void
+    {
+        Player::factory()->count(2)->create(['team_id' => $this->teamInLeague()->id]);
+        $this->actingAsRole('master');
+
+        $this->getJson('/api/players?league_id=')
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
     }
 }
