@@ -227,6 +227,21 @@ class LeagueControllerTest extends TestCase
         $this->assertDatabaseHas('leagues', ['id' => $league->id]);
     }
 
+    public function test_destroy_throttle_is_not_shared_with_championship_destroy(): void
+    {
+        $this->authenticate();
+        $league = League::factory()->create();
+        $championship = Championship::factory()->create();
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->deleteJson("/api/leagues/{$league->id}", ['password' => 'errada'])->assertStatus(422);
+        }
+
+        $this->deleteJson("/api/championships/{$championship->id}", ['password' => 'errada'])
+            ->assertStatus(422)
+            ->assertJsonPath('errors.password.0', 'Senha incorreta.');
+    }
+
     public function test_show_returns_error_when_not_found(): void
     {
         $this->authenticate();
