@@ -5,6 +5,7 @@ namespace App\Repositories;
 use App\Models\League;
 use App\Models\Team;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 
 class LeagueRepository
 {
@@ -31,6 +32,20 @@ class LeagueRepository
     public function championshipIdOf(int $leagueId): ?int
     {
         return League::query()->whereKey($leagueId)->value('championship_id');
+    }
+
+    public function soleLeagueOfTeam(int|string|null $teamId): ?League
+    {
+        if ($teamId === null) {
+            return null;
+        }
+
+        $leagues = League::query()
+            ->whereIn('id', DB::table('league_team')->select('league_id')->where('team_id', $teamId))
+            ->limit(2)
+            ->get(['id', 'championship_id']);
+
+        return $leagues->count() === 1 ? $leagues->first() : null;
     }
 
     public function findForUpdate(string $id): ?League

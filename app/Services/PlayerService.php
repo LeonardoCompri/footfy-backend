@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Player;
+use App\Repositories\LeagueRepository;
 use App\Repositories\PlayerRepository;
 use App\Repositories\TeamRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
@@ -21,6 +22,8 @@ class PlayerService
     public function __construct(
         private readonly PlayerRepository $repository,
         private readonly TeamRepository $teamRepository,
+        private readonly LeagueRepository $leagueRepository,
+        private readonly AuditLogger $auditLogger,
     ) {}
 
     public function index(array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
@@ -46,10 +49,12 @@ class PlayerService
             $trashed = ! empty($data['document']) ? $this->repository->findTrashedByDocument($data['document']) : null;
 
             if ($trashed) {
-                return $this->repository->restore($trashed, array_merge(
-                    ['position' => null, 'number' => null, 'birth_date' => null],
-                    $data,
-                ));
+                $trashed->fill(array_merge(['position' => null, 'number' => null, 'birth_date' => null], $data));
+                $changes = $trashed->auditChanges();
+                $player = $this->repository->restore($trashed);
+                $this->audit('player.restored', $player, $changes);
+
+                return $player;
             }
 
             return $this->repository->store($data);
@@ -92,7 +97,7 @@ class PlayerService
 
             $player->fill($data);
 
-            $this->repository->update($player);
+            $this->updateAndAudit($player);
         });
 
         return $player;
@@ -112,7 +117,7 @@ class PlayerService
 
         $player->fill($data);
 
-        $this->repository->update($player);
+        DB::transaction(fn () => $this->updateAndAudit($player));
 
         return $player;
     }
@@ -120,8 +125,41 @@ class PlayerService
     public function destroy(string $id): ?bool
     {
         $player = $this->show($id);
+        $snapshot = $player->auditAttributes();
 
-        return $this->repository->destroy($player);
+        return DB::transaction(function () use ($player, $snapshot) {
+            $deleted = $this->repository->destroy($player);
+
+            if ($deleted) {
+                $this->audit('player.deleted', $player, ['old' => $snapshot]);
+            }
+
+            return $deleted;
+        });
+    }
+
+    private function updateAndAudit(Player $player): void
+    {
+        $changes = $player->auditChanges();
+        $this->repository->update($player);
+
+        if ($changes['new'] !== []) {
+            $this->audit('player.updated', $player, $changes);
+        }
+    }
+
+    private function audit(string $action, Player $player, array $changes): void
+    {
+        $teamId = $player->team_id !== null ? (int) $player->team_id : null;
+
+        $this->auditLogger->record(
+            $action,
+            $player,
+            $changes['old'] ?? [],
+            $changes['new'] ?? [],
+            ['team_id' => $teamId],
+            $this->leagueRepository->soleLeagueOfTeam($teamId),
+        );
     }
 
     private function ensureTeamAcceptsNewPlayer(int|string $teamId): void

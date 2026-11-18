@@ -7,13 +7,17 @@ use App\Repositories\StadiumRepository;
 use App\Services\Concerns\EnsuresLeagueAccess;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class StadiumService
 {
     use EnsuresLeagueAccess;
 
-    public function __construct(private readonly StadiumRepository $repository) {}
+    public function __construct(
+        private readonly StadiumRepository $repository,
+        private readonly AuditLogger $auditLogger,
+    ) {}
 
     public function index(?string $leagueId = null): Collection
     {
@@ -77,6 +81,14 @@ class StadiumService
             throw ValidationException::withMessages(['message' => 'Não é possível remover o estádio pois existem partidas vinculadas a ele.']);
         }
 
-        return $this->repository->destroy($stadium);
+        return DB::transaction(function () use ($stadium) {
+            $deleted = $this->repository->destroy($stadium);
+
+            if ($deleted) {
+                $this->auditLogger->record('stadium.deleted', $stadium, old: $stadium->auditAttributes());
+            }
+
+            return $deleted;
+        });
     }
 }
