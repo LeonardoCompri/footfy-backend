@@ -7,74 +7,40 @@ use App\Models\GameEvent;
 use App\Models\GameEventType;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class StatisticsRepository
 {
     public function topScorers(int $leagueId, int $limit = 10): Collection
     {
-        return GameEvent::query()
-            ->joinEventType()
-            ->join('players', 'players.id', '=', 'game_events.player_id')
-            ->leftJoin('teams', 'teams.id', '=', 'players.team_id')
-            ->where('game_events.league_id', $leagueId)
+        $counts = $this->leagueEventsByPlayer($leagueId, 'game_events.player_id')
             ->where('game_event_types.counts_for', 'team')
-            ->groupBy('game_events.player_id', 'players.name', 'players.team_id', 'players.deleted_at', 'teams.name', 'teams.nickname')
-            ->selectRaw(
-                'game_events.player_id as player_id, players.name as player_name, players.deleted_at as player_deleted_at, '.
-                'players.team_id as team_id, '.
-                'teams.name as team_name, teams.nickname as team_nickname, COUNT(*) as goals'
-            )
-            ->orderByDesc('goals')
-            ->orderBy('players.name')
-            ->orderBy('game_events.player_id')
-            ->limit($limit)
-            ->get();
+            ->selectRaw('COUNT(*) as goals');
+
+        return $this->playerRanking($counts, 'goals', $limit);
     }
 
     public function topAssists(int $leagueId, int $limit = 10): Collection
     {
-        return GameEvent::query()
-            ->joinEventType()
-            ->join('players', 'players.id', '=', 'game_events.related_player_id')
-            ->leftJoin('teams', 'teams.id', '=', 'players.team_id')
-            ->where('game_events.league_id', $leagueId)
+        $counts = $this->leagueEventsByPlayer($leagueId, 'game_events.related_player_id')
             ->where('game_event_types.counts_for', 'team')
             ->whereNotNull('game_events.related_player_id')
-            ->groupBy('game_events.related_player_id', 'players.name', 'players.team_id', 'players.deleted_at', 'teams.name', 'teams.nickname')
-            ->selectRaw(
-                'game_events.related_player_id as player_id, players.name as player_name, players.deleted_at as player_deleted_at, '.
-                'players.team_id as team_id, '.
-                'teams.name as team_name, teams.nickname as team_nickname, COUNT(*) as assists'
-            )
-            ->orderByDesc('assists')
-            ->orderBy('players.name')
-            ->orderBy('game_events.related_player_id')
-            ->limit($limit)
-            ->get();
+            ->selectRaw('COUNT(*) as assists');
+
+        return $this->playerRanking($counts, 'assists', $limit);
     }
 
     public function topCards(int $leagueId, int $limit = 10): Collection
     {
-        return GameEvent::query()
-            ->joinEventType()
-            ->join('players', 'players.id', '=', 'game_events.player_id')
-            ->leftJoin('teams', 'teams.id', '=', 'players.team_id')
-            ->where('game_events.league_id', $leagueId)
+        $counts = $this->leagueEventsByPlayer($leagueId, 'game_events.player_id')
             ->whereIn('game_event_types.card', GameEventType::CARDS)
-            ->groupBy('game_events.player_id', 'players.name', 'players.team_id', 'players.deleted_at', 'teams.name', 'teams.nickname')
             ->selectRaw(
-                'game_events.player_id as player_id, players.name as player_name, players.deleted_at as player_deleted_at, '.
-                'players.team_id as team_id, '.
-                'teams.name as team_name, teams.nickname as team_nickname, '.
                 "SUM(CASE WHEN game_event_types.card = 'yellow' THEN 1 ELSE 0 END) as yellow_cards, ".
                 "SUM(CASE WHEN game_event_types.card = 'red' THEN 1 ELSE 0 END) as red_cards, ".
                 'COUNT(*) as total_cards'
-            )
-            ->orderByDesc('total_cards')
-            ->orderBy('players.name')
-            ->orderBy('game_events.player_id')
-            ->limit($limit)
-            ->get();
+            );
+
+        return $this->playerRanking($counts, 'total_cards', $limit);
     }
 
     public function cardsSplit(int $leagueId): object
@@ -130,5 +96,34 @@ class StatisticsRepository
             ->where('status', 'finished')
             ->whereNotNull('home_score')
             ->whereNotNull('away_score');
+    }
+
+    private function leagueEventsByPlayer(int $leagueId, string $playerColumn): Builder
+    {
+        return GameEvent::query()
+            ->joinEventType()
+            ->where('game_events.league_id', $leagueId)
+            ->groupBy($playerColumn)
+            ->select("{$playerColumn} as player_id");
+    }
+
+    private function playerRanking(Builder $counts, string $countColumn, int $limit): Collection
+    {
+        $ranked = DB::table('players')
+            ->joinSub($counts, 'counts', 'counts.player_id', '=', 'players.id')
+            ->select('counts.*', 'players.name as player_name', 'players.deleted_at as player_deleted_at', 'players.team_id as team_id')
+            ->orderByDesc("counts.{$countColumn}")
+            ->orderBy('players.name')
+            ->orderBy('counts.player_id')
+            ->limit($limit);
+
+        return DB::query()
+            ->fromSub($ranked, 'ranked')
+            ->leftJoin('teams', 'teams.id', '=', 'ranked.team_id')
+            ->select('ranked.*', 'teams.name as team_name', 'teams.nickname as team_nickname')
+            ->orderByDesc("ranked.{$countColumn}")
+            ->orderBy('ranked.player_name')
+            ->orderBy('ranked.player_id')
+            ->get();
     }
 }
