@@ -118,6 +118,28 @@ class GameRepository
         return $this->manualRoundGames($league)->delete();
     }
 
+    public function drawnGameIds(League $league, ?int $round = null): array
+    {
+        return $this->idsOf($league->games()
+            ->whereNotNull('group_number')
+            ->when($round !== null, fn (Builder $q) => $q->where('round', $round)));
+    }
+
+    public function manualRoundGameIds(League $league): array
+    {
+        return $this->idsOf($this->manualRoundGames($league));
+    }
+
+    public function manualPhaseGameIds(League $league): array
+    {
+        return $this->idsOf($this->manualPhaseGames($league));
+    }
+
+    public function knockoutGameIds(League $league, array $stages): array
+    {
+        return $this->idsOf($league->games()->whereIn('knockout_stage', $stages));
+    }
+
     public function hasStartedDrawnGames(League $league, ?int $round = null): bool
     {
         return $league->games()
@@ -209,6 +231,11 @@ class GameRepository
         GameEvent::query()->whereIn('game_id', $this->manualPhaseGames($league)->select('id'))->delete();
 
         return $this->manualPhaseGames($league)->delete();
+    }
+
+    private function idsOf(HasMany $query): array
+    {
+        return $query->orderBy('id')->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 
     private function insertRows(array $rows): void

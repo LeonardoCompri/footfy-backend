@@ -5,13 +5,17 @@ namespace App\Services;
 use App\Models\League;
 use App\Repositories\LeagueRepository;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class LeagueService
 {
-    public function __construct(private readonly LeagueRepository $repository) {}
+    public function __construct(
+        private readonly LeagueRepository $repository,
+        private readonly AuditLogger $auditLogger,
+    ) {}
 
     public function index(): Collection
     {
@@ -25,7 +29,12 @@ class LeagueService
 
     public function store(array $data): League
     {
-        return $this->repository->store($data);
+        return DB::transaction(function () use ($data) {
+            $league = $this->repository->store($data);
+            $this->auditLogger->record('league.created', $league, new: $league->auditAttributes());
+
+            return $league;
+        });
     }
 
     public function show(string $id): League
@@ -69,10 +78,21 @@ class LeagueService
                 || ($league->isDirty('format') && $league->format === 'knockout')
                 || ($league->isDirty('fixture_mode') && $league->fixture_mode === 'manual');
 
+            $changes = $league->auditChanges();
             $this->repository->update($league);
 
             if ($clearGroups) {
                 $this->repository->clearGroups($league);
+            }
+
+            if ($changes['new'] !== []) {
+                $this->auditLogger->record(
+                    'league.updated',
+                    $league,
+                    $changes['old'],
+                    $changes['new'],
+                    $clearGroups ? ['groups_cleared' => true] : [],
+                );
             }
         });
     }
@@ -98,8 +118,25 @@ class LeagueService
 
     public function destroy(string $id): ?bool
     {
-        $league = $this->show($id);
+        $league = $this->repository->show($id, [], ['teams', 'games', 'stadiums']);
 
-        return $this->repository->destroy($league);
+        if (! $league) {
+            throw ValidationException::withMessages(['message' => 'Liga não encontrada!']);
+        }
+
+        return DB::transaction(function () use ($league) {
+            $deleted = $this->repository->destroy($league);
+
+            if ($deleted) {
+                $this->auditLogger->record(
+                    'league.deleted',
+                    $league,
+                    old: Arr::except($league->auditAttributes(), ['teams_count', 'games_count', 'stadiums_count']),
+                    meta: $league->only(['teams_count', 'games_count', 'stadiums_count']),
+                );
+            }
+
+            return $deleted;
+        });
     }
 }
