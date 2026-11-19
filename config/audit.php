@@ -3,6 +3,8 @@
 return [
     'retention_months' => (int) env('AUDIT_RETENTION_MONTHS', 24),
 
+    'export_max_rows' => (int) env('AUDIT_EXPORT_MAX_ROWS', 20000),
+
     'sensitive_keys' => [
         'password',
         'password_confirmation',

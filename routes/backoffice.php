@@ -40,6 +40,7 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
 
     Route::middleware(['role:master'])->prefix('/audit-logs')->name('audit-logs.')->group(function () {
         Route::get('/', [AuditLogController::class, 'index'])->name('index');
+        Route::get('/export', [AuditLogController::class, 'export'])->name('export')->middleware('throttle:5,1,audit-export');
     });
 
     Route::prefix('/leagues')->name('leagues.')->group(function () {
