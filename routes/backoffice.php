@@ -62,7 +62,7 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::delete('/{id}/knockout/last-stage', [LeagueController::class, 'undoKnockoutStage'])->name('knockout.last-stage')->middleware(['permission:tournament:update', 'access:league']);
         Route::post('/', [LeagueController::class, 'store'])->name('store')->middleware('role:master');
         Route::put('/{id}', [LeagueController::class, 'update'])->name('update')->middleware(['permission:tournament:update', 'access:league']);
-        Route::delete('/{id}', [LeagueController::class, 'destroy'])->name('destroy')->middleware(['role:master', 'throttle:5,1']);
+        Route::delete('/{id}', [LeagueController::class, 'destroy'])->name('destroy')->middleware(['role:master', 'throttle:5,1,league-destroy']);
     });
 
     Route::prefix('/championships')->name('championships.')->group(function () {
@@ -70,7 +70,7 @@ Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+']
         Route::get('/{id}', [ChampionshipController::class, 'show'])->name('show');
         Route::post('/', [ChampionshipController::class, 'store'])->name('store')->middleware('role:master');
         Route::put('/{id}', [ChampionshipController::class, 'update'])->name('update')->middleware('role:master');
-        Route::delete('/{id}', [ChampionshipController::class, 'destroy'])->name('destroy')->middleware(['role:master', 'throttle:5,1']);
+        Route::delete('/{id}', [ChampionshipController::class, 'destroy'])->name('destroy')->middleware(['role:master', 'throttle:5,1,championship-destroy']);
     });
 
     Route::prefix('/teams')->name('teams.')->group(function () {
