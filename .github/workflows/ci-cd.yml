@@ -39,6 +39,15 @@ jobs:
       - name: Rodar testes
         run: php artisan test
 
+  docker-build:
+    name: Build da imagem do backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build da imagem (sem push)
+        run: docker build -f infra/docker/backend/Dockerfile -t footfy/backend:ci .
+
   deploy:
     name: Deploy no servidor
     needs: test
