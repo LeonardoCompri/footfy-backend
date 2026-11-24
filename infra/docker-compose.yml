@@ -1,0 +1,62 @@
+# Footfy: um compose para todos os ambientes. As diferencas ficam no .env da pasta do ambiente.
+# Uso: <pasta>/deploy.sh backend|frontend|all (veja infra/README.md)
+
+name: ${COMPOSE_PROJECT_NAME:-footfy}
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    ports:
+      # So no proprio servidor. Acesso remoto via tunel SSH (README).
+      - "127.0.0.1:${DB_FORWARD_PORT:-3307}:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  backend:
+    image: footfy/backend:${IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: infra/docker/backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      SEED_ON_FIRST_RUN: ${SEED_ON_FIRST_RUN:-true}
+    volumes:
+      # O mesmo arquivo .env da pasta do ambiente serve para o compose e para o Laravel
+      - ../../.env:/var/www/html/.env:ro
+      # Uploads (logos, imagens) e marcador de seed sobrevivem a rebuilds
+      - backend-storage:/var/www/html/storage/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    image: footfy/web:${IMAGE_TAG:-latest}
+    build:
+      context: ../../footfy-frontend
+      dockerfile: infra/docker/web/Dockerfile
+      args:
+        # Vazio no staging (site na raiz); sem a variavel, o padrao e /footfy
+        BASE_PATH: ${APP_BASE_PATH-/footfy}/
+    restart: unless-stopped
+    environment:
+      PUBLIC_HOST: ${PUBLIC_ORIGIN}
+    ports:
+      # So escuta no proprio PC. O portao (producao) ou o Funnel (staging) encaminha para ca.
+      - "127.0.0.1:${WEB_PORT:-8081}:80"
+    depends_on:
+      - backend
+
+volumes:
+  db-data:
+  backend-storage:
