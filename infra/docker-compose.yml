@@ -28,14 +28,17 @@ services:
     build:
       context: ..
       dockerfile: infra/docker/backend/Dockerfile
+      args:
+        # 1 = sem pacotes de dev (producao). Sem a variavel, 0: mantem os de dev, como antes do FD-0c
+        COMPOSER_NO_DEV: ${COMPOSER_NO_DEV:-0}
     restart: unless-stopped
-    environment:
-      SEED_ON_FIRST_RUN: ${SEED_ON_FIRST_RUN:-true}
     volumes:
       # O mesmo arquivo .env da pasta do ambiente serve para o compose e para o Laravel
       - ../../.env:/var/www/html/.env:ro
       # Uploads (logos, imagens) e marcador de seed sobrevivem a rebuilds
       - backend-storage:/var/www/html/storage/app
+      # Logs do Laravel sobrevivem a deploys (LOG_STACK=daily guarda 14 dias)
+      - backend-logs:/var/www/html/storage/logs
     depends_on:
       db:
         condition: service_healthy
@@ -60,3 +63,4 @@ services:
 volumes:
   db-data:
   backend-storage:
+  backend-logs:

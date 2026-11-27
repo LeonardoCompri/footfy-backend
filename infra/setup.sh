@@ -34,7 +34,8 @@ case "$ENVIRONMENT" in
     PUBLIC_PORT=""
     WEB_PORT="8081"
     DB_FORWARD_PORT="3307"
-    SEED_ON_FIRST_RUN="true"
+    SEED_ON_FIRST_RUN="false"
+    COMPOSER_NO_DEV="1"
     ;;
   staging)
     COMPOSE_PROJECT_NAME="footfy-staging"
@@ -46,6 +47,7 @@ case "$ENVIRONMENT" in
     WEB_PORT="8082"
     DB_FORWARD_PORT="3308"
     SEED_ON_FIRST_RUN="true"
+    COMPOSER_NO_DEV="0"
     ;;
   *)
     fail "Uso: footfy-backend/infra/setup.sh production|staging"
@@ -105,10 +107,10 @@ if [ ! -f .env ]; then
       -e "s|__WEB_PORT__|$WEB_PORT|" \
       -e "s|__DB_FORWARD_PORT__|$DB_FORWARD_PORT|" \
       -e "s|__SEED_ON_FIRST_RUN__|$SEED_ON_FIRST_RUN|" \
+      -e "s|__COMPOSER_NO_DEV__|$COMPOSER_NO_DEV|" \
       -e "s|__SEED_PASSWORD__|$(openssl rand -hex 16)|" \
       "$INFRA/env.template" > .env
   chmod 600 .env
-  SEED_PASSWORD_CREATED=1
 else
   for name in COMPOSE_PROJECT_NAME DEPLOY_BRANCH IMAGE_TAG; do
     [ -n "$(env_value "$name")" ] || fail "$name nao definido em $ENV_DIR/.env. Acrescente $name=${!name} (veja infra/README.md)."
@@ -128,9 +130,46 @@ fi
 COMPOSE_PROJECT_NAME="$(env_value COMPOSE_PROJECT_NAME)"
 WEB_PORT="$(env_value WEB_PORT)"; WEB_PORT="${WEB_PORT:-8081}"
 
-# 5. Containers
-info "Construindo e subindo os containers (a primeira vez demora alguns minutos)"
-docker compose -p "$COMPOSE_PROJECT_NAME" -f "$INFRA/docker-compose.yml" --env-file .env up -d --build
+compose() {
+  docker compose -p "$COMPOSE_PROJECT_NAME" -f "$INFRA/docker-compose.yml" --env-file .env "$@"
+}
+
+backend_run() {
+  compose run --rm --user www-data backend "$@"
+}
+
+# 5. Imagens, migrations e seed (antes de subir o backend novo)
+info "Construindo as imagens (a primeira vez demora alguns minutos)"
+compose build
+
+# Sobe o banco (o run espera o db ficar saudavel) e confere o marcador do seed
+if backend_run test -f storage/app/.seeded; then SEEDED=1; else SEEDED=0; fi
+
+info "Backup do banco antes das migrations"
+"$INFRA/backup.sh" predeploy
+
+info "Aplicando migrations"
+backend_run php artisan migrate --force --no-interaction
+
+# Producao nunca recebe dados de demonstracao, mesmo com SEED_ON_FIRST_RUN=true no .env
+if [ "$SEEDED" = 1 ]; then
+  info "Seed ja feito (storage/app/.seeded), nada a popular"
+elif [ "$ENVIRONMENT" = staging ] && [ "$(env_value SEED_ON_FIRST_RUN)" = true ]; then
+  info "Populando o banco com dados de demonstracao"
+  backend_run php artisan db:seed --force --no-interaction
+  backend_run touch storage/app/.seeded
+  DEMO_SEEDED=1
+else
+  info "Criando papeis e permissoes (sem dados de demonstracao)"
+  backend_run php artisan db:seed --class=PermissionSeeder --force --no-interaction
+  backend_run php artisan db:seed --class=RoleSeeder --force --no-interaction
+  backend_run touch storage/app/.seeded
+  ROLES_SEEDED=1
+fi
+
+# 6. Containers
+info "Subindo os containers"
+compose up -d
 
 info "Aguardando o Footfy responder"
 for _ in $(seq 1 60); do
@@ -139,7 +178,7 @@ for _ in $(seq 1 60); do
 done
 [ "${ok:-}" = 1 ] || fail "O Footfy nao respondeu. Veja os logs: $ENV_DIR/footfy-backend/infra/README.md (Logs)."
 
-# 6. Publicacao: rota no portao (com caminho) ou Funnel em porta propria (sem caminho)
+# 7. Publicacao: rota no portao (com caminho) ou Funnel em porta propria (sem caminho)
 if [ -n "$BASE_PATH" ]; then
   info "Registrando $BASE_PATH no portao da Analitix"
   sed -e "s|__BASE_PATH__|$BASE_PATH|g" -e "s|__WEB_PORT__|$WEB_PORT|g" \
@@ -151,6 +190,9 @@ else
 fi
 
 info "Pronto! https://$PUBLIC_ORIGIN$PUBLIC_PORT$BASE_PATH/"
-if [ "${SEED_PASSWORD_CREATED:-}" = 1 ]; then
+if [ "${DEMO_SEEDED:-}" = 1 ]; then
   printf "    Senha dos usuarios de demonstracao: SEED_PASSWORD em %s/.env (guarde no gerenciador de senhas).\n" "$ENV_DIR"
+fi
+if [ "${ROLES_SEEDED:-}" = 1 ]; then
+  printf "    Nenhum usuario foi criado. Crie o master: %s/README.md (Master da producao).\n" "$ENV_DIR/$INFRA"
 fi
