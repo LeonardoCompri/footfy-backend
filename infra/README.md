@@ -10,7 +10,8 @@ infra/
   setup.sh                 primeira instalação de um ambiente (pode rodar de novo)
   deploy.sh                deploy.sh backend|frontend|all
   backup.sh                dump do banco + uploads em <pasta>/backups; cópia do dump no rclone (BACKUP_REMOTE)
-  docker/backend/          Dockerfile, entrypoint.sh e php.ini da imagem do backend
+                           backup.sh predeploy: só o dump, antes das migrations do deploy
+  docker/backend/          Dockerfile, entrypoint.sh, php.ini e opcache.ini da imagem do backend
 ```
 
 A imagem do web (Vue + Nginx) fica no repositório `footfy-frontend`, em `infra/docker/web/`.
@@ -57,8 +58,10 @@ Um `.env` por pasta, que serve ao compose e ao Laravel (montado em `/var/www/htm
 | `PUBLIC_PORT` | vazio | `:8443` | Porta pública do Funnel (entra no `APP_URL`) |
 | `WEB_PORT` | `8081` | `8082` | Porta do web em `127.0.0.1` |
 | `DB_FORWARD_PORT` | `3307` | `3308` | Porta do MySQL em `127.0.0.1` (túnel SSH) |
-| `SEED_ON_FIRST_RUN` | `true` (hoje) | `true` | Seed de demonstração na primeira subida (marcador `storage/app/.seeded`) |
-| `SEED_PASSWORD` | não usado (o seed já rodou) | senha forte, gerada pelo `setup.sh` | Senha dos usuários do seed de demonstração. Fora de `local`/`testing`, o `UserSeeder` falha se ela estiver vazia; `123456` só no Sail e nos testes |
+| `SEED_ON_FIRST_RUN` | `false` | `true` | Só no staging: `true` = dados de demonstração (`DatabaseSeeder`) na primeira instalação pelo `setup.sh` (marcador `storage/app/.seeded`). A produção nunca recebe, mesmo com `true` |
+| `COMPOSER_NO_DEV` | `1` | `0` | Build da imagem do backend. `1` = sem pacotes de dev (Faker, Pint, PHPUnit etc.). Ausente = `0`, com os de dev (o seed de demonstração do staging precisa do Faker) |
+| `LOG_STACK` | `daily` | `daily` | Um arquivo de log por dia em `storage/logs` (volume), guardando 14 (`LOG_DAILY_DAYS`). `single` = um arquivo só, sem limpeza |
+| `SEED_PASSWORD` | não usado (a produção não tem seed de usuários) | senha forte, gerada pelo `setup.sh` | Senha dos usuários do seed de demonstração. Fora de `local`/`testing`, o `UserSeeder` falha se ela estiver vazia; `123456` só no Sail e nos testes |
 | `BACKUP_REMOTE` | `footfy-crypt:footfy` (depois do `rclone config`) | vazio | Destino da cópia externa do dump do banco (seção Backup). Vazio ou ausente = backup só local |
 | `BACKUP_REMOTE_KEEP_DAYS` | `30` | `30` | Dias que o dump fica no remote. Ausente = 30 |
 
@@ -66,7 +69,7 @@ Sem as variáveis novas, o compose usa os valores de hoje: projeto `footfy`, tag
 
 Sem `PUBLIC_PORT` ou `APP_BASE_PATH` no `.env`, o `setup.sh` usa o padrão do ambiente (produção: sem porta e `/footfy`), como o compose.
 
-Ainda não entram (tarefa seguinte, FD-0c): `COMPOSER_NO_DEV` e `SEED_ON_FIRST_RUN=false` na produção.
+Sem `COMPOSER_NO_DEV`, a imagem continua com os pacotes de dev, como antes do FD-0c: um `.env` antigo não muda o build. Na produção, ponha `COMPOSER_NO_DEV=1` (seção "Produção sem pacotes de dev").
 
 ## Primeira instalação (`setup.sh`)
 
@@ -80,8 +83,12 @@ O `setup.sh production|staging`:
 1. cria o atalho `<pasta>/deploy.sh` (recusa se já existe um `deploy.sh` diferente: mova-o para `_legacy/` antes);
 2. clona o `footfy-frontend` na branch do ambiente, se faltar;
 3. gera o `.env` pelo `env.template` com senhas aleatórias (inclusive `SEED_PASSWORD`), só se ele não existir. Se existir, mantém senhas e chave, confere `COMPOSE_PROJECT_NAME`/`DEPLOY_BRANCH`/`IMAGE_TAG` (no staging, também `SEED_PASSWORD` preenchida) e só atualiza `APP_URL` (`https://<host><PUBLIC_PORT><APP_BASE_PATH>`) e `PUBLIC_ORIGIN`;
-4. roda `up -d --build` e espera o `/up`;
-5. com `APP_BASE_PATH` preenchido (produção), gera `gateway/projects/<projeto>.conf` e chama o `reload.sh` do portão. Sem caminho (staging), só imprime o comando do Funnel: `sudo tailscale funnel --bg --https=8443 http://127.0.0.1:8082` (antes, `tailscale funnel status` precisa mostrar a 8443 livre).
+4. constrói as imagens, sobe o banco, faz o backup `db_predeploy_*` e aplica as migrations;
+5. só na primeira vez (sem o marcador `storage/app/.seeded`), roda o seed do ambiente e cria o marcador:
+   - produção: só `PermissionSeeder` e `RoleSeeder` (papéis e permissões; **nenhum usuário**). O master é criado à mão (seção "Master da produção");
+   - staging: `DatabaseSeeder` (dados de demonstração, senha `SEED_PASSWORD`) com `SEED_ON_FIRST_RUN=true`; com `false`, o mesmo da produção;
+6. roda `up -d` e espera o `/up`;
+7. com `APP_BASE_PATH` preenchido (produção), gera `gateway/projects/<projeto>.conf` e chama o `reload.sh` do portão. Sem caminho (staging), só imprime o comando do Funnel: `sudo tailscale funnel --bg --https=8443 http://127.0.0.1:8082` (antes, `tailscale funnel status` precisa mostrar a 8443 livre).
 
 Pode ser repetido.
 
@@ -100,16 +107,41 @@ Cada environment tem o próprio `concurrency` (`deploy-production` e `deploy-sta
 ~/analitix/footfy/deploy.sh backend    # ou frontend, ou all
 ```
 
-Fluxo (igual ao script antigo):
+Fluxo:
 1. `flock` em `<pasta>/.deploy.lock` (um deploy por vez por ambiente);
 2. `fetch` + `checkout` + `reset --hard origin/$DEPLOY_BRANCH` no clone;
 3. tag da imagem atual como `${IMAGE_TAG}-previous`;
 4. `build` do serviço (se falhar, volta o commit e nada muda no ar);
-5. `up -d --no-deps` do serviço;
-6. health check: `/up` e `<div id="app"` em `http://127.0.0.1:$WEB_PORT/`, até 40 × 3 s;
-7. se falhar: volta o commit, devolve a imagem `-previous` e recria o container.
+5. só no backend: `backup.sh predeploy` (dump em `backups/db_predeploy_AAAA-MM-DD_HHMMSS.sql.gz`, guarda os 10 mais recentes, separado dos 14 `db_daily_*`) e `run --rm --no-deps --user www-data backend php artisan migrate --force` com a imagem nova, enquanto o container antigo continua no ar. Se o backup ou a migration falhar: volta o commit e a tag da imagem, e o container antigo nem é trocado;
+6. `up -d --no-deps` do serviço;
+7. health check: `/up` e `<div id="app"` em `http://127.0.0.1:$WEB_PORT/`, até 40 × 3 s;
+8. se falhar: volta o commit, devolve a imagem `-previous` e recria o container. **As migrations aplicadas no passo 5 ficam** (o código antigo convive com o schema novo; por isso as migrations só acrescentam e a remoção vem num deploy seguinte).
 
-O deploy não roda migrations: quem roda é o entrypoint do backend, a cada start do container (inclusive reboot). O rollback não desfaz migrations. Ambos mudam no FD-0c.
+Só o deploy (e o `setup.sh`) roda migrations. O entrypoint do backend, a cada start do container (restart, reboot, `up -d` sem deploy), só faz `storage:link`, caches e `chown`: um reboot nunca migra nem roda seed.
+
+### Migration com erro
+
+O deploy para antes de trocar o container e mostra o erro da migration. O site segue com a versão anterior. O MySQL não desfaz DDL: uma migration com vários passos pode ter ficado pela metade. Rode um comando por vez, na pasta do ambiente:
+
+1. Ver o que foi aplicado (a migration com erro aparece como `Pending`):
+
+   ```bash
+   docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -u www-data backend php artisan migrate:status
+   ```
+
+2. Corrigir a migration no código e fazer um deploy novo. Se o passo que já entrou impedir a migration corrigida de rodar (ex.: coluna ou tabela que já existe), restaure o backup de antes do deploy (o mais recente):
+
+   ```bash
+   ls -1t backups/db_predeploy_*.sql.gz
+   ```
+
+   ```bash
+   gunzip -c backups/db_predeploy_<data>.sql.gz | docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -T db sh -c 'exec mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"'
+   ```
+
+   O dump recria as tabelas que existiam antes; uma tabela criada pela migration com erro não está no dump e precisa ser apagada à mão.
+
+No staging, troque `-p footfy` por `-p footfy-staging` (ou recrie o banco, seção "Recriar o banco do staging").
 
 ## Staging
 
@@ -254,7 +286,7 @@ A branch `staging` é recriada a partir da `main` de tempos em tempos, e migrati
 4. Recriar o banco e rodar o seed (sem `--force`: com `APP_ENV=production` o Laravel pede confirmação; responda `no`):
 
    ```bash
-   docker compose -p footfy-staging -f footfy-backend/infra/docker-compose.yml --env-file .env exec backend php artisan migrate:fresh --seed
+   docker compose -p footfy-staging -f footfy-backend/infra/docker-compose.yml --env-file .env exec -u www-data backend php artisan migrate:fresh --seed
    ```
 
 Os uploads (`footfy-staging_backend-storage`) não são apagados por esse comando.
@@ -268,17 +300,89 @@ docker tag footfy/backend:production-previous footfy/backend:production
 docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env up -d --no-deps backend
 ```
 
-Para o web, o mesmo com `footfy-frontend`, `footfy/web` e o serviço `web`. A tag `-previous` guarda só a versão imediatamente anterior.
+Para o web, o mesmo com `footfy-frontend`, `footfy/web` e o serviço `web`. A tag `-previous` guarda só a versão imediatamente anterior. O rollback não desfaz migrations; para isso, restaure o `db_predeploy_*` do deploy (seção "Migration com erro").
 
 ## Logs
 
+Saída do Apache e do entrypoint:
+
 ```bash
-cd ~/analitix/footfy
 docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env logs --tail=200 -f backend
-docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec backend tail -n 200 storage/logs/laravel.log
 ```
 
-`storage/logs` ainda não está em volume: o log do Laravel some quando o container é recriado (deploy). Volume e `daily` de 14 dias no FD-0c.
+Log do Laravel: fica em `storage/logs`, no volume `footfy_backend-logs` (staging: `footfy-staging_backend-logs`), e sobrevive a deploys. Com `LOG_STACK=daily`, é um arquivo por dia (`laravel-AAAA-MM-DD.log`, data de Brasília) e o Laravel apaga os com mais de 14 dias. Listar:
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec backend ls -lt storage/logs
+```
+
+Ler um dia:
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec backend tail -n 200 storage/logs/laravel-<data>.log
+```
+
+Comandos `artisan` à mão rodam com `exec -u www-data`: como root, o arquivo de log do dia pode ser criado pelo root e o Apache (usuário `www-data`) deixa de conseguir escrever nele.
+
+## Master da produção
+
+A produção não tem seed de usuários: o master é criado uma vez, à mão, depois do `setup.sh production` (que cria os papéis). Troque `<nome>`, `<email>` e `<cpf>` (só os 11 números) e rode na pasta da produção:
+
+```bash
+cd ~/analitix/footfy
+```
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -u www-data -e HOME=/tmp backend php artisan tinker --execute='$senha = Illuminate\Support\Str::password(20, symbols: false); $u = App\Models\User::create(["name" => "<nome>", "email" => "<email>", "document" => "<cpf>", "password" => $senha]); $u->assignRole("master"); echo "Master #{$u->id} criado. Senha provisoria: {$senha}" . PHP_EOL;'
+```
+
+A senha é gerada na hora e aparece uma vez só (não fica no histórico do shell nem no `.env`). Entre com o CPF e essa senha e troque-a pelo perfil. Os outros usuários são criados pela tela de Usuários.
+
+## Produção sem pacotes de dev (FD-0c)
+
+Com `COMPOSER_NO_DEV=1` a imagem da produção não tem Faker, Pint, PHPUnit nem Sail. Um seed de demonstração (`php artisan db:seed` sem `--class`) falha nessa imagem por falta do Faker: é esperado. O OPcache não confere a data dos arquivos (`infra/docker/backend/opcache.ini`; só a imagem do `infra/` usa, o Sail não): depois de mudar o `.env`, reinicie (ou faça deploy de) o backend.
+
+Para ligar num `.env` de produção criado antes do FD-0c (que tem `SEED_ON_FIRST_RUN=true`, `LOG_STACK=single` e não tem `COMPOSER_NO_DEV`), rode um comando por vez:
+
+```bash
+cd ~/analitix/footfy
+```
+
+```bash
+sed -i 's/^SEED_ON_FIRST_RUN=.*/SEED_ON_FIRST_RUN=false/' .env
+```
+
+```bash
+sed -i 's/^LOG_STACK=.*/LOG_STACK=daily/' .env
+```
+
+```bash
+printf '\nCOMPOSER_NO_DEV=1\n' >> .env
+```
+
+Conferir (uma linha de cada, com os valores acima):
+
+```bash
+grep -E '^(SEED_ON_FIRST_RUN|LOG_STACK|COMPOSER_NO_DEV)=' .env
+```
+
+Aplicar com um deploy do backend (reconstrói a imagem sem os pacotes de dev, faz o backup e roda as migrations pendentes). O deploy automático do merge que trouxe o FD-0c ainda roda o `deploy.sh` anterior (o bash já tinha lido o arquivo antes do `reset`), sem backup nem migrations; este é o primeiro pelo fluxo novo. No staging vale o mesmo: rode `~/analitix/footfy-staging/deploy.sh backend` uma vez depois do primeiro deploy com o FD-0c.
+
+```bash
+~/analitix/footfy/deploy.sh backend
+```
+
+Conferir que o Faker não está na imagem (precisa responder `No such file or directory`):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec backend ls vendor/fakerphp
+```
+
+Conferir o log diário (precisa mostrar `daily` em `channels`):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -u www-data backend php artisan config:show logging.channels.stack
+```
 
 ## Backup
 
@@ -292,6 +396,8 @@ O que o script faz, nesta ordem:
 2. **Externo (só com `BACKUP_REMOTE` no `.env`):** `rclone copy` dos `db_daily_*` dos últimos `BACKUP_REMOTE_KEEP_DAYS` dias (padrão 30) que ainda não estão no remote, e `rclone delete --min-age` dos que passaram desse prazo no remote. Só o dump do banco vai para fora, criptografado pelo remote `crypt` do rclone; os uploads ficam só no disco. Se o envio falhar (rede, credencial, rclone ausente), o script sai com código diferente de 0 e uma linha `ERRO:` no log, e o backup local fica. Um dump que não subiu num dia sobe na execução seguinte.
 
 Com `BACKUP_REMOTE` vazio ou ausente (staging), é só o passo 1.
+
+O `deploy.sh backend` (e o `setup.sh`) chama `backup.sh predeploy` antes das migrations: só o dump do banco, em `backups/db_predeploy_AAAA-MM-DD_HHMMSS.sql.gz`, guardando os 10 mais recentes. Esses dumps não contam nos 14 diários e não vão para o remote.
 
 O script acha o rclone no `PATH`, em `~/.local/bin/rclone` (o cron não carrega o `PATH` do perfil) ou no caminho de `RCLONE_BIN`.
 

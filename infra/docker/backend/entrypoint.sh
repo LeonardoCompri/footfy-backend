@@ -1,35 +1,28 @@
 #!/bin/sh
+# Prepara o container a cada start (deploy, restart e reboot). Nao roda migrations nem seed:
+# as migrations ficam no deploy.sh (com backup antes) e o seed no setup.sh (primeira instalacao).
+# Com --user www-data (migrate do deploy, setup.sh) pula o que precisa de root: chown e storage:link.
 set -e
 cd /var/www/html
 
+is_root() {
+  [ "$(id -u)" = "0" ]
+}
+
 mkdir -p storage/app/public storage/app/private
-chown -R www-data:www-data storage
+if is_root; then
+  chown -R www-data:www-data storage
+fi
 # Descarta caches antigos para sempre ler o .env atual
 php artisan optimize:clear >/dev/null 2>&1 || true
 
-# Aguarda o banco aceitar conexoes e aplica as migrations
-tries=0
-until php artisan migrate --force --no-interaction; do
-  tries=$((tries + 1))
-  if [ "$tries" -ge 20 ]; then
-    echo "Nao foi possivel conectar ao banco de dados." >&2
-    exit 1
-  fi
-  echo "Banco ainda nao esta pronto, tentando de novo em 3s..."
-  sleep 3
-done
-
-# Dados de demonstracao: so na primeira subida
-if [ "$SEED_ON_FIRST_RUN" = "true" ] && [ ! -f storage/app/.seeded ]; then
-  echo "Populando o banco com dados de demonstracao..."
-  php artisan db:seed --force --no-interaction
-  touch storage/app/.seeded
+if is_root; then
+  php artisan storage:link --force >/dev/null 2>&1 || true
 fi
-
-php artisan storage:link --force >/dev/null 2>&1 || true
 php artisan config:cache || echo "Aviso: config:cache falhou, seguindo sem cache."
 php artisan route:cache || echo "Aviso: route:cache falhou, seguindo sem cache."
-php artisan view:cache >/dev/null 2>&1 || true
-chown -R www-data:www-data storage bootstrap/cache
+if is_root; then
+  chown -R www-data:www-data storage bootstrap/cache
+fi
 
 exec "$@"
