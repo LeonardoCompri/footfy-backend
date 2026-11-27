@@ -45,8 +45,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build da imagem (sem push)
-        run: docker build -f infra/docker/backend/Dockerfile -t footfy/backend:ci .
+      - name: Build da imagem de produção (sem push)
+        run: docker build -f infra/docker/backend/Dockerfile --build-arg COMPOSER_NO_DEV=1 -t footfy/backend:ci .
+
+      - name: Imagem sem pacotes de dev e artisan funcionando
+        run: |
+          docker run --rm --entrypoint sh footfy/backend:ci -c '! test -e vendor/fakerphp'
+          docker run --rm --entrypoint php footfy/backend:ci artisan --version
+          docker run --rm --entrypoint php footfy/backend:ci artisan config:cache
+          docker run --rm --entrypoint php footfy/backend:ci artisan route:cache
 
   deploy:
     name: Deploy no servidor
