@@ -27,7 +27,7 @@ Cada ambiente é uma pasta com o `.env`, os dois clones e o atalho `deploy.sh`:
     deploy.sh              atalho de 1 linha para footfy-backend/infra/deploy.sh (os workflows chamam este caminho)
     footfy-backend/        branch main
     footfy-frontend/       branch main
-  footfy-staging/          staging (FUTY-0018): mesma estrutura, branch staging
+  footfy-staging/          staging: mesma estrutura, branch staging (seção Staging)
 ```
 
 Os scripts descobrem o ambiente pela pasta onde estão: `<pasta>/footfy-backend/infra/deploy.sh` mexe só em `<pasta>`, lendo o `<pasta>/.env`. Não há argumento de ambiente.
@@ -58,10 +58,13 @@ Um `.env` por pasta, que serve ao compose e ao Laravel (montado em `/var/www/htm
 | `WEB_PORT` | `8081` | `8082` | Porta do web em `127.0.0.1` |
 | `DB_FORWARD_PORT` | `3307` | `3308` | Porta do MySQL em `127.0.0.1` (túnel SSH) |
 | `SEED_ON_FIRST_RUN` | `true` (hoje) | `true` | Seed de demonstração na primeira subida (marcador `storage/app/.seeded`) |
+| `SEED_PASSWORD` | não usado (o seed já rodou) | senha forte, gerada pelo `setup.sh` | Senha dos usuários do seed de demonstração. Fora de `local`/`testing`, o `UserSeeder` falha se ela estiver vazia; `123456` só no Sail e nos testes |
 
 Sem as variáveis novas, o compose usa os valores de hoje: projeto `footfy`, tag `latest`, portas 8081 e 3307 e caminho `/footfy`. O `deploy.sh` e o `setup.sh` exigem `COMPOSE_PROJECT_NAME`, `DEPLOY_BRANCH` e `IMAGE_TAG` no `.env`, para um ambiente nunca cair no projeto do outro.
 
-Ainda não entram (tarefas seguintes): `SEED_PASSWORD` (FUTY-0018), `BACKUP_REMOTE` (FD-0e), `COMPOSER_NO_DEV` e `SEED_ON_FIRST_RUN=false` na produção (FD-0c).
+Sem `PUBLIC_PORT` ou `APP_BASE_PATH` no `.env`, o `setup.sh` usa o padrão do ambiente (produção: sem porta e `/footfy`), como o compose.
+
+Ainda não entram (tarefas seguintes): `BACKUP_REMOTE` (FD-0e), `COMPOSER_NO_DEV` e `SEED_ON_FIRST_RUN=false` na produção (FD-0c).
 
 ## Primeira instalação (`setup.sh`)
 
@@ -74,15 +77,22 @@ footfy-backend/infra/setup.sh production
 O `setup.sh production|staging`:
 1. cria o atalho `<pasta>/deploy.sh` (recusa se já existe um `deploy.sh` diferente: mova-o para `_legacy/` antes);
 2. clona o `footfy-frontend` na branch do ambiente, se faltar;
-3. gera o `.env` pelo `env.template` com senhas aleatórias, só se ele não existir. Se existir, mantém senhas e chave, confere `COMPOSE_PROJECT_NAME`/`DEPLOY_BRANCH`/`IMAGE_TAG` e só atualiza `APP_URL` e `PUBLIC_ORIGIN`;
+3. gera o `.env` pelo `env.template` com senhas aleatórias (inclusive `SEED_PASSWORD`), só se ele não existir. Se existir, mantém senhas e chave, confere `COMPOSE_PROJECT_NAME`/`DEPLOY_BRANCH`/`IMAGE_TAG` (no staging, também `SEED_PASSWORD` preenchida) e só atualiza `APP_URL` (`https://<host><PUBLIC_PORT><APP_BASE_PATH>`) e `PUBLIC_ORIGIN`;
 4. roda `up -d --build` e espera o `/up`;
 5. com `APP_BASE_PATH` preenchido (produção), gera `gateway/projects/<projeto>.conf` e chama o `reload.sh` do portão. Sem caminho (staging), só imprime o comando do Funnel: `sudo tailscale funnel --bg --https=8443 http://127.0.0.1:8082` (antes, `tailscale funnel status` precisa mostrar a 8443 livre).
 
-Pode ser repetido. Não suba o staging antes da FUTY-0018: o seed de demonstração cria usuários com senha fixa, e o staging é público.
+Pode ser repetido.
 
 ## Deploy
 
-Os workflows chamam `"$FOOTFY_SERVER_DIR/deploy.sh" backend|frontend` depois dos testes. À mão:
+Os workflows dos dois repositórios fazem o deploy depois dos testes, pela branch do push:
+
+| Push em | Environment do GitHub | Pasta (`FOOTFY_SERVER_DIR` do environment) |
+|---|---|---|
+| `main` | `production` | `~/analitix/footfy` (padrão quando a variável não existe) |
+| `staging` | `staging` | obrigatória; sem ela o deploy falha sem tocar em nada |
+
+Cada environment tem o próprio `concurrency` (`deploy-production` e `deploy-staging`): um deploy do staging não espera nem cancela o da produção. O comando é `"$FOOTFY_SERVER_DIR/deploy.sh" backend|frontend`. À mão:
 
 ```bash
 ~/analitix/footfy/deploy.sh backend    # ou frontend, ou all
@@ -98,6 +108,154 @@ Fluxo (igual ao script antigo):
 7. se falhar: volta o commit, devolve a imagem `-previous` e recria o container.
 
 O deploy não roda migrations: quem roda é o entrypoint do backend, a cada start do container (inclusive reboot). O rollback não desfaz migrations. Ambos mudam no FD-0c.
+
+## Staging
+
+Ambiente público para testar antes da `main`: `https://<host>.ts.net:8443/`, na pasta `~/analitix/footfy-staging`, projeto compose `footfy-staging` (volumes `footfy-staging_*`), branch `staging`, imagens `:staging`, web em `127.0.0.1:8082` e MySQL em `127.0.0.1:3308`.
+
+- **Sem portão:** o Funnel publica a porta 8443 direto no web do staging. `APP_BASE_PATH` vazio: o site e a API ficam na raiz (`/` e `/api`).
+- **Sessão separada:** porta diferente é outra origem, então o login do staging não mexe no da produção no mesmo navegador.
+- **Senha do seed:** o seed de demonstração roda na primeira subida e cria o master (e-mail e CPF reais) e o admin com a senha `SEED_PASSWORD` do `.env`. Como o staging é público, `123456` não funciona lá.
+- **Deploy:** o push na branch `staging` (merge do PR para `staging`) atualiza só o staging. O push na `main` continua indo só para a produção.
+- **O que o staging não testa:** o caminho `/footfy/` e o portão. Mudanças nesses pontos são conferidas na produção logo depois do deploy.
+
+### Primeira instalação do staging
+
+Pré-requisito: a branch `staging` dos dois repositórios com a FUTY-0018 (backend) e a FUTY-0011 (frontend). Rode um comando por vez, na ordem.
+
+**No GitHub (antes do primeiro push em `staging`):** crie o environment `staging` nos dois repositórios com a variável `FOOTFY_SERVER_DIR`. O valor é o caminho completo da pasta (o `~` não é expandido). Para saber o caminho, rode no servidor:
+
+```bash
+echo "$HOME/analitix/footfy-staging"
+```
+
+Pela tela: Settings → Environments → New environment → `staging` → Add environment variable → `FOOTFY_SERVER_DIR` = o caminho acima. Faça no `footfy-backend` e no `footfy-frontend`. Ou pelo `gh`, trocando `<caminho>`:
+
+```bash
+gh api -X PUT repos/LeonardoCompri/footfy-backend/environments/staging
+```
+
+```bash
+gh variable set FOOTFY_SERVER_DIR --env staging --repo LeonardoCompri/footfy-backend --body "<caminho>"
+```
+
+```bash
+gh api -X PUT repos/LeonardoCompri/footfy-frontend/environments/staging
+```
+
+```bash
+gh variable set FOOTFY_SERVER_DIR --env staging --repo LeonardoCompri/footfy-frontend --body "<caminho>"
+```
+
+Se o push em `staging` acontecer antes do servidor estar pronto, o job de deploy falha ("FOOTFY_SERVER_DIR não definida no environment staging", ou o `deploy.sh` não encontrado). É esperado e não toca na produção: reexecute o workflow no fim (passo 9).
+
+**No servidor:**
+
+1. Conferir que a 8443 está livre (nem `serve` nem `funnel` nela; a produção usa só a 443):
+
+   ```bash
+   tailscale funnel status
+   ```
+
+2. Criar a pasta:
+
+   ```bash
+   mkdir -p ~/analitix/footfy-staging
+   ```
+
+   ```bash
+   cd ~/analitix/footfy-staging
+   ```
+
+3. Clonar o backend na branch `staging` (o frontend o `setup.sh` clona sozinho, na mesma branch):
+
+   ```bash
+   git clone --branch staging https://github.com/LeonardoCompri/footfy-backend.git footfy-backend
+   ```
+
+4. Instalar. Gera o `.env` do staging (com `SEED_PASSWORD` aleatória e forte), cria o atalho `deploy.sh`, sobe os containers e roda o seed na primeira subida:
+
+   ```bash
+   footfy-backend/infra/setup.sh staging
+   ```
+
+5. Publicar a 8443 pelo Funnel (uma vez; fica salvo):
+
+   ```bash
+   sudo tailscale funnel --bg --https=8443 http://127.0.0.1:8082
+   ```
+
+6. Conferir: a 443 continua no portão (produção) e a 8443 aponta para `127.0.0.1:8082`:
+
+   ```bash
+   tailscale funnel status
+   ```
+
+7. Ver a senha dos usuários de demonstração e guardá-la no gerenciador de senhas:
+
+   ```bash
+   grep '^SEED_PASSWORD=' ~/analitix/footfy-staging/.env
+   ```
+
+8. Testar: abrir `https://<host>.ts.net:8443/`, entrar com o CPF do master e a senha do passo 7 (`123456` precisa ser recusada) e conferir que a produção (`https://<host>.ts.net/footfy/`) continua logada no mesmo navegador.
+
+9. Reexecutar o último workflow da branch `staging` nos dois repositórios (Actions → o run que falhou → Re-run jobs), ou pelo `gh`:
+
+   ```bash
+   gh run list --repo LeonardoCompri/footfy-backend --branch staging --limit 1
+   ```
+
+   ```bash
+   gh run rerun <id do run> --repo LeonardoCompri/footfy-backend
+   ```
+
+   O mesmo com `footfy-frontend`. O deploy precisa terminar em verde e mexer só em `~/analitix/footfy-staging`.
+
+Para trocar a senha depois, entre no staging e mude pelo perfil. Trocar `SEED_PASSWORD` no `.env` só vale para um seed novo (seção abaixo).
+
+### Comandos do staging
+
+Os mesmos da produção, rodados em `~/analitix/footfy-staging` e com `-p footfy-staging`. Exemplo (logs):
+
+```bash
+cd ~/analitix/footfy-staging
+```
+
+```bash
+docker compose -p footfy-staging -f footfy-backend/infra/docker-compose.yml --env-file .env logs --tail=200 -f backend
+```
+
+Deploy à mão: `~/analitix/footfy-staging/deploy.sh backend` (ou `frontend`, ou `all`).
+
+### Recriar o banco do staging (`migrate:fresh --seed`)
+
+A branch `staging` é recriada a partir da `main` de tempos em tempos, e migrations que só existiam no staging antigo continuam no banco. Para voltar a um banco limpo com os dados de demonstração. **Só no staging, nunca na pasta da produção: apaga todos os dados.**
+
+1. Entrar na pasta do staging:
+
+   ```bash
+   cd ~/analitix/footfy-staging
+   ```
+
+2. Conferir que é o staging (precisa mostrar `APP_ENV=staging`):
+
+   ```bash
+   grep '^APP_ENV=' .env
+   ```
+
+3. Se mudou a `SEED_PASSWORD` no `.env`, reinicie o backend antes (a configuração fica em cache no container):
+
+   ```bash
+   docker compose -p footfy-staging -f footfy-backend/infra/docker-compose.yml --env-file .env restart backend
+   ```
+
+4. Recriar o banco e rodar o seed (sem `--force`: com `APP_ENV=production` o Laravel pede confirmação; responda `no`):
+
+   ```bash
+   docker compose -p footfy-staging -f footfy-backend/infra/docker-compose.yml --env-file .env exec backend php artisan migrate:fresh --seed
+   ```
+
+Os uploads (`footfy-staging_backend-storage`) não são apagados por esse comando.
 
 ## Rollback manual
 
