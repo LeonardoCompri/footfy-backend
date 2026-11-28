@@ -9,7 +9,7 @@ infra/
   gateway.conf.template    rota do ambiente no portão (só quando há caminho, ex.: /footfy)
   setup.sh                 primeira instalação de um ambiente (pode rodar de novo)
   deploy.sh                deploy.sh backend|frontend|all
-  backup.sh                dump do banco + uploads em <pasta>/backups
+  backup.sh                dump do banco + uploads em <pasta>/backups; cópia do dump no rclone (BACKUP_REMOTE)
   docker/backend/          Dockerfile, entrypoint.sh e php.ini da imagem do backend
 ```
 
@@ -59,12 +59,14 @@ Um `.env` por pasta, que serve ao compose e ao Laravel (montado em `/var/www/htm
 | `DB_FORWARD_PORT` | `3307` | `3308` | Porta do MySQL em `127.0.0.1` (túnel SSH) |
 | `SEED_ON_FIRST_RUN` | `true` (hoje) | `true` | Seed de demonstração na primeira subida (marcador `storage/app/.seeded`) |
 | `SEED_PASSWORD` | não usado (o seed já rodou) | senha forte, gerada pelo `setup.sh` | Senha dos usuários do seed de demonstração. Fora de `local`/`testing`, o `UserSeeder` falha se ela estiver vazia; `123456` só no Sail e nos testes |
+| `BACKUP_REMOTE` | `footfy-crypt:footfy` (depois do `rclone config`) | vazio | Destino da cópia externa do dump do banco (seção Backup). Vazio ou ausente = backup só local |
+| `BACKUP_REMOTE_KEEP_DAYS` | `30` | `30` | Dias que o dump fica no remote. Ausente = 30 |
 
 Sem as variáveis novas, o compose usa os valores de hoje: projeto `footfy`, tag `latest`, portas 8081 e 3307 e caminho `/footfy`. O `deploy.sh` e o `setup.sh` exigem `COMPOSE_PROJECT_NAME`, `DEPLOY_BRANCH` e `IMAGE_TAG` no `.env`, para um ambiente nunca cair no projeto do outro.
 
 Sem `PUBLIC_PORT` ou `APP_BASE_PATH` no `.env`, o `setup.sh` usa o padrão do ambiente (produção: sem porta e `/footfy`), como o compose.
 
-Ainda não entram (tarefas seguintes): `BACKUP_REMOTE` (FD-0e), `COMPOSER_NO_DEV` e `SEED_ON_FIRST_RUN=false` na produção (FD-0c).
+Ainda não entram (tarefa seguinte, FD-0c): `COMPOSER_NO_DEV` e `SEED_ON_FIRST_RUN=false` na produção.
 
 ## Primeira instalação (`setup.sh`)
 
@@ -284,26 +286,235 @@ docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .
 ~/analitix/footfy/footfy-backend/infra/backup.sh
 ```
 
-Gera em `<pasta>/backups/` o dump do banco (`db_AAAA-MM-DD_HHMM.sql.gz`, `--single-transaction`) e o tar dos uploads (`uploads_*.tar.gz`), guardando os 14 mais recentes de cada. Agendamento diário (pendente no servidor):
+O que o script faz, nesta ordem:
+
+1. **Local:** gera em `<pasta>/backups/` o dump do banco (`db_daily_AAAA-MM-DD_HHMM.sql.gz`, `--single-transaction`) e o tar dos uploads (`uploads_*.tar.gz`), guardando os 14 mais recentes de cada. Os dumps antigos `db_AAAA-MM-DD_HHMM.sql.gz` (de antes da FUTY-0036) contam junto com os `db_daily_*` e saem sozinhos em 14 dias. Se o dump falhar, nenhum arquivo novo fica em `backups/` e o script sai com erro.
+2. **Externo (só com `BACKUP_REMOTE` no `.env`):** `rclone copy` dos `db_daily_*` dos últimos `BACKUP_REMOTE_KEEP_DAYS` dias (padrão 30) que ainda não estão no remote, e `rclone delete --min-age` dos que passaram desse prazo no remote. Só o dump do banco vai para fora, criptografado pelo remote `crypt` do rclone; os uploads ficam só no disco. Se o envio falhar (rede, credencial, rclone ausente), o script sai com código diferente de 0 e uma linha `ERRO:` no log, e o backup local fica. Um dump que não subiu num dia sobe na execução seguinte.
+
+Com `BACKUP_REMOTE` vazio ou ausente (staging), é só o passo 1.
+
+O script acha o rclone no `PATH`, em `~/.local/bin/rclone` (o cron não carrega o `PATH` do perfil) ou no caminho de `RCLONE_BIN`.
+
+### Cópia externa: configuração (uma vez, na produção)
+
+Rode um comando por vez, na ordem.
+
+**1. Instalar o rclone sem sudo** em `~/.local/bin`. Conferir a arquitetura (`x86_64` = `amd64`, `aarch64` = `arm64`; abaixo, `amd64`):
+
+```bash
+uname -m
+```
+
+```bash
+mkdir -p ~/.local/bin ~/rclone-install
+```
+
+```bash
+cd ~/rclone-install
+```
+
+```bash
+curl -fsSLO https://downloads.rclone.org/rclone-current-linux-amd64.zip
+```
+
+```bash
+python3 -m zipfile -e rclone-current-linux-amd64.zip .
+```
+
+```bash
+cp rclone-*-linux-amd64/rclone ~/.local/bin/rclone
+```
+
+```bash
+chmod 755 ~/.local/bin/rclone
+```
+
+```bash
+cd ~
+```
+
+```bash
+rm -rf ~/rclone-install
+```
+
+```bash
+~/.local/bin/rclone version
+```
+
+Se `rclone version` (sem o caminho) não funcionar, abra um terminal novo: o Ubuntu põe `~/.local/bin` no `PATH` quando a pasta existe no login. Os comandos abaixo usam `rclone`; se ainda não funcionar, troque por `~/.local/bin/rclone`.
+
+**2. Criar a conta na nuvem** (escolha uma):
+
+- **Backblaze B2:** no site da Backblaze, crie um bucket **privado** (ex.: `footfy-backup-<algo>`; o nome é único no mundo) e uma *Application Key* com acesso só a esse bucket. Anote o `keyID` e a `applicationKey` (ela só aparece uma vez).
+- **Google Drive:** use uma conta Google. Como o servidor não tem navegador, a autorização é feita num computador com navegador e o rclone instalado (passo 3).
+
+**3. Remote da nuvem** com o nome `nuvem`:
+
+```bash
+rclone config
+```
+
+Responda: `n` (new remote) → name `nuvem` → Storage:
+
+- **B2:** `b2` → `account` = o `keyID` → `key` = a `applicationKey` → `hard_delete` = `true` → `Edit advanced config?` `n` → `y` para salvar → `q` para sair.
+- **Drive:** `drive` → `client_id` e `client_secret` Enter → `scope` = `drive.file` (o rclone só vê o que ele mesmo criou) → `service_account_file` Enter → `Edit advanced config?` `n` → `Use web browser to automatically authenticate?` → `n`. O rclone mostra um comando `rclone authorize "drive" "..."`: rode-o no computador com navegador, faça o login e cole a resposta no servidor → `Configure this as a Shared Drive?` `n` → `y` para salvar → `q` para sair.
+
+Para a limpeza de 30 dias liberar espaço de verdade (sem isso o B2 guarda as versões antigas e o Drive manda para a lixeira), rode só o comando do seu caso. B2:
+
+```bash
+rclone config update nuvem hard_delete true
+```
+
+Drive:
+
+```bash
+rclone config update nuvem use_trash false
+```
+
+Conferir o acesso (no B2 lista os buckets; no Drive pode vir vazio):
+
+```bash
+rclone lsd nuvem:
+```
+
+**4. Remote `crypt` por cima**, com o nome `footfy-crypt`:
+
+```bash
+rclone config
+```
+
+Responda: `n` → name `footfy-crypt` → Storage `crypt` → `remote`:
+- B2: `nuvem:<nome do bucket>`
+- Drive: `nuvem:footfy-backups`
+
+→ `filename_encryption` `standard` → `directory_name_encryption` `true` → senha (`password`): `g` (gerar) e `128`; o rclone mostra a senha gerada: copie para o gerenciador de senhas e responda `y` → senha do sal (`password2`): `g` e `128`, copie também e `y` → `Edit advanced config?` `n` → `y` para salvar → `q` para sair. Não use a opção "Set configuration password" do menu: o cron não tem como digitá-la.
+
+**5. Guardar fora do servidor** (gerenciador de senhas), antes de seguir: as duas senhas do `crypt` (`password` e `password2`), as credenciais da nuvem e o `.env` da produção (`APP_KEY`, `DB_PASSWORD`, `DB_ROOT_PASSWORD`). Sem as senhas do `crypt` o backup externo não se abre, nem por você. Para ver o `.env`:
+
+```bash
+cat ~/analitix/footfy/.env
+```
+
+As senhas do `crypt` também ficam no `~/.config/rclone/rclone.conf`, só ofuscadas (não é criptografia; o arquivo não sai do servidor). Se não copiou alguma no passo 4, mostre o valor ofuscado da linha `password =` (ou `password2 =`) e revele:
+
+```bash
+rclone config show footfy-crypt
+```
+
+```bash
+rclone reveal <valor ofuscado>
+```
+
+**6. Ligar a cópia externa no `.env` da produção** (o `\n` do começo garante a quebra de linha se o arquivo terminar sem ela):
+
+```bash
+printf '\nBACKUP_REMOTE=footfy-crypt:footfy\n' >> ~/analitix/footfy/.env
+```
+
+```bash
+grep '^BACKUP_REMOTE=' ~/analitix/footfy/.env
+```
+
+Precisa aparecer uma linha só. `BACKUP_REMOTE_KEEP_DAYS` é opcional (padrão 30). Não precisa reiniciar nada: o `backup.sh` lê o `.env` a cada execução.
+
+**7. Testar à mão:**
+
+```bash
+~/analitix/footfy/footfy-backend/infra/backup.sh
+```
+
+A saída termina com `Dump enviado para footfy-crypt:footfy`. O dump aparece com o nome normal pelo `crypt`:
+
+```bash
+rclone ls footfy-crypt:footfy
+```
+
+E na nuvem, sem a senha, só há nomes embaralhados (troque `<bucket>` por `footfy-backups` no Drive):
+
+```bash
+rclone ls nuvem:<bucket>
+```
+
+**8. Cron** (já existe desde a virada; não muda). Conferir que a linha está assim:
+
+```bash
+crontab -l
+```
 
 ```
 0 3 * * * ~/analitix/footfy/footfy-backend/infra/backup.sh >> ~/analitix/footfy/backups/backup.log 2>&1
 ```
 
-Restaurar o banco:
+Depois das 3h, conferir o log (falha aparece como `ERRO:`):
+
+```bash
+tail -n 20 ~/analitix/footfy/backups/backup.log
+```
+
+### Restaurar
+
+Banco, a partir do dump local:
 
 ```bash
 cd ~/analitix/footfy
-gunzip -c backups/db_<data>.sql.gz | docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env \
+gunzip -c backups/db_daily_<data>.sql.gz | docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env \
   exec -T db sh -c 'exec mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"'
 ```
 
-Restaurar os uploads:
+Uploads:
 
 ```bash
 docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env \
   exec -T backend tar -xzf - -C /var/www/html/storage/app < backups/uploads_<data>.tar.gz
 ```
+
+### Restaurar o dump externo (teste no staging)
+
+Faça uma vez para provar que o backup externo abre. **Só no staging**: troca todos os dados dele pelos da produção. Um comando por vez:
+
+1. Listar os dumps no remote e escolher um:
+
+   ```bash
+   rclone ls footfy-crypt:footfy
+   ```
+
+2. Baixar para a pasta do staging (o `crypt` descriptografa):
+
+   ```bash
+   mkdir -p ~/analitix/footfy-staging/backups/restore
+   ```
+
+   ```bash
+   rclone copy footfy-crypt:footfy/db_daily_<data>.sql.gz ~/analitix/footfy-staging/backups/restore/
+   ```
+
+3. Entrar na pasta do staging e conferir que é ela (precisa mostrar `APP_ENV=staging`):
+
+   ```bash
+   cd ~/analitix/footfy-staging
+   ```
+
+   ```bash
+   grep '^APP_ENV=' .env
+   ```
+
+4. Importar no banco do staging:
+
+   ```bash
+   gunzip -c backups/restore/db_daily_<data>.sql.gz | docker compose -p footfy-staging -f footfy-backend/infra/docker-compose.yml --env-file .env exec -T db sh -c 'exec mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"'
+   ```
+
+5. Abrir `https://<host>.ts.net:8443/` e entrar com um usuário da produção: os dados da produção aparecem (escudos e imagens não, porque os uploads não vão para fora).
+
+6. Apagar o arquivo baixado:
+
+   ```bash
+   rm -rf ~/analitix/footfy-staging/backups/restore
+   ```
+
+7. O staging é público e agora tem os dados e as senhas da produção. Volte ao banco de demonstração logo depois do teste (seção "Recriar o banco do staging").
+
+Num servidor novo, o mesmo vale para a produção: instalar o rclone, recriar os remotes `nuvem` e `footfy-crypt` com **as mesmas senhas do `crypt`** guardadas no passo 5 (em vez de `g`, escolha `y` e digite cada uma), baixar o dump e importar com `-p footfy` em `~/analitix/footfy`.
 
 Acesso ao banco de fora do servidor: túnel SSH até `127.0.0.1:3307` (`ssh -L 3307:127.0.0.1:3307 <servidor>`).
 
