@@ -19,6 +19,10 @@ env_value() {
   printf '%s' "$value"
 }
 
+env_has() {
+  grep -q "^$1=" .env
+}
+
 ENVIRONMENT="${1:-}"
 case "$ENVIRONMENT" in
   production)
@@ -101,17 +105,23 @@ if [ ! -f .env ]; then
       -e "s|__WEB_PORT__|$WEB_PORT|" \
       -e "s|__DB_FORWARD_PORT__|$DB_FORWARD_PORT|" \
       -e "s|__SEED_ON_FIRST_RUN__|$SEED_ON_FIRST_RUN|" \
+      -e "s|__SEED_PASSWORD__|$(openssl rand -hex 16)|" \
       "$INFRA/env.template" > .env
   chmod 600 .env
+  SEED_PASSWORD_CREATED=1
 else
   for name in COMPOSE_PROJECT_NAME DEPLOY_BRANCH IMAGE_TAG; do
     [ -n "$(env_value "$name")" ] || fail "$name nao definido em $ENV_DIR/.env. Acrescente $name=${!name} (veja infra/README.md)."
   done
   [ "$(env_value COMPOSE_PROJECT_NAME)" = "$COMPOSE_PROJECT_NAME" ] \
     || fail "O .env de $ENV_DIR e de outro ambiente (COMPOSE_PROJECT_NAME=$(env_value COMPOSE_PROJECT_NAME), esperado $COMPOSE_PROJECT_NAME)."
-  # Mantem senhas e chave, mas atualiza o endereco se o nome da maquina mudou
-  BASE_PATH="$(env_value APP_BASE_PATH)"
-  PUBLIC_PORT="$(env_value PUBLIC_PORT)"
+  if [ "$ENVIRONMENT" = staging ] && [ -z "$(env_value SEED_PASSWORD)" ]; then
+    fail "SEED_PASSWORD vazio em $ENV_DIR/.env. O staging e publico: acrescente SEED_PASSWORD=<senha forte> (veja infra/README.md)."
+  fi
+  # Mantem senhas e chave, mas atualiza o endereco se o nome da maquina mudou.
+  # Variavel ausente mantem o padrao do ambiente (o compose tambem usa /footfy sem APP_BASE_PATH).
+  if env_has APP_BASE_PATH; then BASE_PATH="$(env_value APP_BASE_PATH)"; fi
+  if env_has PUBLIC_PORT; then PUBLIC_PORT="$(env_value PUBLIC_PORT)"; fi
   sed -i -e "s|^APP_URL=.*|APP_URL=https://$PUBLIC_ORIGIN$PUBLIC_PORT$BASE_PATH|" \
          -e "s|^PUBLIC_ORIGIN=.*|PUBLIC_ORIGIN=$PUBLIC_ORIGIN|" .env
 fi
@@ -141,3 +151,6 @@ else
 fi
 
 info "Pronto! https://$PUBLIC_ORIGIN$PUBLIC_PORT$BASE_PATH/"
+if [ "${SEED_PASSWORD_CREATED:-}" = 1 ]; then
+  printf "    Senha dos usuarios de demonstracao: SEED_PASSWORD em %s/.env (guarde no gerenciador de senhas).\n" "$ENV_DIR"
+fi
