@@ -9,7 +9,12 @@ use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
-    public function register(): void {}
+    public function register(): void
+    {
+        if ($this->app['config']->get('telescope.enabled')) {
+            $this->app->register(TelescopeServiceProvider::class);
+        }
+    }
 
     public function boot(): void
     {
