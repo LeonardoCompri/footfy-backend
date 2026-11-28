@@ -15,6 +15,7 @@ class LeagueService
     public function __construct(
         private readonly LeagueRepository $repository,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function index(): Collection
@@ -50,13 +51,15 @@ class LeagueService
 
     public function publicShow(string $id): League
     {
-        $league = $this->repository->show($id, ['championship', 'teams', 'stadiums'], ['teams', 'games', 'stadiums']);
+        return $this->cacheVersion->remember($this->cacheVersion->key((int) $id, 'public_show'), function () use ($id) {
+            $league = $this->repository->show($id, ['championship', 'teams', 'stadiums'], ['teams', 'games', 'stadiums']);
 
-        if (! $league) {
-            throw ValidationException::withMessages(['message' => 'Liga não encontrada!']);
-        }
+            if (! $league) {
+                throw ValidationException::withMessages(['message' => 'Liga não encontrada!']);
+            }
 
-        return $league;
+            return $league;
+        });
     }
 
     public function update(array $data, string $id): League

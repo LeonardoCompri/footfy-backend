@@ -48,6 +48,29 @@ class LeagueRepository
         return $leagues->count() === 1 ? $leagues->first() : null;
     }
 
+    public function idsRelatedToTeam(int $teamId): array
+    {
+        $playerIds = DB::table('players')->select('id')->where('team_id', $teamId);
+
+        return DB::table('league_team')->select('league_id')->where('team_id', $teamId)
+            ->union(DB::table('games')->select('league_id')->where('home_team_id', $teamId))
+            ->union(DB::table('games')->select('league_id')->where('away_team_id', $teamId))
+            ->union(DB::table('game_events')->select('league_id')->whereIn('player_id', $playerIds))
+            ->union(DB::table('game_events')->select('league_id')->whereIn('related_player_id', $playerIds))
+            ->pluck('league_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
+    public function idsWithPlayerEvents(int $playerId): array
+    {
+        return DB::table('game_events')->select('league_id')->where('player_id', $playerId)
+            ->union(DB::table('game_events')->select('league_id')->where('related_player_id', $playerId))
+            ->pluck('league_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
     public function findForUpdate(string $id): ?League
     {
         return League::query()->lockForUpdate()->find($id);

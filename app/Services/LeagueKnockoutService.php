@@ -54,20 +54,29 @@ class LeagueKnockoutService
         private readonly KnockoutBracket $bracket,
         private readonly TieResolver $tieResolver,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function build(League $league): array
     {
-        return $this->format($league);
+        return $this->cacheVersion->remember(
+            $this->cacheVersion->key((int) $league->id, 'knockout'),
+            fn () => $this->format($league),
+        );
     }
 
     public function preview(League $league): array
     {
-        $context = $this->context($league, withSeeding: true);
+        return $this->cacheVersion->remember(
+            $this->cacheVersion->key((int) $league->id, 'knockout_preview'),
+            function () use ($league) {
+                $context = $this->context($league, withSeeding: true);
 
-        $this->failWhen($this->generateIssue($context));
+                $this->failWhen($this->generateIssue($context));
 
-        return $this->previewOf($this->planNextStep($context), $context);
+                return $this->previewOf($this->planNextStep($context), $context);
+            },
+        );
     }
 
     public function generateNextStage(string $id, string $stage, bool $replaceManualPhases = false): array

@@ -20,6 +20,7 @@ class ChampionshipService
         private readonly ChampionshipRepository $repository,
         private readonly LeagueService $leagueService,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function index(): Collection
@@ -29,7 +30,21 @@ class ChampionshipService
 
     public function publicIndex(array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
     {
-        return $this->repository->publicIndex($filters, $paginate);
+        if (! $paginate || filled($filters['search'] ?? null) || (int) ($filters['page'] ?? 1) !== 1) {
+            return $this->repository->publicIndex($filters, $paginate);
+        }
+
+        $name = sprintf(
+            'public_index:%d:%s:%s',
+            (int) ($filters['per_page'] ?? config('footfy.pagination.per_page')),
+            $filters['sort'] ?? '',
+            $filters['order'] ?? '',
+        );
+
+        return $this->cacheVersion->remember(
+            $this->cacheVersion->championshipsKey($name),
+            fn () => $this->repository->publicIndex($filters, $paginate),
+        );
     }
 
     public function store(array $data): Championship
@@ -64,7 +79,10 @@ class ChampionshipService
 
     public function publicShow(string $id): Championship
     {
-        return $this->find($id, ['leagues']);
+        return $this->cacheVersion->remember(
+            $this->cacheVersion->championshipKey((int) $id, 'public_show'),
+            fn () => $this->find($id, ['leagues']),
+        );
     }
 
     public function update(array $data, string $id): Championship
