@@ -109,6 +109,7 @@ if [ ! -f .env ]; then
       -e "s|__SEED_ON_FIRST_RUN__|$SEED_ON_FIRST_RUN|" \
       -e "s|__COMPOSER_NO_DEV__|$COMPOSER_NO_DEV|" \
       -e "s|__SEED_PASSWORD__|$(openssl rand -hex 16)|" \
+      -e "s|__REDIS_PASSWORD__|$(openssl rand -hex 16)|" \
       "$INFRA/env.template" > .env
   chmod 600 .env
 else
@@ -117,6 +118,8 @@ else
   done
   [ "$(env_value COMPOSE_PROJECT_NAME)" = "$COMPOSE_PROJECT_NAME" ] \
     || fail "O .env de $ENV_DIR e de outro ambiente (COMPOSE_PROJECT_NAME=$(env_value COMPOSE_PROJECT_NAME), esperado $COMPOSE_PROJECT_NAME)."
+  [ -n "$(env_value REDIS_PASSWORD)" ] \
+    || fail "REDIS_PASSWORD vazio em $ENV_DIR/.env. Acrescente as variaveis do Redis (veja infra/README.md, Redis)."
   if [ "$ENVIRONMENT" = staging ] && [ -z "$(env_value SEED_PASSWORD)" ]; then
     fail "SEED_PASSWORD vazio em $ENV_DIR/.env. O staging e publico: acrescente SEED_PASSWORD=<senha forte> (veja infra/README.md)."
   fi

@@ -7,7 +7,7 @@
 #
 # O ambiente e a pasta onde o script esta: <pasta>/footfy-backend/infra/deploy.sh -> <pasta>.
 # Se o build falhar, a versao antiga continua no ar.
-# Backend: backup do banco (db_predeploy_*) e migrations antes de trocar o container.
+# Backend: backup do banco (db_predeploy_*), Redis no ar e migrations antes de trocar o container.
 # Se o backup ou a migration falhar, a versao antiga continua no ar e o commit volta.
 # Se a nova versao nao responder, volta automaticamente para a anterior (as migrations ficam).
 set -euo pipefail
@@ -74,6 +74,12 @@ deploy_one() {
       fail "Backup antes das migrations falhou. Nada foi alterado no ar."
     fi
 
+    log "Subindo o Redis"
+    if ! compose up -d --wait redis; then
+      rollback "$repo" "$image" "$old_commit" || true
+      fail "O Redis nao ficou saudavel. O backend antigo continua no ar (${old_commit:0:7})."
+    fi
+
     log "Aplicando migrations"
     # Como root: o www-data nao le o .env (chmod 600). Log no stderr para o root nao criar o log do dia.
     if ! compose run --rm --no-deps -e LOG_CHANNEL=stderr backend php artisan migrate --force --no-interaction; then
@@ -113,6 +119,8 @@ main() {
   for name in COMPOSE_PROJECT_NAME DEPLOY_BRANCH IMAGE_TAG; do
     [ -n "${!name}" ] || fail "$name nao definido em $env_dir/.env (veja infra/README.md)."
   done
+  [ -n "$(env_value REDIS_PASSWORD)" ] \
+    || fail "REDIS_PASSWORD nao definido em $env_dir/.env. Acrescente as variaveis do Redis antes do deploy (veja infra/README.md, Redis)."
 
   case "$target" in
     backend|frontend|all) ;;

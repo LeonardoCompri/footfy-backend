@@ -4,7 +4,7 @@ Arquivos que sobem o Footfy no servidor da Analitix (Ubuntu + Docker + Tailscale
 
 ```
 infra/
-  docker-compose.yml       db, backend e web; um compose para todos os ambientes
+  docker-compose.yml       db, redis, backend e web; um compose para todos os ambientes
   env.template             modelo do .env de cada ambiente (o setup.sh preenche)
   gateway.conf.template    rota do ambiente no portão (só quando há caminho, ex.: /footfy)
   setup.sh                 primeira instalação de um ambiente (pode rodar de novo)
@@ -64,12 +64,17 @@ Um `.env` por pasta, que serve ao compose e ao Laravel (montado em `/var/www/htm
 | `SEED_PASSWORD` | não usado (a produção não tem seed de usuários) | senha forte, gerada pelo `setup.sh` | Senha dos usuários do seed de demonstração. Fora de `local`/`testing`, o `UserSeeder` falha se ela estiver vazia; `123456` só no Sail e nos testes |
 | `BACKUP_REMOTE` | `footfy-crypt:footfy` (depois do `rclone config`) | vazio | Destino da cópia externa do dump do banco (seção Backup). Vazio ou ausente = backup só local |
 | `BACKUP_REMOTE_KEEP_DAYS` | `30` | `30` | Dias que o dump fica no remote. Ausente = 30 |
+| `REDIS_PASSWORD` | gerada pelo `setup.sh` | gerada pelo `setup.sh` | Senha do Redis do ambiente (seção Redis). **Obrigatória**: sem ela o compose, o `deploy.sh` e o `setup.sh` param antes de construir ou trocar qualquer container |
+| `REDIS_CLIENT`, `REDIS_HOST`, `REDIS_PORT` | `phpredis`, `redis`, `6379` | os mesmos | Conexão do Laravel com o serviço `redis` do compose |
+| `CACHE_STORE`, `QUEUE_CONNECTION` | `redis` | `redis` | Cache (inclui o throttle e o cache de permissões) e fila no Redis. `database` = tabelas `cache` e `jobs` do MySQL, como antes do FD-3 |
 
 Sem as variáveis novas, o compose usa os valores de hoje: projeto `footfy`, tag `latest`, portas 8081 e 3307 e caminho `/footfy`. O `deploy.sh` e o `setup.sh` exigem `COMPOSE_PROJECT_NAME`, `DEPLOY_BRANCH` e `IMAGE_TAG` no `.env`, para um ambiente nunca cair no projeto do outro.
 
 Sem `PUBLIC_PORT` ou `APP_BASE_PATH` no `.env`, o `setup.sh` usa o padrão do ambiente (produção: sem porta e `/footfy`), como o compose.
 
 Sem `COMPOSER_NO_DEV`, a imagem continua com os pacotes de dev, como antes do FD-0c: um `.env` antigo não muda o build. Na produção, ponha `COMPOSER_NO_DEV=1` (seção "Produção sem pacotes de dev").
+
+Sem `REDIS_PASSWORD`, nenhum comando do compose roda (`required variable REDIS_PASSWORD is missing a value`): um `.env` de antes do FD-3 precisa das variáveis do Redis antes do deploy (seção "Redis num `.env` existente").
 
 ## Primeira instalação (`setup.sh`)
 
@@ -82,8 +87,8 @@ footfy-backend/infra/setup.sh production
 O `setup.sh production|staging`:
 1. cria o atalho `<pasta>/deploy.sh` (recusa se já existe um `deploy.sh` diferente: mova-o para `_legacy/` antes);
 2. clona o `footfy-frontend` na branch do ambiente, se faltar;
-3. gera o `.env` pelo `env.template` com senhas aleatórias (inclusive `SEED_PASSWORD`), só se ele não existir. Se existir, mantém senhas e chave, confere `COMPOSE_PROJECT_NAME`/`DEPLOY_BRANCH`/`IMAGE_TAG` (no staging, também `SEED_PASSWORD` preenchida) e só atualiza `APP_URL` (`https://<host><PUBLIC_PORT><APP_BASE_PATH>`) e `PUBLIC_ORIGIN`;
-4. constrói as imagens, sobe o banco, faz o backup `db_predeploy_*` e aplica as migrations;
+3. gera o `.env` pelo `env.template` com senhas aleatórias (inclusive `SEED_PASSWORD` e `REDIS_PASSWORD`), só se ele não existir. Se existir, mantém senhas e chave, confere `COMPOSE_PROJECT_NAME`/`DEPLOY_BRANCH`/`IMAGE_TAG` e `REDIS_PASSWORD` (no staging, também `SEED_PASSWORD` preenchida) e só atualiza `APP_URL` (`https://<host><PUBLIC_PORT><APP_BASE_PATH>`) e `PUBLIC_ORIGIN`;
+4. constrói as imagens, sobe o banco e o Redis, faz o backup `db_predeploy_*` e aplica as migrations;
 5. só na primeira vez (sem o marcador `storage/app/.seeded`), roda o seed do ambiente e cria o marcador:
    - produção: só `PermissionSeeder` e `RoleSeeder` (papéis e permissões; **nenhum usuário**). O master é criado à mão (seção "Master da produção");
    - staging: `DatabaseSeeder` (dados de demonstração, senha `SEED_PASSWORD`) com `SEED_ON_FIRST_RUN=true`; com `false`, o mesmo da produção;
@@ -107,12 +112,12 @@ Cada environment tem o próprio `concurrency` (`deploy-production` e `deploy-sta
 ~/analitix/footfy/deploy.sh backend    # ou frontend, ou all
 ```
 
-Fluxo:
+Sem `REDIS_PASSWORD` no `.env`, o script para antes de tudo (seção "Redis num `.env` existente"). Fluxo:
 1. `flock` em `<pasta>/.deploy.lock` (um deploy por vez por ambiente);
 2. `fetch` + `checkout` + `reset --hard origin/$DEPLOY_BRANCH` no clone;
 3. tag da imagem atual como `${IMAGE_TAG}-previous`;
 4. `build` do serviço (se falhar, volta o commit e nada muda no ar);
-5. só no backend: `backup.sh predeploy` (dump em `backups/db_predeploy_AAAA-MM-DD_HHMMSS.sql.gz`, guarda os 10 mais recentes, separado dos 14 `db_daily_*`) e `run --rm --no-deps -e LOG_CHANNEL=stderr backend php artisan migrate --force` com a imagem nova, enquanto o container antigo continua no ar. O `run` é como root porque o `www-data` não lê o `.env` (`chmod 600`); com `LOG_CHANNEL=stderr`, um erro da migration sai na saída do deploy e nada é gravado em `storage/logs`. Se o backup ou a migration falhar: volta o commit e a tag da imagem, e o container antigo nem é trocado;
+5. só no backend: `backup.sh predeploy` (dump em `backups/db_predeploy_AAAA-MM-DD_HHMMSS.sql.gz`, guarda os 10 mais recentes, separado dos 14 `db_daily_*`), `up -d --wait redis` (sobe o Redis, se ainda não estiver no ar, e espera o healthcheck) e `run --rm --no-deps -e LOG_CHANNEL=stderr backend php artisan migrate --force` com a imagem nova, enquanto o container antigo continua no ar. O `run` é como root porque o `www-data` não lê o `.env` (`chmod 600`); com `LOG_CHANNEL=stderr`, um erro da migration sai na saída do deploy e nada é gravado em `storage/logs`. Se o backup, o Redis ou a migration falhar: volta o commit e a tag da imagem, e o container antigo nem é trocado;
 6. `up -d --no-deps` do serviço;
 7. health check: `/up` e `<div id="app"` em `http://127.0.0.1:$WEB_PORT/`, até 40 × 3 s;
 8. se falhar: volta o commit, devolve a imagem `-previous` e recria o container. **As migrations aplicadas no passo 5 ficam** (o código antigo convive com o schema novo; por isso as migrations só acrescentam e a remoção vem num deploy seguinte).
@@ -290,6 +295,90 @@ A branch `staging` é recriada a partir da `main` de tempos em tempos, e migrati
    ```
 
 Os uploads (`footfy-staging_backend-storage`) não são apagados por esse comando.
+
+## Redis (FD-3)
+
+Cada ambiente tem o próprio Redis (`redis:7-alpine`), no serviço `redis` do compose: volume `footfy_redis-data` na produção e `footfy-staging_redis-data` no staging. Sem `ports`: só os containers do projeto falam com ele. Senha `REDIS_PASSWORD`, AOF ligado (`appendonly yes`, a fila sobrevive a restart e reboot) e `maxmemory 128mb` com `volatile-lru`: na falta de memória, só saem chaves com prazo (cache e throttle); a fila não tem prazo e nunca é descartada.
+
+O Laravel usa dois bancos do Redis: o cache no banco 1 (conexão `cache`) e a fila no banco 0 (conexão `default`). O entrypoint roda `optimize:clear` a cada start do backend, e o `cache:clear` que vem nele apaga só o banco 1: o cache (inclusive contadores de throttle e o cache de permissões, que se refaz sozinho) zera a cada deploy ou restart do backend, e os jobs da fila ficam.
+
+Consultar (um comando por vez, na pasta do ambiente; no staging, `-p footfy-staging`). Estado e memória:
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env ps redis
+```
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec redis sh -c 'redis-cli --no-auth-warning -a "$REDIS_PASSWORD" info memory'
+```
+
+Jobs na fila (`default`):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec redis sh -c 'redis-cli --no-auth-warning -a "$REDIS_PASSWORD" -n 0 llen footfy-database-queues:default'
+```
+
+Cache e fila pelo Laravel (precisa mostrar `1`, `redis` e `redis`):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -u www-data -e HOME=/tmp backend php artisan tinker --execute="Cache::put('t', 1, 60); echo Cache::get('t'), ' ', config('cache.default'), ' ', config('queue.default'), PHP_EOL;"
+```
+
+### Redis num `.env` existente
+
+O `setup.sh` só gera o `.env` quando ele não existe. Num `.env` de antes do FD-3 (produção e staging já instalados), faça em duas etapas, rodando um comando por vez. Para o staging, troque `~/analitix/footfy` por `~/analitix/footfy-staging` e `-p footfy` por `-p footfy-staging`.
+
+**Etapa 1, antes do merge na branch do ambiente** (`main` na produção, `staging` no staging). Acrescenta só a conexão e a senha; o cache e a fila continuam no banco, então o app não muda, mesmo se o backend reiniciar antes do deploy:
+
+```bash
+cd ~/analitix/footfy
+```
+
+```bash
+printf '\nREDIS_CLIENT=phpredis\nREDIS_HOST=redis\nREDIS_PORT=6379\nREDIS_PASSWORD=%s\n' "$(openssl rand -hex 16)" >> .env
+```
+
+Conferir (uma linha de cada; a senha com 32 caracteres):
+
+```bash
+grep -E '^REDIS_(CLIENT|HOST|PORT|PASSWORD)=' .env
+```
+
+**Etapa 2, depois do deploy do merge.** O deploy automático do merge ainda roda o `deploy.sh` anterior, que não sobe o Redis: suba-o e espere ficar saudável (o comando termina sozinho quando o healthcheck passa):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env up -d --wait redis
+```
+
+Passar o cache e a fila para o Redis:
+
+```bash
+sed -i 's/^CACHE_STORE=.*/CACHE_STORE=redis/' .env
+```
+
+```bash
+sed -i 's/^QUEUE_CONNECTION=.*/QUEUE_CONNECTION=redis/' .env
+```
+
+```bash
+grep -E '^(CACHE_STORE|QUEUE_CONNECTION)=' .env
+```
+
+Recriar o backend para ler o `.env` novo:
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env up -d --no-deps --force-recreate backend
+```
+
+Conferir com o `tinker` da seção acima (`1 redis redis`), entrar no site e fazer um deploy à mão, que já roda o `deploy.sh` novo (com o passo do Redis):
+
+```bash
+~/analitix/footfy/deploy.sh backend
+```
+
+Se a etapa 1 não foi feita antes do merge, o deploy automático para no build com `required variable REDIS_PASSWORD is missing a value`, volta o commit e o site segue na versão anterior. Faça a etapa 1 e rode `~/analitix/footfy/deploy.sh backend` à mão; depois siga a etapa 2.
+
+Para voltar o cache e a fila para o banco, troque `redis` por `database` nos dois `sed` acima e recrie o backend.
 
 ## Rollback manual
 

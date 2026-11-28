@@ -23,6 +23,23 @@ services:
       timeout: 5s
       retries: 30
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Sem REDIS_PASSWORD no .env o compose para aqui, antes de construir ou trocar qualquer container
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD nao definido no .env (veja infra/README.md, Redis)}
+    # Sem ports: so o backend (rede do projeto) fala com o Redis.
+    # volatile-lru: na falta de memoria so sai chave com prazo (cache); a fila nao tem prazo e nao e descartada.
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --maxmemory 128mb --maxmemory-policy volatile-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
   backend:
     image: footfy/backend:${IMAGE_TAG:-latest}
     build:
@@ -41,6 +58,8 @@ services:
       - backend-logs:/var/www/html/storage/logs
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   web:
@@ -64,3 +83,4 @@ volumes:
   db-data:
   backend-storage:
   backend-logs:
+  redis-data:
