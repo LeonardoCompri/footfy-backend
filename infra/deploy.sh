@@ -75,7 +75,8 @@ deploy_one() {
     fi
 
     log "Aplicando migrations"
-    if ! compose run --rm --no-deps --user www-data backend php artisan migrate --force --no-interaction; then
+    # Como root: o www-data nao le o .env (chmod 600). Log no stderr para o root nao criar o log do dia.
+    if ! compose run --rm --no-deps -e LOG_CHANNEL=stderr backend php artisan migrate --force --no-interaction; then
       rollback "$repo" "$image" "$old_commit" || true
       fail "Migration falhou. O backend antigo continua no ar (${old_commit:0:7}). Backup de antes em backups/db_predeploy_* (veja infra/README.md, Migration com erro)."
     fi

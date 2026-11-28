@@ -134,8 +134,9 @@ compose() {
   docker compose -p "$COMPOSE_PROJECT_NAME" -f "$INFRA/docker-compose.yml" --env-file .env "$@"
 }
 
+# Como root: o www-data nao le o .env (chmod 600). Log no stderr para o root nao criar o log do dia.
 backend_run() {
-  compose run --rm --user www-data backend "$@"
+  compose run --rm -e LOG_CHANNEL=stderr backend "$@"
 }
 
 # 5. Imagens, migrations e seed (antes de subir o backend novo)

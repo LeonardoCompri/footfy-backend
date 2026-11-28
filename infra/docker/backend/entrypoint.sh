@@ -1,7 +1,7 @@
 #!/bin/sh
 # Prepara o container a cada start (deploy, restart e reboot). Nao roda migrations nem seed:
 # as migrations ficam no deploy.sh (com backup antes) e o seed no setup.sh (primeira instalacao).
-# Com --user www-data (migrate do deploy, setup.sh) pula o que precisa de root: chown e storage:link.
+# Com --user www-data pula o que precisa de root: chown e storage:link.
 set -e
 cd /var/www/html
 

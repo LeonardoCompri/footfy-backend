@@ -112,7 +112,7 @@ Fluxo:
 2. `fetch` + `checkout` + `reset --hard origin/$DEPLOY_BRANCH` no clone;
 3. tag da imagem atual como `${IMAGE_TAG}-previous`;
 4. `build` do serviço (se falhar, volta o commit e nada muda no ar);
-5. só no backend: `backup.sh predeploy` (dump em `backups/db_predeploy_AAAA-MM-DD_HHMMSS.sql.gz`, guarda os 10 mais recentes, separado dos 14 `db_daily_*`) e `run --rm --no-deps --user www-data backend php artisan migrate --force` com a imagem nova, enquanto o container antigo continua no ar. Se o backup ou a migration falhar: volta o commit e a tag da imagem, e o container antigo nem é trocado;
+5. só no backend: `backup.sh predeploy` (dump em `backups/db_predeploy_AAAA-MM-DD_HHMMSS.sql.gz`, guarda os 10 mais recentes, separado dos 14 `db_daily_*`) e `run --rm --no-deps -e LOG_CHANNEL=stderr backend php artisan migrate --force` com a imagem nova, enquanto o container antigo continua no ar. O `run` é como root porque o `www-data` não lê o `.env` (`chmod 600`); com `LOG_CHANNEL=stderr`, um erro da migration sai na saída do deploy e nada é gravado em `storage/logs`. Se o backup ou a migration falhar: volta o commit e a tag da imagem, e o container antigo nem é trocado;
 6. `up -d --no-deps` do serviço;
 7. health check: `/up` e `<div id="app"` em `http://127.0.0.1:$WEB_PORT/`, até 40 × 3 s;
 8. se falhar: volta o commit, devolve a imagem `-previous` e recria o container. **As migrations aplicadas no passo 5 ficam** (o código antigo convive com o schema novo; por isso as migrations só acrescentam e a remoção vem num deploy seguinte).
@@ -323,6 +323,12 @@ docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .
 ```
 
 Comandos `artisan` à mão rodam com `exec -u www-data`: como root, o arquivo de log do dia pode ser criado pelo root e o Apache (usuário `www-data`) deixa de conseguir escrever nele.
+
+O `exec -u www-data` funciona porque o container no ar cacheia a configuração no start, como root, lendo o `.env` (o `www-data` não lê o arquivo, que é `chmod 600`). Por isso, **nunca rode `config:clear` nem `optimize:clear` com `exec`**: sem o cache, o site passa a usar os padrões do Laravel (SQLite) e fica fora do ar até o próximo restart. Para limpar os caches, reinicie o container:
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env restart backend
+```
 
 ## Master da produção
 
