@@ -28,6 +28,7 @@ class GameService
         private readonly LeagueKnockoutService $knockoutService,
         private readonly ShootoutResolver $shootoutResolver,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function index(string $leagueId, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
@@ -54,7 +55,10 @@ class GameService
             $data['away_score'] = 0;
         }
 
-        return $this->repository->store($data);
+        $game = $this->repository->store($data);
+        $this->cacheVersion->bump((int) $game->league_id);
+
+        return $game;
     }
 
     public function show(string $id): Game
@@ -75,6 +79,7 @@ class GameService
             $this->ensureUserHasAccessToLeagues([$data['league_id']]);
         }
 
+        $previousLeagueId = (int) $game->league_id;
         $game->fill($data);
         $leagueChanged = $game->isDirty('league_id');
         $recalculateScore = $this->shouldRecalculateScore($game);
@@ -82,7 +87,7 @@ class GameService
 
         $statusChanged = $game->isDirty('status');
 
-        DB::transaction(function () use ($game, $leagueChanged, $recalculateScore, $drawnPairingChanged, $statusChanged) {
+        DB::transaction(function () use ($game, $previousLeagueId, $leagueChanged, $recalculateScore, $drawnPairingChanged, $statusChanged) {
             if ($statusChanged) {
                 $this->knockoutService->ensureKnockoutResultsEditable($game);
             }
@@ -107,6 +112,8 @@ class GameService
             if ($changes['new'] !== [] || $clearedGameId !== null) {
                 $this->auditLogger->record('game.updated', $game, $changes['old'], $changes['new'], $this->penaltiesClearedMeta($clearedGameId));
             }
+
+            $this->cacheVersion->bump($previousLeagueId, (int) $game->league_id);
         });
 
         return $this->withBackofficeFlags($game->load($this->showRelations(backoffice: true)));
@@ -141,6 +148,7 @@ class GameService
             $this->repository->replacePenaltyKicks($game, $rows);
             $game->fill($this->penaltiesFromKicks($game, $rows));
             $this->repository->update($game);
+            $this->cacheVersion->bump((int) $game->league_id);
 
             if ($previousRows !== $rows) {
                 $this->auditLogger->record(
@@ -269,6 +277,7 @@ class GameService
 
             if ($deleted) {
                 $this->auditLogger->record('game.deleted', $game, old: $game->auditAttributes());
+                $this->cacheVersion->bump((int) $game->league_id);
             }
 
             return $deleted;

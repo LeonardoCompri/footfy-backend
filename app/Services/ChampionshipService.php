@@ -59,6 +59,7 @@ class ChampionshipService
             $championship = DB::transaction(function () use ($data, $leagues) {
                 $championship = $this->repository->store($data);
                 $this->auditLogger->record('championship.created', $championship, new: $championship->auditAttributes());
+                $this->cacheVersion->bumpChampionship((int) $championship->id);
                 $this->saveLeagues($championship, $leagues);
 
                 return $championship;
@@ -104,6 +105,7 @@ class ChampionshipService
                 $championship->fill($data);
                 $changes = $championship->auditChanges();
                 $this->repository->update($championship);
+                $this->bumpWithLeagues($championship);
 
                 if ($changes['new'] !== []) {
                     $this->auditLogger->record('championship.updated', $championship, $changes['old'], $changes['new']);
@@ -130,6 +132,7 @@ class ChampionshipService
             $deleted = $this->repository->destroy($championship);
 
             if ($deleted) {
+                $this->bumpWithLeagues($championship);
                 $this->auditLogger->record(
                     'championship.deleted',
                     $championship,
@@ -146,6 +149,12 @@ class ChampionshipService
         }
 
         return $deleted;
+    }
+
+    private function bumpWithLeagues(Championship $championship): void
+    {
+        $this->cacheVersion->bumpChampionship((int) $championship->id);
+        $this->cacheVersion->bump(...$championship->leagues->map(fn ($league) => (int) $league->id)->all());
     }
 
     private function find(string $id, array $with = []): Championship

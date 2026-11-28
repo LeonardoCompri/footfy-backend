@@ -33,6 +33,7 @@ class LeagueService
         return DB::transaction(function () use ($data) {
             $league = $this->repository->store($data);
             $this->auditLogger->record('league.created', $league, new: $league->auditAttributes());
+            $this->cacheVersion->bumpChampionship(...$this->championshipIds($league));
 
             return $league;
         });
@@ -82,7 +83,10 @@ class LeagueService
                 || ($league->isDirty('fixture_mode') && $league->fixture_mode === 'manual');
 
             $changes = $league->auditChanges();
+            $championshipIds = $this->championshipIds($league);
             $this->repository->update($league);
+            $this->cacheVersion->bump((int) $league->id);
+            $this->cacheVersion->bumpChampionship(...$championshipIds);
 
             if ($clearGroups) {
                 $this->repository->clearGroups($league);
@@ -131,6 +135,8 @@ class LeagueService
             $deleted = $this->repository->destroy($league);
 
             if ($deleted) {
+                $this->cacheVersion->bump((int) $league->id);
+                $this->cacheVersion->bumpChampionship(...$this->championshipIds($league));
                 $this->auditLogger->record(
                     'league.deleted',
                     $league,
@@ -141,5 +147,10 @@ class LeagueService
 
             return $deleted;
         });
+    }
+
+    private function championshipIds(League $league): array
+    {
+        return array_map('intval', array_filter([$league->getOriginal('championship_id'), $league->championship_id]));
     }
 }

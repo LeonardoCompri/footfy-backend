@@ -23,6 +23,7 @@ class TeamService
         private readonly TeamRepository $repository,
         private readonly LeagueRepository $leagueRepository,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function index(?string $leagueId = null, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
@@ -133,6 +134,8 @@ class TeamService
             throw $th;
         }
 
+        $this->cacheVersion->bumpForTeam((int) $team->id);
+
         $this->deleteImage($oldLogo);
 
         return $team;
@@ -147,7 +150,11 @@ class TeamService
         }
 
         try {
-            $deleted = $this->repository->destroy($team);
+            $deleted = DB::transaction(function () use ($team) {
+                $this->cacheVersion->bumpForTeam((int) $team->id);
+
+                return $this->repository->destroy($team);
+            });
         } catch (QueryException $ex) {
             throw ValidationException::withMessages(['message' => 'Não é possível remover o time pois existem partidas vinculadas a ele.']);
         }
@@ -178,6 +185,8 @@ class TeamService
         $attached = $this->repository->attachLeagues($team, $leagueIds);
 
         if ($attached !== []) {
+            $this->cacheVersion->bump(...$attached);
+
             foreach ($this->leagueRepository->index($attached) as $league) {
                 $this->auditLogger->record('league.teams_attached', $league, meta: ['team_ids' => [$team->id]]);
             }
@@ -235,6 +244,7 @@ class TeamService
 
         return DB::transaction(function () use ($team, $leagueId) {
             if ($this->repository->detachLeague($team, $leagueId) > 0) {
+                $this->cacheVersion->bump((int) $leagueId);
                 $league = $this->leagueRepository->show($leagueId);
                 $this->auditLogger->record('league.teams_detached', $league, meta: ['team_ids' => [$team->id]]);
             }

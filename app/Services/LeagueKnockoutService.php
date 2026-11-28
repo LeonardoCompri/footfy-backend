@@ -103,6 +103,7 @@ class LeagueKnockoutService
             }
 
             $this->gameRepository->insertKnockoutGames($this->rowsOf($league, $plan));
+            $this->cacheVersion->bump((int) $league->id);
             $stages = $context['next_step'];
 
             $this->auditLogger->record(
@@ -137,6 +138,7 @@ class LeagueKnockoutService
             $stages = $this->stepStages($lastStage);
             $deletedGames = $context['games']->whereIn('knockout_stage', $stages);
             $this->gameRepository->deleteKnockoutGames($league, $stages);
+            $this->cacheVersion->bump((int) $league->id);
 
             $this->auditLogger->record(
                 'knockout.stage_undone',

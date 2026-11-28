@@ -24,6 +24,7 @@ class PlayerService
         private readonly TeamRepository $teamRepository,
         private readonly LeagueRepository $leagueRepository,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function index(?string $leagueId = null, array $filters = [], bool $paginate = false): Collection|LengthAwarePaginator
@@ -71,6 +72,7 @@ class PlayerService
                 $trashed->fill(array_merge(['position' => null, 'number' => null, 'birth_date' => null], $data));
                 $changes = $trashed->auditChanges();
                 $player = $this->repository->restore($trashed);
+                $this->cacheVersion->bumpForPlayer((int) $player->id);
                 $this->audit('player.restored', $player, $changes);
 
                 return $player;
@@ -150,6 +152,7 @@ class PlayerService
             $deleted = $this->repository->destroy($player);
 
             if ($deleted) {
+                $this->cacheVersion->bumpForPlayer((int) $player->id);
                 $this->audit('player.deleted', $player, ['old' => $snapshot]);
             }
 
@@ -161,6 +164,7 @@ class PlayerService
     {
         $changes = $player->auditChanges();
         $this->repository->update($player);
+        $this->cacheVersion->bumpForPlayer((int) $player->id);
 
         if ($changes['new'] !== []) {
             $this->audit('player.updated', $player, $changes);

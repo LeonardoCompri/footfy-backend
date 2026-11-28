@@ -14,6 +14,7 @@ class LeagueGroupService
     public function __construct(
         private readonly LeagueRepository $repository,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function build(League $league): array
@@ -78,6 +79,7 @@ class LeagueGroupService
     {
         $previous = $this->repository->groupAssignments($league);
         $this->repository->assignGroups($league, $groupByTeam);
+        $this->cacheVersion->bump((int) $league->id);
 
         $this->auditLogger->record(
             $action,
