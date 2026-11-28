@@ -14,9 +14,10 @@ RUN if [ "$COMPOSER_NO_DEV" = "1" ]; then set -- --no-dev; fi \
 # ---- Imagem final (Apache + PHP 8.4) ----
 FROM php:8.4-apache
 
+# pcntl: o queue:work termina o job em andamento no SIGTERM (deploy) e respeita o --timeout
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libzip-dev unzip \
-    && docker-php-ext-install pdo_mysql bcmath opcache zip \
+    && docker-php-ext-install pdo_mysql bcmath opcache zip pcntl \
     && pecl install redis-6.3.0 \
     && docker-php-ext-enable redis \
     && rm -rf /tmp/pear \
