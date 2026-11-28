@@ -7,7 +7,9 @@
 #
 # O ambiente e a pasta onde o script esta: <pasta>/footfy-backend/infra/deploy.sh -> <pasta>.
 # Se o build falhar, a versao antiga continua no ar.
-# Se a nova versao nao responder, volta automaticamente para a anterior.
+# Backend: backup do banco (db_predeploy_*) e migrations antes de trocar o container.
+# Se o backup ou a migration falhar, a versao antiga continua no ar e o commit volta.
+# Se a nova versao nao responder, volta automaticamente para a anterior (as migrations ficam).
 set -euo pipefail
 
 log()  { printf "\n\033[1;34m[deploy] %s\033[0m\n" "$*"; }
@@ -35,6 +37,15 @@ healthy() {
   return 1
 }
 
+# Volta o commit e a tag da imagem. O compose esta no clone do backend: precisa vir antes de recriar o container.
+# Retorna 1 se nao houver imagem anterior para devolver.
+rollback() {
+  local repo="$1" image="$2" old_commit="$3"
+  git -C "$repo" reset --quiet --hard "$old_commit"
+  docker image inspect "$image:$IMAGE_TAG-previous" >/dev/null 2>&1 || return 1
+  docker tag "$image:$IMAGE_TAG-previous" "$image:$IMAGE_TAG"
+}
+
 deploy_one() {
   local repo="$1" service="$2" image="footfy/$2"
   log "Atualizando $repo ($DEPLOY_BRANCH)"
@@ -52,8 +63,23 @@ deploy_one() {
 
   log "Construindo $service"
   if ! compose build "$service"; then
-    git -C "$repo" reset --quiet --hard "$old_commit"
+    rollback "$repo" "$image" "$old_commit" || true
     fail "Build de $service falhou. Nada foi alterado no ar."
+  fi
+
+  if [ "$service" = backend ]; then
+    log "Backup do banco antes das migrations"
+    if ! footfy-backend/infra/backup.sh predeploy; then
+      rollback "$repo" "$image" "$old_commit" || true
+      fail "Backup antes das migrations falhou. Nada foi alterado no ar."
+    fi
+
+    log "Aplicando migrations"
+    # Como root: o www-data nao le o .env (chmod 600). Log no stderr para o root nao criar o log do dia.
+    if ! compose run --rm --no-deps -e LOG_CHANNEL=stderr backend php artisan migrate --force --no-interaction; then
+      rollback "$repo" "$image" "$old_commit" || true
+      fail "Migration falhou. O backend antigo continua no ar (${old_commit:0:7}). Backup de antes em backups/db_predeploy_* (veja infra/README.md, Migration com erro)."
+    fi
   fi
 
   log "Trocando $service"
@@ -63,10 +89,7 @@ deploy_one() {
   if ! healthy; then
     log "Nova versao nao respondeu. Voltando para a anterior..."
     compose logs --tail=60 "$service" || true
-    # O compose esta no clone do backend: volta o commit antes de recriar o container
-    git -C "$repo" reset --quiet --hard "$old_commit"
-    if docker image inspect "$image:$IMAGE_TAG-previous" >/dev/null 2>&1; then
-      docker tag "$image:$IMAGE_TAG-previous" "$image:$IMAGE_TAG"
+    if rollback "$repo" "$image" "$old_commit"; then
       compose up -d --no-deps "$service"
     fi
     fail "Deploy de $service desfeito (rollback para ${old_commit:0:7})."

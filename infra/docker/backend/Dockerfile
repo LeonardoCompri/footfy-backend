@@ -2,10 +2,14 @@
 FROM composer:2 AS vendor
 WORKDIR /app
 COPY composer.json composer.lock ./
-# Inclui pacotes de dev porque os seeders de demonstracao usam o Faker
-RUN composer install --no-scripts --no-autoloader --prefer-dist --no-interaction --ignore-platform-reqs
+# COMPOSER_NO_DEV=1 (producao) instala sem os pacotes de dev.
+# 0 (staging e padrao) mantem os de dev: os seeders de demonstracao usam o Faker.
+ARG COMPOSER_NO_DEV=0
+RUN if [ "$COMPOSER_NO_DEV" = "1" ]; then set -- --no-dev; fi \
+    && composer install --no-scripts --no-autoloader --prefer-dist --no-interaction --ignore-platform-reqs "$@"
 COPY . ./
-RUN composer dump-autoload --optimize --no-scripts
+RUN if [ "$COMPOSER_NO_DEV" = "1" ]; then set -- --no-dev; fi \
+    && composer dump-autoload --optimize --no-scripts "$@"
 
 # ---- Imagem final (Apache + PHP 8.4) ----
 FROM php:8.4-apache
@@ -22,6 +26,7 @@ RUN sed -ri 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-avail
     && cp /usr/local/etc/php/php.ini-production /usr/local/etc/php/php.ini
 
 COPY infra/docker/backend/php.ini /usr/local/etc/php/conf.d/footfy.ini
+COPY infra/docker/backend/opcache.ini /usr/local/etc/php/conf.d/footfy-opcache.ini
 
 WORKDIR /var/www/html
 COPY --from=vendor /app /var/www/html

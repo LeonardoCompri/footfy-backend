@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
-# Gera backup do banco e dos arquivos enviados em <pasta>/backups (guarda os 14 mais recentes).
-# Com BACKUP_REMOTE no .env, envia tambem o dump do banco para o remote do rclone (veja infra/README.md).
+# Gera backup do banco e dos arquivos enviados em <pasta>/backups (veja infra/README.md).
+#
+#   backup.sh              diario (cron): db_daily_* e uploads_*, guarda os 14 mais recentes de cada.
+#                          Com BACKUP_REMOTE no .env, envia tambem o dump do banco para o remote do rclone.
+#   backup.sh predeploy    antes das migrations (deploy.sh): so o dump, db_predeploy_*, guarda os 10 mais recentes.
+#
 # O ambiente e a pasta onde o clone do backend esta: <pasta>/footfy-backend/infra/backup.sh -> <pasta>.
 set -euo pipefail
 shopt -s nullglob
@@ -33,6 +37,20 @@ find_rclone() {
   fi
 }
 
+dump_db() {
+  local file="$1"
+  compose exec -T db sh -c 'exec mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --single-transaction "$MYSQL_DATABASE"' \
+    | gzip > "$file.part" \
+    || { rm -f "$file.part"; fail "Falha ao gerar o dump do banco. Nada foi enviado nem apagado."; }
+  mv "$file.part" "$file"
+}
+
+MODE="${1:-daily}"
+case "$MODE" in
+  daily|predeploy) ;;
+  *) fail "Uso: backup.sh [predeploy]" ;;
+esac
+
 ENV_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
 cd "$ENV_DIR"
 [ -f .env ] || fail "Arquivo .env nao encontrado em $ENV_DIR."
@@ -48,13 +66,17 @@ compose() {
 }
 
 mkdir -p backups
-STAMP="$(date +%Y-%m-%d_%H%M)"
 
-DB_FILE="backups/db_daily_$STAMP.sql.gz"
-compose exec -T db sh -c 'exec mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --single-transaction "$MYSQL_DATABASE"' \
-  | gzip > "$DB_FILE.part" \
-  || { rm -f "$DB_FILE.part"; fail "Falha ao gerar o dump do banco. Nada foi enviado nem apagado."; }
-mv "$DB_FILE.part" "$DB_FILE"
+if [ "$MODE" = predeploy ]; then
+  DB_FILE="backups/db_predeploy_$(date +%Y-%m-%d_%H%M%S).sql.gz"
+  dump_db "$DB_FILE"
+  prune 10 backups/db_predeploy_*.sql.gz
+  echo "Backup antes das migrations salvo em $ENV_DIR/$DB_FILE"
+  exit 0
+fi
+
+STAMP="$(date +%Y-%m-%d_%H%M)"
+dump_db "backups/db_daily_$STAMP.sql.gz"
 compose exec -T backend tar -czf - -C /var/www/html/storage/app public > "backups/uploads_$STAMP.tar.gz"
 
 prune 14 backups/db_daily_*.sql.gz backups/db_[0-9]*.sql.gz
