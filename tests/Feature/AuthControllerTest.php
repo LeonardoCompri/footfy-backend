@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\Championship;
+use App\Models\League;
 use App\Models\Player;
 use App\Models\Team;
 use App\Models\User;
@@ -9,6 +11,7 @@ use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -234,5 +237,117 @@ class AuthControllerTest extends TestCase
 
         $this->assertLessThanOrEqual(6, $singleRoleQueries);
         $this->assertSame($singleRoleQueries, $multiRoleQueries);
+    }
+
+    private function exhaustLoginAttempts(string $document = '123.456.789-00'): void
+    {
+        foreach (range(1, 5) as $attempt) {
+            $this->login($document, 'senha-errada')->assertStatus(401);
+        }
+    }
+
+    public function test_sixth_login_attempt_with_the_same_document_is_throttled(): void
+    {
+        $this->createUser('admin');
+
+        $this->exhaustLoginAttempts();
+
+        $this->login()
+            ->assertStatus(429)
+            ->assertHeader('Retry-After', 60)
+            ->assertExactJson(['message' => 'Muitas tentativas de login. Aguarde um minuto e tente novamente.']);
+    }
+
+    public function test_login_throttle_is_counted_per_document(): void
+    {
+        $this->createUser('admin');
+        $this->createUser('admin', '98765432100');
+
+        $this->exhaustLoginAttempts();
+
+        $this->login('987.654.321-00')->assertOk();
+        $this->login()->assertStatus(429);
+    }
+
+    public function test_masked_and_unmasked_document_share_the_same_counter(): void
+    {
+        $this->createUser('admin');
+
+        foreach (['123.456.789-00', '12345678900', '123456789-00', '123.456.78900', '12345678900'] as $document) {
+            $this->login($document, 'senha-errada')->assertStatus(401);
+        }
+
+        $this->login('12345678900')->assertStatus(429);
+    }
+
+    public function test_valid_login_within_the_limit_succeeds_and_counts_as_an_attempt(): void
+    {
+        $this->createUser('admin');
+
+        foreach (range(1, 4) as $attempt) {
+            $this->login(password: 'senha-errada')->assertStatus(401);
+        }
+
+        $this->login()->assertOk()->assertJsonStructure(['token']);
+        $this->login()->assertStatus(429);
+    }
+
+    public function test_login_is_released_after_sixty_seconds(): void
+    {
+        $this->createUser('admin');
+
+        $this->exhaustLoginAttempts();
+        $this->login()->assertStatus(429);
+
+        $this->travel(59)->seconds();
+        $this->login()->assertStatus(429);
+
+        $this->travel(2)->seconds();
+        $this->login()->assertOk();
+    }
+
+    public function test_login_throttle_limit_comes_from_config(): void
+    {
+        config(['auth.login_throttle.per_minute' => 2]);
+        $this->createUser('admin');
+
+        $this->login(password: 'senha-errada')->assertStatus(401);
+        $this->login(password: 'senha-errada')->assertStatus(401);
+        $this->login()->assertStatus(429);
+    }
+
+    public function test_requests_without_document_are_not_throttled(): void
+    {
+        foreach (range(1, 7) as $attempt) {
+            $this->postJson('/api/login', ['password' => 'password'])->assertUnprocessable();
+            $this->postJson('/api/login', ['document' => '', 'password' => 'password'])->assertUnprocessable();
+            $this->postJson('/api/login', ['document' => ['123'], 'password' => 'password'])->assertUnprocessable();
+        }
+
+        $this->createUser('admin');
+        $this->login()->assertOk();
+    }
+
+    public function test_login_throttle_is_not_shared_with_other_throttled_routes(): void
+    {
+        $master = $this->createUser('master');
+        $league = League::factory()->for(Championship::factory())->create();
+        Sanctum::actingAs($master);
+
+        foreach (range(1, 5) as $attempt) {
+            $this->get('/api/audit-logs/export', ['Accept' => 'application/json'])->assertOk()->streamedContent();
+            $this->deleteJson("/api/leagues/{$league->id}", ['password' => 'errada'])->assertUnprocessable();
+        }
+
+        $this->login()->assertOk();
+
+        foreach (range(1, 4) as $attempt) {
+            $this->login(password: 'senha-errada')->assertStatus(401);
+        }
+
+        $this->login()->assertStatus(429);
+
+        $this->get('/api/audit-logs/export', ['Accept' => 'application/json'])->assertStatus(429);
+        $this->deleteJson('/api/championships/'.$league->championship_id, ['password' => 'errada'])->assertUnprocessable();
     }
 }
