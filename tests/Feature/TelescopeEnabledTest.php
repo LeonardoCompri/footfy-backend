@@ -9,6 +9,10 @@ use App\Services\ChampionshipService;
 use App\Services\UserService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
+use Illuminate\Config\Repository;
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Queue\Queue;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +21,7 @@ use Laravel\Sanctum\Sanctum;
 use Laravel\Telescope\EntryType;
 use Laravel\Telescope\IncomingEntry;
 use Laravel\Telescope\Telescope;
+use Laravel\Telescope\Watchers;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -24,14 +29,13 @@ class TelescopeEnabledTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const PRODUCTION_ENV = [
-        'TELESCOPE_ENABLED' => 'true',
-        'TELESCOPE_EXCEPTION_WATCHER' => 'true',
-        'TELESCOPE_REQUEST_WATCHER' => 'true',
-        'TELESCOPE_JOB_WATCHER' => 'true',
-        'TELESCOPE_LOG_WATCHER' => 'true',
-        'TELESCOPE_SCHEDULE_WATCHER' => 'true',
-        'TELESCOPE_QUERY_WATCHER' => 'true',
+    private const PRODUCTION_WATCHERS = [
+        Watchers\ExceptionWatcher::class,
+        Watchers\RequestWatcher::class,
+        Watchers\JobWatcher::class,
+        Watchers\LogWatcher::class,
+        Watchers\ScheduleWatcher::class,
+        Watchers\QueryWatcher::class,
     ];
 
     private const USER_PAYLOAD = [
@@ -46,16 +50,28 @@ class TelescopeEnabledTest extends TestCase
         'Cookie' => 'sessao=cookie-secreto',
     ];
 
-    private array $originalEnv = [];
-
     public function createApplication()
     {
-        foreach (self::PRODUCTION_ENV as $name => $value) {
-            $this->originalEnv[$name] ??= getenv($name);
-            $this->setEnv($name, $value);
+        $app = require Application::inferBasePath().'/bootstrap/app.php';
+
+        $app->afterBootstrapping(LoadConfiguration::class, fn (Application $app) => $this->enableTelescopeLikeProduction($app['config']));
+
+        $app->make(Kernel::class)->bootstrap();
+
+        return $app;
+    }
+
+    private function enableTelescopeLikeProduction(Repository $config): void
+    {
+        foreach (array_keys($config->get('telescope.watchers')) as $watcher) {
+            $key = is_array($config->get("telescope.watchers.{$watcher}"))
+                ? "telescope.watchers.{$watcher}.enabled"
+                : "telescope.watchers.{$watcher}";
+
+            $config->set($key, in_array($watcher, self::PRODUCTION_WATCHERS, true));
         }
 
-        return parent::createApplication();
+        $config->set('telescope.enabled', true);
     }
 
     protected function setUp(): void
@@ -75,23 +91,6 @@ class TelescopeEnabledTest extends TestCase
         Queue::createPayloadUsing(null);
 
         parent::tearDown();
-
-        foreach ($this->originalEnv as $name => $value) {
-            $this->setEnv($name, $value === false ? null : $value);
-        }
-    }
-
-    private function setEnv(string $name, ?string $value): void
-    {
-        if ($value === null) {
-            unset($_ENV[$name], $_SERVER[$name]);
-            putenv($name);
-
-            return;
-        }
-
-        $_ENV[$name] = $_SERVER[$name] = $value;
-        putenv("{$name}={$value}");
     }
 
     private function userWithRole(string $role): User
