@@ -10,6 +10,7 @@
 # Backend: backup do banco (db_predeploy_*), Redis no ar e migrations antes de trocar o container.
 # Se o backup ou a migration falhar, a versao antiga continua no ar e o commit volta.
 # Se a nova versao nao responder, volta automaticamente para a anterior (as migrations ficam).
+# worker e scheduler (mesma imagem do backend) so trocam depois que o site responde; o rollback volta os tres.
 set -euo pipefail
 
 log()  { printf "\n\033[1;34m[deploy] %s\033[0m\n" "$*"; }
@@ -46,8 +47,35 @@ rollback() {
   docker tag "$image:$IMAGE_TAG-previous" "$image:$IMAGE_TAG"
 }
 
+# O Nginx do web resolve o backend so no start. O backend recriado pode voltar com outro IP
+# (mais provavel com worker e scheduler na mesma rede): o reload resolve de novo (BUG-064).
+reload_web() {
+  compose exec -T web nginx -s reload >/dev/null 2>&1 || true
+}
+
+# Rollback com os containers ja trocados: recria todos na imagem anterior
+rollback_running() {
+  local repo="$1" image="$2" old_commit="$3"
+  shift 3
+  if rollback "$repo" "$image" "$old_commit"; then
+    compose up -d --no-deps "$@"
+    reload_web
+  fi
+}
+
+# worker e scheduler nao tem healthcheck: precisam estar de pe e sem restart depois de alguns segundos
+workers_running() {
+  local -a ids
+  sleep 15
+  mapfile -t ids < <(compose ps -a -q worker scheduler)
+  [ "${#ids[@]}" -eq 2 ] || return 1
+  [ "$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "${ids[@]}" | sort -u)" = "true 0" ]
+}
+
 deploy_one() {
   local repo="$1" service="$2" image="footfy/$2"
+  local -a services=("$service")
+  if [ "$service" = backend ]; then services+=(worker scheduler); fi
   log "Atualizando $repo ($DEPLOY_BRANCH)"
   git -C "$repo" fetch --quiet origin "$DEPLOY_BRANCH"
   local old_commit new_commit
@@ -90,15 +118,25 @@ deploy_one() {
 
   log "Trocando $service"
   compose up -d --no-deps "$service"
+  if [ "$service" = backend ]; then reload_web; fi
 
   log "Verificando se o site responde"
   if ! healthy; then
     log "Nova versao nao respondeu. Voltando para a anterior..."
     compose logs --tail=60 "$service" || true
-    if rollback "$repo" "$image" "$old_commit"; then
-      compose up -d --no-deps "$service"
-    fi
+    rollback_running "$repo" "$image" "$old_commit" "${services[@]}"
     fail "Deploy de $service desfeito (rollback para ${old_commit:0:7})."
+  fi
+
+  if [ "$service" = backend ]; then
+    log "Trocando worker e scheduler"
+    # A imagem mudou: o compose recria os dois (o worker termina o job em andamento antes)
+    if ! compose up -d --no-deps worker scheduler || ! workers_running; then
+      log "worker e scheduler nao ficaram de pe. Voltando os tres para a versao anterior..."
+      compose logs --tail=30 worker scheduler || true
+      rollback_running "$repo" "$image" "$old_commit" "${services[@]}"
+      fail "Deploy de $service desfeito (rollback para ${old_commit:0:7})."
+    fi
   fi
 
   log "$service no ar com ${new_commit:0:7}"
