@@ -4,7 +4,7 @@ Arquivos que sobem o Footfy no servidor da Analitix (Ubuntu + Docker + Tailscale
 
 ```
 infra/
-  docker-compose.yml       db, redis, backend e web; um compose para todos os ambientes
+  docker-compose.yml       db, redis, backend, worker, scheduler e web; um compose para todos os ambientes
   env.template             modelo do .env de cada ambiente (o setup.sh preenche)
   gateway.conf.template    rota do ambiente no portão (só quando há caminho, ex.: /footfy)
   setup.sh                 primeira instalação de um ambiente (pode rodar de novo)
@@ -92,7 +92,7 @@ O `setup.sh production|staging`:
 5. só na primeira vez (sem o marcador `storage/app/.seeded`), roda o seed do ambiente e cria o marcador:
    - produção: só `PermissionSeeder` e `RoleSeeder` (papéis e permissões; **nenhum usuário**). O master é criado à mão (seção "Master da produção");
    - staging: `DatabaseSeeder` (dados de demonstração, senha `SEED_PASSWORD`) com `SEED_ON_FIRST_RUN=true`; com `false`, o mesmo da produção;
-6. roda `up -d` e espera o `/up`;
+6. roda `up -d` (inclusive `worker` e `scheduler`, com a imagem do backend do passo 4) e espera o `/up`;
 7. com `APP_BASE_PATH` preenchido (produção), gera `gateway/projects/<projeto>.conf` e chama o `reload.sh` do portão. Sem caminho (staging), só imprime o comando do Funnel: `sudo tailscale funnel --bg --https=8443 http://127.0.0.1:8082` (antes, `tailscale funnel status` precisa mostrar a 8443 livre).
 
 Pode ser repetido.
@@ -118,11 +118,14 @@ Sem `REDIS_PASSWORD` no `.env`, o script para antes de tudo (seção "Redis num 
 3. tag da imagem atual como `${IMAGE_TAG}-previous`;
 4. `build` do serviço (se falhar, volta o commit e nada muda no ar);
 5. só no backend: `backup.sh predeploy` (dump em `backups/db_predeploy_AAAA-MM-DD_HHMMSS.sql.gz`, guarda os 10 mais recentes, separado dos 14 `db_daily_*`), `up -d --wait redis` (sobe o Redis, se ainda não estiver no ar, e espera o healthcheck) e `run --rm --no-deps -e LOG_CHANNEL=stderr backend php artisan migrate --force` com a imagem nova, enquanto o container antigo continua no ar. O `run` é como root porque o `www-data` não lê o `.env` (`chmod 600`); com `LOG_CHANNEL=stderr`, um erro da migration sai na saída do deploy e nada é gravado em `storage/logs`. Se o backup, o Redis ou a migration falhar: volta o commit e a tag da imagem, e o container antigo nem é trocado;
-6. `up -d --no-deps` do serviço;
+6. `up -d --no-deps` do serviço (no backend, seguido de `nginx -s reload` no web, que guarda o IP do backend do start: BUG-064);
 7. health check: `/up` e `<div id="app"` em `http://127.0.0.1:$WEB_PORT/`, até 40 × 3 s;
-8. se falhar: volta o commit, devolve a imagem `-previous` e recria o container. **As migrations aplicadas no passo 5 ficam** (o código antigo convive com o schema novo; por isso as migrations só acrescentam e a remoção vem num deploy seguinte).
+8. se falhar: volta o commit, devolve a imagem `-previous` e recria o container (no backend, `backend`, `worker` e `scheduler`). **As migrations aplicadas no passo 5 ficam** (o código antigo convive com o schema novo; por isso as migrations só acrescentam e a remoção vem num deploy seguinte);
+9. só no backend, com o site respondendo: `up -d --no-deps worker scheduler`. A imagem mudou, então o compose recria os dois com o código novo (o worker termina o job em andamento antes de sair). Depois de 15 s, os dois precisam estar no ar e sem nenhum restart (não têm healthcheck); se não estiverem, mostra o log deles e os três voltam para a imagem `-previous`, como no passo 8.
 
-Só o deploy (e o `setup.sh`) roda migrations. O entrypoint do backend, a cada start do container (restart, reboot, `up -d` sem deploy), só faz `storage:link`, caches e `chown`: um reboot nunca migra nem roda seed.
+Entre os passos 6 e 9 (alguns segundos), o worker antigo continua pegando os jobs da fila. Um job de uma classe nova que ele não conhece falha nas 3 tentativas e vai para `failed_jobs`: reprocesse com `queue:retry` (seção "Fila e agendador").
+
+Só o deploy (e o `setup.sh`) roda migrations. O entrypoint do backend (o mesmo do worker e do scheduler), a cada start do container (restart, reboot, `up -d` sem deploy), só faz `storage:link`, caches e `chown`: um reboot nunca migra nem roda seed.
 
 ### Migration com erro
 
@@ -380,13 +383,82 @@ Se a etapa 1 não foi feita antes do merge, o deploy automático para no build c
 
 Para voltar o cache e a fila para o banco, troque `redis` por `database` nos dois `sed` acima e recrie o backend.
 
+## Fila e agendador (FD-4)
+
+Dois serviços com a imagem do backend (`footfy/backend:${IMAGE_TAG}`, sem build próprio: `pull_policy: never`), o mesmo `.env` e os mesmos volumes (`backend-storage`, `backend-logs`):
+
+| Serviço | Comando | Para quê |
+|---|---|---|
+| `worker` | `php artisan queue:work --tries=3` | Processa os jobs da fila (Redis, banco 0). Um job que falha 3 vezes vai para a tabela `failed_jobs` |
+| `scheduler` | `php artisan schedule:work` | Roda `schedule:run` a cada minuto. Tarefas em `routes/console.php`: `audit:prune` às 03:00 (horário de Brasília, `app.timezone`; o relógio do container é UTC), sem sobreposição (`withoutOverlapping`) |
+
+- **Usuário:** o entrypoint roda como root, como no backend (o `www-data` não lê o `.env`, que é `chmod 600`), cacheia a configuração e só então troca para `www-data` com `setpriv`. Por isso o `php` do worker e do scheduler roda como `www-data` e o log diário em `storage/logs` continua do `www-data`, junto com o Apache.
+- **Parada:** `stop_signal: SIGTERM` (a imagem do Apache usa `SIGWINCH`, que o `php` ignora) e `stop_grace_period: 60s`: num deploy ou `stop`, o worker termina o job em andamento e sai. A imagem tem a extensão `pcntl`, sem a qual o job seria cortado e o `--timeout` (60 s) não valeria.
+- **Sem `--max-time`:** o worker só reinicia no deploy (a imagem muda e o compose recria o container) ou num restart. Cada start dos três containers roda o `optimize:clear` do entrypoint, que limpa o cache (Redis, banco 1); a fila (banco 0) fica.
+- **Memória:** cerca de 30 MB cada um, parados.
+
+Estado dos dois (`Up`; sem healthcheck):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env ps worker scheduler
+```
+
+Tarefas agendadas e o próximo horário (`audit:prune ... Next Due`):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -u www-data scheduler php artisan schedule:list
+```
+
+Rodar o `audit:prune` agora, pelo scheduler (apaga só o que passou da retenção, como às 03:00):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -u www-data scheduler php artisan schedule:test --name=audit:prune
+```
+
+Jobs com falha (data, id, conexão e classe; o erro de cada tentativa fica no log diário) e reprocessar (um id ou `all`):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -u www-data worker php artisan queue:failed
+```
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -u www-data worker php artisan queue:retry all
+```
+
+Job de teste: grava `worker ok` no log diário. O job sai de um arquivo porque o `tinker --execute` não consegue serializar uma closure (código em `eval`), e usa `warning` porque o `LOG_LEVEL` é `warning`:
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -T -u www-data -e HOME=/tmp backend sh -c "echo '<?php dispatch(fn () => logger()->warning(\"worker ok\"));' > /tmp/job.php && php artisan tinker /tmp/job.php" < /dev/null
+```
+
+Conferir: o worker mostra `Closure (job.php:1) ... DONE` (seção Logs) e o log do dia tem a linha `WARNING: worker ok`, com o arquivo de dono `www-data`:
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec backend sh -c 'f=$(ls -t storage/logs/laravel-*.log | head -n 1); ls -l "$f"; tail -n 3 "$f"'
+```
+
+### Ligar o worker e o scheduler num ambiente existente
+
+O deploy automático do merge que traz o FD-4 ainda roda o `deploy.sh` anterior: constrói a imagem nova e troca só o backend. Depois que ele terminar, suba os dois uma vez, na pasta do ambiente (no staging, `~/analitix/footfy-staging` e `-p footfy-staging`). O `.env` não muda.
+
+```bash
+cd ~/analitix/footfy
+```
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env up -d --no-deps worker scheduler
+```
+
+Daí em diante, cada `deploy.sh backend` troca os dois junto com o backend.
+
 ## Rollback manual
 
 ```bash
 cd ~/analitix/footfy
 git -C footfy-backend reset --hard <commit anterior>
 docker tag footfy/backend:production-previous footfy/backend:production
-docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env up -d --no-deps backend
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env up -d --no-deps backend worker scheduler
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec web nginx -s reload
 ```
 
 Para o web, o mesmo com `footfy-frontend`, `footfy/web` e o serviço `web`. A tag `-previous` guarda só a versão imediatamente anterior. O rollback não desfaz migrations; para isso, restaure o `db_predeploy_*` do deploy (seção "Migration com erro").
@@ -397,6 +469,16 @@ Saída do Apache e do entrypoint:
 
 ```bash
 docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env logs --tail=200 -f backend
+```
+
+Jobs processados (uma linha `RUNNING` e uma `DONE` ou `FAIL` por job) e tarefas agendadas (uma linha por minuto, `No scheduled commands are ready to run.` quando não há nada):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env logs --tail=200 -f worker
+```
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env logs --tail=200 -f scheduler
 ```
 
 Log do Laravel: fica em `storage/logs`, no volume `footfy_backend-logs` (staging: `footfy-staging_backend-logs`), e sobrevive a deploys. Com `LOG_STACK=daily`, é um arquivo por dia (`laravel-AAAA-MM-DD.log`, data de Brasília) e o Laravel apaga os com mais de 14 dias. Listar:
@@ -417,6 +499,18 @@ O `exec -u www-data` funciona porque o container no ar cacheia a configuração 
 
 ```bash
 docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env restart backend
+```
+
+O worker e o scheduler têm o próprio cache da configuração (vale o mesmo cuidado com `exec`). Depois de mudar o `.env`, recrie os três:
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env up -d --no-deps --force-recreate backend worker scheduler
+```
+
+Depois de recriar o backend à mão, recarregue o web. O Nginx dele guarda o IP do backend do start e, se o backend voltar com outro IP, o site fica fora do ar até o reload (BUG-064; o `deploy.sh` já faz isso sozinho):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec web nginx -s reload
 ```
 
 ## Master da produção

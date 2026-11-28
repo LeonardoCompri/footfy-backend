@@ -171,7 +171,7 @@ else
   ROLES_SEEDED=1
 fi
 
-# 6. Containers
+# 6. Containers (worker e scheduler usam a imagem do backend construida no passo 5)
 info "Subindo os containers"
 compose up -d
 

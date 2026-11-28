@@ -48,11 +48,11 @@ jobs:
       - name: Build da imagem de produção (sem push)
         run: docker build -f infra/docker/backend/Dockerfile --build-arg COMPOSER_NO_DEV=1 -t footfy/backend:ci .
 
-      - name: Imagem sem pacotes de dev, com phpredis e artisan funcionando
+      - name: Imagem sem pacotes de dev, com phpredis, pcntl e artisan funcionando
         run: |
           docker run --rm --entrypoint sh footfy/backend:ci -c '! test -e vendor/fakerphp'
           docker run --rm --entrypoint php footfy/backend:ci artisan --version
-          docker run --rm --entrypoint php footfy/backend:ci -r 'exit(extension_loaded("redis") ? 0 : 1);'
+          docker run --rm --entrypoint php footfy/backend:ci -r 'exit(extension_loaded("redis") && extension_loaded("pcntl") ? 0 : 1);'
           docker run --rm --entrypoint php footfy/backend:ci artisan config:cache
           docker run --rm --entrypoint php footfy/backend:ci artisan route:cache
 
