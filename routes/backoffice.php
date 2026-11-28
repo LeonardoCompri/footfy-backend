@@ -14,7 +14,7 @@ use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TechnicalCommitteeMemberController;
 use App\Http\Controllers\UserController;
 
-Route::post('/login', [AuthController::class, 'login'])->name('auth.login');
+Route::post('/login', [AuthController::class, 'login'])->name('auth.login')->middleware('throttle:login');
 
 Route::middleware(['auth:sanctum'])->where(['id' => '[0-9]+', 'lid' => '[0-9]+'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->name('auth.logout');
