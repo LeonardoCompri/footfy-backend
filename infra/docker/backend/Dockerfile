@@ -17,6 +17,9 @@ FROM php:8.4-apache
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libzip-dev unzip \
     && docker-php-ext-install pdo_mysql bcmath opcache zip \
+    && pecl install redis-6.3.0 \
+    && docker-php-ext-enable redis \
+    && rm -rf /tmp/pear \
     && a2enmod rewrite headers \
     && rm -rf /var/lib/apt/lists/*
 
