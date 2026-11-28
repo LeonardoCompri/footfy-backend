@@ -92,7 +92,7 @@ services:
 
   scheduler:
     <<: *backend-cli
-    # Tarefas em routes/console.php (audit:prune as 03:00, horario de Brasilia)
+    # Tarefas em routes/console.php (audit:prune as 03:00 e telescope:prune a 00:00, horario de Brasilia)
     command: ["setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "schedule:work"]
 
   web:

@@ -67,6 +67,9 @@ Um `.env` por pasta, que serve ao compose e ao Laravel (montado em `/var/www/htm
 | `REDIS_PASSWORD` | gerada pelo `setup.sh` | gerada pelo `setup.sh` | Senha do Redis do ambiente (seção Redis). **Obrigatória**: sem ela o compose, o `deploy.sh` e o `setup.sh` param antes de construir ou trocar qualquer container |
 | `REDIS_CLIENT`, `REDIS_HOST`, `REDIS_PORT` | `phpredis`, `redis`, `6379` | os mesmos | Conexão do Laravel com o serviço `redis` do compose |
 | `CACHE_STORE`, `QUEUE_CONNECTION` | `redis` | `redis` | Cache (inclui o throttle e o cache de permissões) e fila no Redis. `database` = tabelas `cache` e `jobs` do MySQL, como antes do FD-3 |
+| `TELESCOPE_ENABLED` | `true` | `false` | Liga o Telescope (seção Telescope). Ausente = desligado: nada é gravado e `/telescope` dá 404 |
+| `TELESCOPE_EXCEPTION_WATCHER`, `TELESCOPE_REQUEST_WATCHER`, `TELESCOPE_JOB_WATCHER`, `TELESCOPE_LOG_WATCHER`, `TELESCOPE_SCHEDULE_WATCHER`, `TELESCOPE_QUERY_WATCHER` | `true` | `false` | O que o Telescope observa. Ausente = desligado |
+| `TELESCOPE_SLOW_QUERY_MS`, `TELESCOPE_PRUNE_HOURS` | `500`, `48` | os mesmos | Consulta lenta (ms) e retenção das entradas (horas). Ausentes = 500 e 48 |
 
 Sem as variáveis novas, o compose usa os valores de hoje: projeto `footfy`, tag `latest`, portas 8081 e 3307 e caminho `/footfy`. O `deploy.sh` e o `setup.sh` exigem `COMPOSE_PROJECT_NAME`, `DEPLOY_BRANCH` e `IMAGE_TAG` no `.env`, para um ambiente nunca cair no projeto do outro.
 
@@ -93,7 +96,7 @@ O `setup.sh production|staging`:
    - produção: só `PermissionSeeder` e `RoleSeeder` (papéis e permissões; **nenhum usuário**). O master é criado à mão (seção "Master da produção");
    - staging: `DatabaseSeeder` (dados de demonstração, senha `SEED_PASSWORD`) com `SEED_ON_FIRST_RUN=true`; com `false`, o mesmo da produção;
 6. roda `up -d` (inclusive `worker` e `scheduler`, com a imagem do backend do passo 4) e espera o `/up`;
-7. com `APP_BASE_PATH` preenchido (produção), gera `gateway/projects/<projeto>.conf` e chama o `reload.sh` do portão. Sem caminho (staging), só imprime o comando do Funnel: `sudo tailscale funnel --bg --https=8443 http://127.0.0.1:8082` (antes, `tailscale funnel status` precisa mostrar a 8443 livre).
+7. com `APP_BASE_PATH` preenchido (produção), gera `gateway/projects/<projeto>.conf` (rotas `/footfy/` e `/telescope`) e chama o `reload.sh` do portão. Sem caminho (staging), só imprime o comando do Funnel: `sudo tailscale funnel --bg --https=8443 http://127.0.0.1:8082` (antes, `tailscale funnel status` precisa mostrar a 8443 livre).
 
 Pode ser repetido.
 
@@ -390,7 +393,7 @@ Dois serviços com a imagem do backend (`footfy/backend:${IMAGE_TAG}`, sem build
 | Serviço | Comando | Para quê |
 |---|---|---|
 | `worker` | `php artisan queue:work --tries=3` | Processa os jobs da fila (Redis, banco 0). Um job que falha 3 vezes vai para a tabela `failed_jobs` |
-| `scheduler` | `php artisan schedule:work` | Roda `schedule:run` a cada minuto. Tarefas em `routes/console.php`: `audit:prune` às 03:00 (horário de Brasília, `app.timezone`; o relógio do container é UTC), sem sobreposição (`withoutOverlapping`) |
+| `scheduler` | `php artisan schedule:work` | Roda `schedule:run` a cada minuto. Tarefas em `routes/console.php`: `audit:prune` às 03:00 (horário de Brasília, `app.timezone`; o relógio do container é UTC), sem sobreposição (`withoutOverlapping`), e `telescope:prune --hours=48` à 00:00 (seção Telescope) |
 
 - **Usuário:** o entrypoint roda como root, como no backend (o `www-data` não lê o `.env`, que é `chmod 600`), cacheia a configuração e só então troca para `www-data` com `setpriv`. Por isso o `php` do worker e do scheduler roda como `www-data` e o log diário em `storage/logs` continua do `www-data`, junto com o Apache.
 - **Parada:** `stop_signal: SIGTERM` (a imagem do Apache usa `SIGWINCH`, que o `php` ignora) e `stop_grace_period: 60s`: num deploy ou `stop`, o worker termina o job em andamento e sai. A imagem tem a extensão `pcntl`, sem a qual o job seria cortado e o `--timeout` (60 s) não valeria.
@@ -450,6 +453,98 @@ docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .
 ```
 
 Daí em diante, cada `deploy.sh backend` troca os dois junto com o backend.
+
+## Telescope (FD-12)
+
+Painel de diagnóstico do Laravel em `/telescope`. Instalado em todos os ambientes (pacote normal, também na imagem sem dev), com as tabelas `telescope_*` criadas pelas migrations do deploy. Sem `TELESCOPE_ENABLED=true` no `.env`, não grava nada e não tem rota (404).
+
+| Ambiente | Estado | O que grava |
+|---|---|---|
+| Produção | ligado (`TELESCOPE_ENABLED=true` + 6 watchers) | Só erros: exceptions (inclusive as dos `catch` dos controllers, que passam pelo `log_error`), requisições com status 5xx, jobs com falha (aparecem como exception), consultas a partir de `TELESCOPE_SLOW_QUERY_MS` (500 ms), tarefas agendadas e logs de nível `error` ou acima. Requisições 2xx/3xx/4xx, consultas rápidas e o resto ficam de fora, inclusive as consultas da própria requisição com erro |
+| Staging | desligado (`TELESCOPE_ENABLED=false`) | Nada; `/telescope` dá 404 |
+| Local (Sail) | desligado (`.env.example`) | Ligado, grava tudo o que os watchers ligados observam (sem o filtro de erros) |
+
+- **Acesso:** só o papel master. O navegador pede usuário e senha (HTTP Basic): usuário = CPF do master só com os 11 números, senha = a do Footfy. Senha errada ou sem credencial = 401; outro papel = 403. Depois do login, a sessão fica no navegador.
+- **Endereço:** produção `https://<host>/telescope`, fora do `/footfy/`: o painel usa caminhos absolutos (`/telescope/...`) e não funciona sob um prefixo. O portão tem uma rota própria (`location ^~ /telescope` no `gateway.conf.template`, sem tirar o prefixo) e o web encaminha `/telescope` ao backend. Staging: `https://<host>:8443/telescope` (se for ligado). Local: `http://localhost/telescope`.
+- **Retenção:** `telescope:prune --hours=48` todo dia à 00:00, pelo scheduler (`TELESCOPE_PRUNE_HOURS`). Roda também com o Telescope desligado (tabela vazia).
+- **Dados ocultos:** no payload e na resposta, as chaves de `config/audit.php` (`password`, `token`, `document`, `cpf` etc.) viram `********`, e os cabeçalhos `authorization`, `cookie`, `set-cookie`, `x-csrf-token` e `x-xsrf-token` também. Só chaves do primeiro nível (`leagues.0.x` não é ocultado).
+- **Aviso:** a mensagem de erro do banco traz o SQL com os valores (ex.: `select * from users where document = <cpf>`) e o SQL das consultas lentas aparece inteiro. Esses dois podem trazer CPF e outros dados pessoais. Só o master vê, e por 48 h.
+- **Jobs:** um job com falha aparece em Exceptions (a entrada em Jobs fica de fora, porque é gravada como `pending` no despacho). Com o watcher de jobs ligado, cada job processado gera até 3 `Laravel\Telescope\Jobs\ProcessPendingUpdates` rápidos no worker, que tentam atualizar essa entrada; é esperado.
+
+### Ligar o Telescope num `.env` existente (produção)
+
+O `.env` gerado pelo `setup.sh` a partir do FD-12 já traz as variáveis. Num `.env` antigo, depois do deploy que traz o FD-12 (as migrations criam as tabelas), na pasta da produção:
+
+```bash
+cd ~/analitix/footfy
+```
+
+Conferir que ainda não há variáveis do Telescope (saída `0`):
+
+```bash
+grep -c '^TELESCOPE_' .env
+```
+
+Acrescentar (a linha vazia do começo evita colar na última linha do arquivo):
+
+```bash
+{ echo; printf '%s\n' TELESCOPE_ENABLED=true TELESCOPE_EXCEPTION_WATCHER=true TELESCOPE_REQUEST_WATCHER=true TELESCOPE_JOB_WATCHER=true TELESCOPE_LOG_WATCHER=true TELESCOPE_SCHEDULE_WATCHER=true TELESCOPE_QUERY_WATCHER=true TELESCOPE_SLOW_QUERY_MS=500 TELESCOPE_PRUNE_HOURS=48; } >> .env
+```
+
+Regravar a rota do portão (o `setup.sh` constrói as imagens, aplica as migrations, sobe os containers e gera `gateway/projects/footfy.conf` com o `/telescope`). Antes, confira que nenhum outro projeto do portão usa `/telescope` (sem saída = livre):
+
+```bash
+grep -rn telescope ~/analitix/gateway/projects ~/analitix/gateway/nginx.conf
+```
+
+```bash
+footfy-backend/infra/setup.sh production
+```
+
+Recriar o backend, o worker e o scheduler, para lerem o `.env` novo (cada um cacheia a configuração no start):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env up -d --no-deps --force-recreate backend worker scheduler
+```
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec web nginx -s reload
+```
+
+Conferir: `/telescope` pede usuário e senha (`401`):
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://<host>/telescope
+```
+
+Gravar um log de erro de teste (aparece em Logs no painel, e no log diário):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -T -u www-data -e HOME=/tmp backend php artisan tinker --execute='Log::error("teste do telescope");' < /dev/null
+```
+
+Para desligar, troque `TELESCOPE_ENABLED=true` por `false` no `.env` e recrie os três (mesmos dois comandos acima, `up -d --force-recreate` e `nginx -s reload`).
+
+### Ligar no local (Sail)
+
+No `.env` do projeto, `TELESCOPE_ENABLED=true` e o watcher que quiser com `true`. No Sail não há `config:cache`: vale na próxima requisição (se tiver rodado `sail artisan config:cache`, rode `sail artisan config:clear`). Entre em `http://localhost/telescope` com o CPF e a senha de um master do seed (`45047364895`, senha `SEED_PASSWORD` ou `123456`). Depois de usar, volte tudo para `false`.
+
+| Variável | O que mostra |
+|---|---|
+| `TELESCOPE_REQUEST_WATCHER` | Requisições HTTP: rota, payload, cabeçalhos, resposta, tempo |
+| `TELESCOPE_QUERY_WATCHER` | Consultas SQL com tempo e local no código; marca as lentas (`TELESCOPE_SLOW_QUERY_MS`) |
+| `TELESCOPE_EXCEPTION_WATCHER` | Exceptions reportadas, inclusive as do `log_error` |
+| `TELESCOPE_LOG_WATCHER` | Logs de nível `error` ou acima |
+| `TELESCOPE_MODEL_WATCHER` | Eventos de model (created, updated...) e quantos models cada requisição carregou |
+| `TELESCOPE_CACHE_WATCHER`, `TELESCOPE_REDIS_WATCHER` | Leituras e gravações do cache e comandos do Redis |
+| `TELESCOPE_JOB_WATCHER`, `TELESCOPE_BATCH_WATCHER` | Jobs da fila e lotes |
+| `TELESCOPE_SCHEDULE_WATCHER`, `TELESCOPE_COMMAND_WATCHER` | Tarefas agendadas e comandos artisan |
+| `TELESCOPE_EVENT_WATCHER`, `TELESCOPE_GATE_WATCHER` | Eventos disparados e checagens de permissão (Gate) |
+| `TELESCOPE_MAIL_WATCHER`, `TELESCOPE_NOTIFICATION_WATCHER` | E-mails e notificações |
+| `TELESCOPE_CLIENT_REQUEST_WATCHER` | Chamadas HTTP feitas pelo Laravel (`Http::`) |
+| `TELESCOPE_VIEW_WATCHER`, `TELESCOPE_DUMP_WATCHER` | Views Blade e `dump()` |
+
+Num ambiente do `infra/` (staging, por exemplo), o mesmo vale no `.env` da pasta, seguido do `up -d --no-deps --force-recreate backend worker scheduler` e do `nginx -s reload` do web.
 
 ## Rollback manual
 

@@ -36,6 +36,7 @@ case "$ENVIRONMENT" in
     DB_FORWARD_PORT="3307"
     SEED_ON_FIRST_RUN="false"
     COMPOSER_NO_DEV="1"
+    TELESCOPE="true"
     ;;
   staging)
     COMPOSE_PROJECT_NAME="footfy-staging"
@@ -48,6 +49,7 @@ case "$ENVIRONMENT" in
     DB_FORWARD_PORT="3308"
     SEED_ON_FIRST_RUN="true"
     COMPOSER_NO_DEV="0"
+    TELESCOPE="false"
     ;;
   *)
     fail "Uso: footfy-backend/infra/setup.sh production|staging"
@@ -108,6 +110,7 @@ if [ ! -f .env ]; then
       -e "s|__DB_FORWARD_PORT__|$DB_FORWARD_PORT|" \
       -e "s|__SEED_ON_FIRST_RUN__|$SEED_ON_FIRST_RUN|" \
       -e "s|__COMPOSER_NO_DEV__|$COMPOSER_NO_DEV|" \
+      -e "s|__TELESCOPE__|$TELESCOPE|" \
       -e "s|__SEED_PASSWORD__|$(openssl rand -hex 16)|" \
       -e "s|__REDIS_PASSWORD__|$(openssl rand -hex 16)|" \
       "$INFRA/env.template" > .env
