@@ -16,9 +16,18 @@ class StandingsService
         private readonly StandingsRepository $repository,
         private readonly StandingsSorter $sorter,
         private readonly TieResolver $tieResolver,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function build(League $league): array
+    {
+        return $this->cacheVersion->remember(
+            $this->cacheVersion->key((int) $league->id, 'table'),
+            fn () => $this->compute($league),
+        );
+    }
+
+    private function compute(League $league): array
     {
         $result = [];
         $seeds = [];

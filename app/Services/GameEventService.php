@@ -24,6 +24,7 @@ class GameEventService
         private readonly GameEventTypeRepository $eventTypeRepository,
         private readonly GameRepository $gameRepository,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function index(array $filters = []): LengthAwarePaginator
@@ -63,6 +64,7 @@ class GameEventService
             $event = $this->repository->store($data);
             $scores = $this->refreshScores([$game->id]);
             $this->auditLogger->record('game_event.created', $event, new: $event->auditAttributes(), meta: ['scores' => $scores]);
+            $this->cacheVersion->bump((int) $event->league_id);
 
             return $event;
         });
@@ -92,6 +94,7 @@ class GameEventService
 
         $previousGame = $event->game;
         $previousGameId = $event->game_id;
+        $previousLeagueId = (int) $event->league_id;
         $event->fill($data);
 
         $lockedGames = [];
@@ -108,7 +111,7 @@ class GameEventService
             }
         }
 
-        DB::transaction(function () use ($event, $previousGameId, $lockedGames) {
+        DB::transaction(function () use ($event, $previousGameId, $previousLeagueId, $lockedGames) {
             $this->ensureKnockoutResultsEditable($lockedGames);
             $changes = $event->auditChanges();
             $this->repository->update($event);
@@ -117,6 +120,8 @@ class GameEventService
             if ($changes['new'] !== []) {
                 $this->auditLogger->record('game_event.updated', $event, $changes['old'], $changes['new'], ['scores' => $scores]);
             }
+
+            $this->cacheVersion->bump($previousLeagueId, (int) $event->league_id);
         });
 
         return $event;
@@ -138,6 +143,7 @@ class GameEventService
 
             if ($deleted) {
                 $this->auditLogger->record('game_event.deleted', $event, old: $event->auditAttributes(), meta: ['scores' => $scores]);
+                $this->cacheVersion->bump((int) $event->league_id);
             }
 
             return $deleted;

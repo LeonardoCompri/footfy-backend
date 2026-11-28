@@ -11,6 +11,7 @@ use App\Models\Stadium;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Role;
@@ -505,6 +506,7 @@ class LeagueStatisticsControllerTest extends TestCase
         [$league] = $this->buildTwoLeaguesWithCards();
 
         $this->getJson("/api/leagues/{$league->id}/statistics")->assertOk();
+        Cache::flush();
 
         $cardsSplitQueries = [];
         DB::listen(function ($query) use (&$cardsSplitQueries) {
@@ -593,6 +595,7 @@ class LeagueStatisticsControllerTest extends TestCase
         $largeLeague = $this->buildLeagueWithGoals(15);
 
         $this->getJson("/api/leagues/{$smallLeague->id}/statistics")->assertOk();
+        Cache::flush();
 
         DB::enableQueryLog();
         DB::flushQueryLog();
@@ -631,6 +634,7 @@ class LeagueStatisticsControllerTest extends TestCase
         $largeLeague = $this->buildLeagueWithFinishedGames(12);
 
         $this->getJson("/api/leagues/{$smallLeague->id}/statistics")->assertOk();
+        Cache::flush();
 
         DB::enableQueryLog();
         DB::flushQueryLog();

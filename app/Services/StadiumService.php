@@ -17,6 +17,7 @@ class StadiumService
     public function __construct(
         private readonly StadiumRepository $repository,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function index(?string $leagueId = null): Collection
@@ -44,7 +45,10 @@ class StadiumService
     {
         $this->ensureUserHasAccessToLeagues([$data['league_id']]);
 
-        return $this->repository->store($data);
+        $stadium = $this->repository->store($data);
+        $this->cacheVersion->bump((int) $stadium->league_id);
+
+        return $stadium;
     }
 
     public function show(string $id): Stadium
@@ -66,9 +70,11 @@ class StadiumService
             $this->ensureUserHasAccessToLeagues([$data['league_id']]);
         }
 
+        $previousLeagueId = (int) $stadium->league_id;
         $stadium->fill($data);
 
         $this->repository->update($stadium);
+        $this->cacheVersion->bump($previousLeagueId, (int) $stadium->league_id);
 
         return $stadium;
     }
@@ -85,6 +91,7 @@ class StadiumService
             $deleted = $this->repository->destroy($stadium);
 
             if ($deleted) {
+                $this->cacheVersion->bump((int) $stadium->league_id);
                 $this->auditLogger->record('stadium.deleted', $stadium, old: $stadium->auditAttributes());
             }
 

@@ -16,6 +16,7 @@ class GameEventTypeService
     public function __construct(
         private readonly GameEventTypeRepository $repository,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function index(): Collection
@@ -29,6 +30,7 @@ class GameEventTypeService
 
         return DB::transaction(function () use ($data) {
             $type = $this->repository->store($data);
+            $this->cacheVersion->bumpAll();
             $this->auditLogger->record('game_event_type.created', $type, new: $type->auditAttributes());
 
             return $type;
@@ -61,6 +63,7 @@ class GameEventTypeService
         DB::transaction(function () use ($type) {
             $changes = $type->auditChanges();
             $this->repository->update($type);
+            $this->cacheVersion->bumpAll();
 
             if ($changes['new'] !== []) {
                 $this->auditLogger->record('game_event_type.updated', $type, $changes['old'], $changes['new']);
@@ -83,6 +86,7 @@ class GameEventTypeService
                 $deleted = $this->repository->destroy($type);
 
                 if ($deleted) {
+                    $this->cacheVersion->bumpAll();
                     $this->auditLogger->record('game_event_type.deleted', $type, old: $type->auditAttributes());
                 }
 

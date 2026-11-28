@@ -19,9 +19,18 @@ class DashboardService
         private readonly LeagueRepository $leagueRepository,
         private readonly GameRepository $gameRepository,
         private readonly StatisticsService $statisticsService,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function build(League $league): array
+    {
+        return $this->cacheVersion->remember(
+            $this->cacheVersion->key((int) $league->id, 'dashboard'),
+            fn () => $this->compute($league),
+        );
+    }
+
+    private function compute(League $league): array
     {
         $leagueId = (int) $league->id;
         $league = $this->leagueRepository->loadCounts($league, self::COUNTED_RELATIONS);

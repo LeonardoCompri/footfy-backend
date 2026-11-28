@@ -70,6 +70,7 @@ Um `.env` por pasta, que serve ao compose e ao Laravel (montado em `/var/www/htm
 | `TELESCOPE_ENABLED` | `true` | `false` | Liga o Telescope (seção Telescope). Ausente = desligado: nada é gravado e `/telescope` dá 404 |
 | `TELESCOPE_EXCEPTION_WATCHER`, `TELESCOPE_REQUEST_WATCHER`, `TELESCOPE_JOB_WATCHER`, `TELESCOPE_LOG_WATCHER`, `TELESCOPE_SCHEDULE_WATCHER`, `TELESCOPE_QUERY_WATCHER` | `true` | `false` | O que o Telescope observa. Ausente = desligado |
 | `TELESCOPE_SLOW_QUERY_MS`, `TELESCOPE_PRUNE_HOURS` | `500`, `48` | os mesmos | Consulta lenta (ms) e retenção das entradas (horas). Ausentes = 500 e 48 |
+| `LEAGUE_CACHE_TTL` | `600` | `600` | Segundos que tabela, estatísticas, dashboard, mata-mata e páginas públicas ficam no cache (seção "Cache das ligas"). `0` = sem cache. Ausente = 600 |
 
 Sem as variáveis novas, o compose usa os valores de hoje: projeto `footfy`, tag `latest`, portas 8081 e 3307 e caminho `/footfy`. O `deploy.sh` e o `setup.sh` exigem `COMPOSE_PROJECT_NAME`, `DEPLOY_BRANCH` e `IMAGE_TAG` no `.env`, para um ambiente nunca cair no projeto do outro.
 
@@ -453,6 +454,31 @@ docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .
 ```
 
 Daí em diante, cada `deploy.sh backend` troca os dois junto com o backend.
+
+## Cache das ligas (FD-9)
+
+Respostas guardadas no cache (Redis, banco 1) por `LEAGUE_CACHE_TTL` segundos (600):
+
+- tabela (`/leagues/{id}/table` e `/public/leagues/{id}/table`, a mesma entrada), estatísticas (admin e pública, a mesma entrada), dashboard e mata-mata (estado e prévia) da liga;
+- liga pública (`/public/leagues/{id}`), campeonato público (`/public/championships/{id}`) e a 1ª página, sem busca, da lista pública de campeonatos.
+
+Toda alteração feita pela aplicação (partida, evento, pênaltis, liga, grupos, sorteio, mata-mata, estádio, time, jogador, tipo de evento, campeonato) sobe a versão da liga afetada logo depois do commit, e a próxima leitura já calcula de novo: o dado novo aparece na hora. Uma transação desfeita não sobe a versão. As entradas antigas não são apagadas, só expiram pelo prazo.
+
+Chaves: `league:{id}:v{versão}:g{global}:{nome}` (`championship:{id}:...` e `championships:...` para os campeonatos). Os contadores de versão ficam no mesmo banco 1, sem prazo (o `volatile-lru` nunca os descarta): `league_cache:league:{id}`, `league_cache:championship:{id}`, `league_cache:championships` e `league_cache:global` (sobe com qualquer alteração de tipo de evento e invalida todas as ligas).
+
+**O `optimize:clear` do entrypoint não pode sair.** O `cache:clear` que vem nele limpa o cache das ligas a cada start do backend, do worker e do scheduler, ou seja, a cada troca de versão do código (o formato do que vai para o cache pode mudar entre versões). Ele também apaga os contadores, e a versão global recomeça do horário atual (em milissegundos), nunca de um valor que já existiu: uma requisição que estava no meio do cálculo durante a limpeza grava numa chave que não volta a ser a atual.
+
+Uma alteração feita fora da aplicação (SQL direto no banco, restauração de backup) não sobe a versão: o site pode mostrar o dado antigo por até `LEAGUE_CACHE_TTL` segundos. Depois dela, invalide tudo (ou reinicie o backend):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -T -u www-data -e HOME=/tmp backend php artisan tinker --execute="app(App\\Services\\LeagueCacheVersion::class)->bumpAll(); echo 'ok', PHP_EOL;"
+```
+
+Versão atual de uma liga (`0` = nunca alterada desde a última limpeza):
+
+```bash
+docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env exec -T -u www-data -e HOME=/tmp backend php artisan tinker --execute="echo app(App\\Services\\LeagueCacheVersion::class)->key(6, 'table'), PHP_EOL;"
+```
 
 ## Telescope (FD-12)
 
@@ -850,6 +876,8 @@ cd ~/analitix/footfy
 gunzip -c backups/db_daily_<data>.sql.gz | docker compose -p footfy -f footfy-backend/infra/docker-compose.yml --env-file .env \
   exec -T db sh -c 'exec mysql -u root -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"'
 ```
+
+Depois do banco, invalide o cache das ligas (seção "Cache das ligas") ou reinicie o backend.
 
 Uploads:
 
