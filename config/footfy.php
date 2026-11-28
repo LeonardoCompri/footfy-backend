@@ -9,4 +9,6 @@ return [
     'seed' => [
         'password' => env('SEED_PASSWORD'),
     ],
+
+    'telescope_prune_hours' => (int) env('TELESCOPE_PRUNE_HOURS', 48),
 ];
