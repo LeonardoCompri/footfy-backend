@@ -10,6 +10,7 @@ use App\Models\Stadium;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
@@ -274,6 +275,7 @@ class LeagueDashboardControllerTest extends TestCase
         $league = $this->buildLeagueWithCardsAndAnotherLeague();
 
         $this->getJson("/api/leagues/{$league->id}/dashboard")->assertOk();
+        Cache::flush();
 
         $cardsSplitQueries = [];
         DB::listen(function ($query) use (&$cardsSplitQueries) {

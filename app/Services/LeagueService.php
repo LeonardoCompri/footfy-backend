@@ -15,6 +15,7 @@ class LeagueService
     public function __construct(
         private readonly LeagueRepository $repository,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function index(): Collection
@@ -32,6 +33,7 @@ class LeagueService
         return DB::transaction(function () use ($data) {
             $league = $this->repository->store($data);
             $this->auditLogger->record('league.created', $league, new: $league->auditAttributes());
+            $this->cacheVersion->bumpChampionship(...$this->championshipIds($league));
 
             return $league;
         });
@@ -50,13 +52,15 @@ class LeagueService
 
     public function publicShow(string $id): League
     {
-        $league = $this->repository->show($id, ['championship', 'teams', 'stadiums'], ['teams', 'games', 'stadiums']);
+        return $this->cacheVersion->remember($this->cacheVersion->key((int) $id, 'public_show'), function () use ($id) {
+            $league = $this->repository->show($id, ['championship', 'teams', 'stadiums'], ['teams', 'games', 'stadiums']);
 
-        if (! $league) {
-            throw ValidationException::withMessages(['message' => 'Liga não encontrada!']);
-        }
+            if (! $league) {
+                throw ValidationException::withMessages(['message' => 'Liga não encontrada!']);
+            }
 
-        return $league;
+            return $league;
+        });
     }
 
     public function update(array $data, string $id): League
@@ -79,7 +83,10 @@ class LeagueService
                 || ($league->isDirty('fixture_mode') && $league->fixture_mode === 'manual');
 
             $changes = $league->auditChanges();
+            $championshipIds = $this->championshipIds($league);
             $this->repository->update($league);
+            $this->cacheVersion->bump((int) $league->id);
+            $this->cacheVersion->bumpChampionship(...$championshipIds);
 
             if ($clearGroups) {
                 $this->repository->clearGroups($league);
@@ -128,6 +135,8 @@ class LeagueService
             $deleted = $this->repository->destroy($league);
 
             if ($deleted) {
+                $this->cacheVersion->bump((int) $league->id);
+                $this->cacheVersion->bumpChampionship(...$this->championshipIds($league));
                 $this->auditLogger->record(
                     'league.deleted',
                     $league,
@@ -138,5 +147,10 @@ class LeagueService
 
             return $deleted;
         });
+    }
+
+    private function championshipIds(League $league): array
+    {
+        return array_map('intval', array_filter([$league->getOriginal('championship_id'), $league->championship_id]));
     }
 }

@@ -14,6 +14,7 @@ use App\Services\LeagueKnockoutService;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Laravel\Sanctum\Sanctum;
 use Mockery;
 use ReflectionMethod;
@@ -265,10 +266,12 @@ class LeagueKnockoutControllerTest extends TestCase
 
         $this->finishGroupStage($league);
         $games->first()->update(['status' => 'in_progress']);
+        Cache::flush();
         $this->state($league)->assertJsonPath('data.generate_blocked_reason', 'Há 1 partida da fase de grupos que ainda não foi encerrada nem cancelada.');
         $this->generate($league, 'SF')->assertStatus(422)->assertJsonPath('message', 'Há 1 partida da fase de grupos que ainda não foi encerrada nem cancelada.');
 
         $games->first()->update(['status' => 'cancelled']);
+        Cache::flush();
         $this->state($league)->assertJsonPath('data.can_generate', true)->assertJsonPath('data.generate_blocked_reason', null);
     }
 
@@ -1279,10 +1282,12 @@ class LeagueKnockoutControllerTest extends TestCase
 
         $this->groupGame($league)->update(['status' => 'cancelled']);
         $this->groupGame($league, 2)->update(['status' => 'cancelled']);
+        Cache::flush();
 
         $this->state($league)->assertJsonPath('data.cancelled_group_games', 2);
         $this->generate($league, 'SF')->assertOk()->assertJsonPath('data.cancelled_group_games', 2);
         $this->stageGames($league, 'SF')->first()->update(['status' => 'cancelled']);
+        Cache::flush();
         $this->state($league)->assertJsonPath('data.cancelled_group_games', 2);
 
         $manual = League::factory()->create(['format' => 'round_robin']);

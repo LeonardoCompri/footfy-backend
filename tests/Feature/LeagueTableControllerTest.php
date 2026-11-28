@@ -11,6 +11,7 @@ use App\Models\Stadium;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
@@ -509,6 +510,7 @@ class LeagueTableControllerTest extends TestCase
         $largeLeague = $this->buildDistinctRoundRobinLeague(20);
 
         $this->getJson("/api/leagues/{$smallLeague->id}/table")->assertOk();
+        Cache::flush();
 
         DB::enableQueryLog();
         DB::flushQueryLog();
@@ -628,6 +630,7 @@ class LeagueTableControllerTest extends TestCase
         $this->assertSame([$bravo->id, $alfa->id], array_slice($this->teamOrder($standings), 0, 2));
 
         $league->update(['tiebreakers' => ['points', 'fewer_yellow_cards']]);
+        Cache::flush();
         $standings = $this->getJson("/api/leagues/{$league->id}/table")->assertOk()->json('data.standings');
         $this->assertSame([$alfa->id, $bravo->id], array_slice($this->teamOrder($standings), 0, 2));
     }

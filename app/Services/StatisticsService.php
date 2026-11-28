@@ -10,9 +10,20 @@ class StatisticsService
 {
     private const RANKING_LIMIT = 10;
 
-    public function __construct(private readonly StatisticsRepository $repository) {}
+    public function __construct(
+        private readonly StatisticsRepository $repository,
+        private readonly LeagueCacheVersion $cacheVersion,
+    ) {}
 
     public function build(League $league): array
+    {
+        return $this->cacheVersion->remember(
+            $this->cacheVersion->key((int) $league->id, 'statistics'),
+            fn () => $this->compute($league),
+        );
+    }
+
+    private function compute(League $league): array
     {
         $leagueId = (int) $league->id;
 

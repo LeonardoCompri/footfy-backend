@@ -30,6 +30,7 @@ class LeagueDrawService
         private readonly LeagueDrawPlanRepository $planRepository,
         private readonly RoundRobinScheduler $scheduler,
         private readonly AuditLogger $auditLogger,
+        private readonly LeagueCacheVersion $cacheVersion,
     ) {}
 
     public function build(League $league): array
@@ -190,6 +191,7 @@ class LeagueDrawService
 
     private function recordDraw(string $action, League $league, int $before, int $after, array $meta): void
     {
+        $this->cacheVersion->bump((int) $league->id);
         $this->auditLogger->record($action, $league, ['drawn_rounds' => $before], ['drawn_rounds' => $after], $meta);
     }
 

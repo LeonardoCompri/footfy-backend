@@ -3,6 +3,29 @@
 
 name: ${COMPOSE_PROJECT_NAME:-footfy}
 
+# worker e scheduler: a mesma imagem e os mesmos volumes do backend, sem Apache.
+# O entrypoint roda como root (o www-data nao le o .env, chmod 600) e cacheia a configuracao;
+# o setpriv troca para www-data so o processo final, para o log do dia continuar do www-data.
+x-backend-cli: &backend-cli
+  image: footfy/backend:${IMAGE_TAG:-latest}
+  # A imagem vem do build do backend (deploy.sh e setup.sh); nunca do Docker Hub
+  pull_policy: never
+  restart: unless-stopped
+  init: true
+  # A imagem do Apache para com SIGWINCH, que o php ignora. Com SIGTERM o worker termina
+  # o job em andamento e sai (--timeout padrao: 60 s)
+  stop_signal: SIGTERM
+  stop_grace_period: 60s
+  volumes:
+    - ../../.env:/var/www/html/.env:ro
+    - backend-storage:/var/www/html/storage/app
+    - backend-logs:/var/www/html/storage/logs
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
 services:
   db:
     image: mysql:8.4
@@ -61,6 +84,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  worker:
+    <<: *backend-cli
+    # Sem --max-time: cada restart do container limpa o cache (optimize:clear do entrypoint)
+    command: ["setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "queue:work", "--tries=3"]
+
+  scheduler:
+    <<: *backend-cli
+    # Tarefas em routes/console.php (audit:prune as 03:00 e telescope:prune a 00:00, horario de Brasilia)
+    command: ["setpriv", "--reuid=www-data", "--regid=www-data", "--init-groups", "php", "artisan", "schedule:work"]
 
   web:
     image: footfy/web:${IMAGE_TAG:-latest}
